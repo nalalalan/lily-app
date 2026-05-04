@@ -5,6 +5,7 @@ const PIN_FALLBACK = ["6", "6", "9", "9"].join("");
 const AUTH_UNTIL_KEY = "lily-auth-until-v1";
 const SESSION_AUTH_KEY = "lily-session-auth-v1";
 const MEMORY_KEY = "lily-memories-v1";
+const HIDDEN_STARTERS_KEY = "lily-hidden-starters-v1";
 const DB_NAME = "lily-memory-bank";
 const DB_VERSION = 1;
 const MEDIA_STORE = "media";
@@ -138,6 +139,7 @@ const starterItems = [
 
 const state = {
   memories: loadMemories(),
+  hiddenStarterIds: loadHiddenStarterIds(),
   pendingFiles: [],
   resizeTimer: null,
   toastTimer: null,
@@ -483,7 +485,8 @@ function renderWall() {
   if (!wall) return;
 
   const columns = getColumnCount();
-  const items = [...state.memories, ...starterItems];
+  const visibleStarterItems = starterItems.filter((item) => !state.hiddenStarterIds.includes(item.id));
+  const items = [...state.memories, ...visibleStarterItems];
   wall.style.setProperty("--columns", String(columns));
   wall.innerHTML = "";
 
@@ -568,24 +571,31 @@ function createInfoCard(item) {
 }
 
 function appendDeleteButton(card, item) {
-  if (item.source !== "user") return;
-
   const button = document.createElement("button");
   button.type = "button";
   button.className = "delete-button";
   button.setAttribute("aria-label", "Delete memory");
   button.textContent = "x";
-  button.addEventListener("click", () => deleteMemory(item.id));
+  button.addEventListener("click", () => deleteMemory(item));
   card.appendChild(button);
 }
 
-async function deleteMemory(id) {
-  const memory = state.memories.find((item) => item.id === id);
-  if (!memory) return;
+async function deleteMemory(item) {
   const confirmed = window.confirm("Delete this memory?");
   if (!confirmed) return;
 
-  state.memories = state.memories.filter((item) => item.id !== id);
+  if (item.source === "starter") {
+    state.hiddenStarterIds = Array.from(new Set([...state.hiddenStarterIds, item.id]));
+    saveHiddenStarterIds(state.hiddenStarterIds);
+    renderWall();
+    showToast("Deleted");
+    return;
+  }
+
+  const memory = state.memories.find((memoryItem) => memoryItem.id === item.id);
+  if (!memory) return;
+
+  state.memories = state.memories.filter((memoryItem) => memoryItem.id !== item.id);
   saveMemories(state.memories);
   if (memory.mediaId) {
     await deleteMedia(memory.mediaId);
@@ -648,6 +658,21 @@ function loadMemories() {
 
 function saveMemories(memories) {
   localStorage.setItem(MEMORY_KEY, JSON.stringify(memories));
+}
+
+function loadHiddenStarterIds() {
+  try {
+    const raw = localStorage.getItem(HIDDEN_STARTERS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    return [];
+  }
+}
+
+function saveHiddenStarterIds(ids) {
+  localStorage.setItem(HIDDEN_STARTERS_KEY, JSON.stringify(ids));
 }
 
 function readFileAsDataUrl(file) {
