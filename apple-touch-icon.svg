@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" role="img" aria-label="Lily">
+  <rect width="180" height="180" rx="40" fill="#ffe0d2"/>
+  <path d="M45 95c0-37 20-65 49-65s50 26 50 65c0 34-20 57-50 57s-49-23-49-57Z" fill="#1d1013" stroke="#261712" stroke-width="8"/>
+  <path d="M60 91c0-22 13-39 34-39s34 17 34 39v22c0 20-14 34-34 34s-34-14-34-34V91Z" fill="#f4b894" stroke="#261712" stroke-width="7"/>
+  <path d="M60 87c21-6 40-17 54-37 8 11 14 23 14 39-22-3-44-12-68-2Z" fill="#251316"/>
+  <circle cx="81" cy="104" r="6" fill="#261712"/>
+  <circle cx="109" cy="104" r="6" fill="#261712"/>
+  <path d="M84 127c8 5 18 5 26 0" fill="none" stroke="#9f4e5d" stroke-width="6" stroke-linecap="round"/>
+  <path d="M131 49c14 3 23 12 23 24-15 3-27-3-33-15 0 14-9 24-23 30-3-18 9-33 33-39Z" fill="#fff8f3" stroke="#7ea786" stroke-width="7" stroke-linejoin="round"/>
+  <path d="M128 57c6 9 12 14 24 16M122 58c-3 11-9 20-21 27" stroke="#e798ad" stroke-width="5" stroke-linecap="round"/>
+  <circle cx="48" cy="139" r="15" fill="#f0c56b" stroke="#fff8f3" stroke-width="8"/>
+</svg>

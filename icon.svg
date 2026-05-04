@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Lily">
+  <defs>
+    <linearGradient id="bg" x1="7" y1="6" x2="57" y2="58" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffe0d2"/>
+      <stop offset=".46" stop-color="#f7c0ca"/>
+      <stop offset="1" stop-color="#a9c7b3"/>
+    </linearGradient>
+    <linearGradient id="hair" x1="18" y1="15" x2="45" y2="52" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2c1719"/>
+      <stop offset="1" stop-color="#120b0e"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#bg)"/>
+  <path d="M16 34c0-13 7-23 18-23s18 9 18 23c0 12-7 20-18 20s-18-8-18-20Z" fill="url(#hair)" stroke="#261712" stroke-width="3"/>
+  <path d="M22 33c0-8 5-14 12-14s12 6 12 14v8c0 7-5 12-12 12s-12-5-12-12v-8Z" fill="#f4b894" stroke="#261712" stroke-width="2.6"/>
+  <path d="M22 31c7-2 14-6 19-13 3 4 5 8 5 14-8-1-16-4-24-1Z" fill="#251316"/>
+  <circle cx="29" cy="37" r="2.2" fill="#261712"/>
+  <circle cx="39" cy="37" r="2.2" fill="#261712"/>
+  <path d="M30 45c3 2 6 2 9 0" fill="none" stroke="#9f4e5d" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M47 19c5 1 8 4 8 8-5 1-9-1-11-5 0 5-3 8-8 10-1-6 3-11 11-13Z" fill="#fff8f3" stroke="#7ea786" stroke-width="2.4" stroke-linejoin="round"/>
+  <path d="M46 22c2 3 4 5 8 5M44 22c-1 4-3 7-7 9" stroke="#e798ad" stroke-width="1.8" stroke-linecap="round"/>
+  <circle cx="17" cy="48" r="5" fill="#f0c56b" stroke="#fff8f3" stroke-width="2.6"/>
+</svg>

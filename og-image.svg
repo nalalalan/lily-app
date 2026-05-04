@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-label="Lily memory bank preview">
+  <rect width="1200" height="630" fill="#171016"/>
+  <rect x="70" y="70" width="260" height="360" rx="24" fill="#f6d0c7"/>
+  <rect x="358" y="96" width="210" height="274" rx="24" fill="#c8d7ce"/>
+  <rect x="598" y="58" width="238" height="330" rx="24" fill="#efbdcc"/>
+  <rect x="866" y="120" width="246" height="280" rx="24" fill="#f0c56b"/>
+  <rect x="118" y="462" width="384" height="88" rx="18" fill="#fff8f3"/>
+  <rect x="534" y="434" width="544" height="116" rx="18" fill="#fff8f3"/>
+  <text x="76" y="585" fill="#fff8f3" font-family="Inter, Arial, sans-serif" font-size="36" font-weight="800">Lily</text>
+  <text x="176" y="585" fill="#d7c8cd" font-family="Inter, Arial, sans-serif" font-size="30" font-weight="650">memory bank of Lily</text>
+</svg>
