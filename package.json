@@ -5,7 +5,8 @@
   "description": "A private-feeling media and info wall for Lily.",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "check": "node --check server.js && node --check public/app.js"
   },
   "engines": {
     "node": ">=20"
