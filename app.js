@@ -152,6 +152,7 @@ function bindEvents() {
   document.getElementById("memoryForm").addEventListener("submit", saveMemory);
   document.getElementById("clearComposer").addEventListener("click", clearComposer);
   document.getElementById("memoryText").addEventListener("paste", handleMemoryPaste);
+  document.getElementById("memoryText").addEventListener("keydown", submitFormOnEnter("memoryForm"));
   document.getElementById("photoInput").addEventListener("change", (event) => {
     addPendingFiles(Array.from(event.target.files || []));
     event.target.value = "";
@@ -179,12 +180,24 @@ function bindEvents() {
   });
 
   document.getElementById("chatForm").addEventListener("submit", askQuestion);
+  document.getElementById("chatInput").addEventListener("keydown", submitFormOnEnter("chatForm"));
   document.querySelectorAll("[data-question]").forEach((button) => {
     button.addEventListener("click", () => {
       document.getElementById("chatInput").value = button.dataset.question;
       document.getElementById("chatForm").requestSubmit();
     });
   });
+}
+
+function submitFormOnEnter(formId) {
+  return (event) => {
+    if (event.key !== "Enter" || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey || event.isComposing) {
+      return;
+    }
+
+    event.preventDefault();
+    document.getElementById(formId).requestSubmit();
+  };
 }
 
 function apiUrl(path) {
