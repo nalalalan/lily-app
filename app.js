@@ -1,192 +1,109 @@
 const app = document.getElementById("app");
 
-const PIN_HASH = "ec9c3833d2daef77604a3cfc097bbc5e919e4c96e8fd13bc34fdf0a2e4474e79";
-const PIN_FALLBACK = ["6", "6", "9", "9"].join("");
-const AUTH_UNTIL_KEY = "lily-auth-until-v1";
-const SESSION_AUTH_KEY = "lily-session-auth-v1";
-const MEMORY_KEY = "lily-memories-v1";
-const HIDDEN_STARTERS_KEY = "lily-hidden-starters-v1";
-const DB_NAME = "lily-memory-bank";
-const DB_VERSION = 1;
-const MEDIA_STORE = "media";
-const REMEMBER_MS = 7 * 24 * 60 * 60 * 1000;
-
-const starterItems = [
-  {
-    id: "starter-flowers-1",
-    kind: "photo",
-    source: "starter",
-    image: imageUrl("1526047932273-341f2a7631f9"),
-    caption: "soft flowers, saved for the wall",
-    shape: "tall",
-    focus: "center 45%"
-  },
-  {
-    id: "starter-note-1",
-    kind: "quote",
-    source: "starter",
-    text: "little things, kept close",
-    createdAt: "starter"
-  },
-  {
-    id: "starter-cafe",
-    kind: "photo",
-    source: "starter",
-    image: imageUrl("1500530855697-b586d89ba3ee"),
-    caption: "warm room, soft light, a place to remember",
-    shape: "wide",
-    focus: "center 52%"
-  },
-  {
-    id: "starter-date",
-    kind: "date",
-    source: "starter",
-    text: "birthdays, dates, tiny details",
-    createdAt: "starter"
-  },
-  {
-    id: "starter-sky",
-    kind: "photo",
-    source: "starter",
-    image: imageUrl("1493246507139-91e8fad9978e"),
-    caption: "green quiet and easy air",
-    shape: "portrait",
-    focus: "center"
-  },
-  {
-    id: "starter-contact",
-    kind: "contact",
-    source: "starter",
-    text: "numbers stay in one neat place",
-    createdAt: "starter"
-  },
-  {
-    id: "starter-bloom",
-    kind: "photo",
-    source: "starter",
-    image: imageUrl("1490750967868-88aa4486c946"),
-    caption: "a small bloom with a lot of feeling",
-    shape: "square",
-    focus: "center"
-  },
-  {
-    id: "starter-address",
-    kind: "address",
-    source: "starter",
-    text: "places that matter",
-    createdAt: "starter"
-  },
-  {
-    id: "starter-lights",
-    kind: "photo",
-    source: "starter",
-    image: imageUrl("1519608487953-e999c86e7455"),
-    caption: "night lights, pretty and a little cinematic",
-    shape: "tall",
-    focus: "center"
-  },
-  {
-    id: "starter-note-2",
-    kind: "note",
-    source: "starter",
-    text: "favorite snacks, addresses, plans, quotes",
-    createdAt: "starter"
-  },
-  {
-    id: "starter-table",
-    kind: "photo",
-    source: "starter",
-    image: imageUrl("1517248135467-4c7edcad34c4"),
-    caption: "table for the little rituals",
-    shape: "wide",
-    focus: "center 45%"
-  },
-  {
-    id: "starter-quote-2",
-    kind: "quote",
-    source: "starter",
-    text: "nice feelings, organized gently",
-    createdAt: "starter"
-  },
-  {
-    id: "starter-window",
-    kind: "photo",
-    source: "starter",
-    image: imageUrl("1497366754035-f200968a6e72"),
-    caption: "window light and calm color",
-    shape: "portrait",
-    focus: "center"
-  },
-  {
-    id: "starter-water",
-    kind: "photo",
-    source: "starter",
-    image: imageUrl("1500534623283-312aade485b7"),
-    caption: "soft blue, clean air, saved mood",
-    shape: "square",
-    focus: "center"
-  },
-  {
-    id: "starter-petal",
-    kind: "photo",
-    source: "starter",
-    image: imageUrl("1518895949257-7621c3c786d7"),
-    caption: "pink petals, quiet detail",
-    shape: "portrait",
-    focus: "center"
-  }
-];
+const API_BASE = String(window.LILY_API_BASE || "").replace(/\/$/, "");
+const TOKEN_KEY = "lily-api-token-v1";
+const TOKEN_EXP_KEY = "lily-api-token-exp-v1";
+const LEGACY_MEMORY_KEY = "lily-memories-v1";
+const LEGACY_MIGRATED_KEY = "lily-legacy-migrated-v1";
 
 const state = {
-  memories: loadMemories(),
-  hiddenStarterIds: loadHiddenStarterIds(),
+  authenticated: false,
+  memories: [],
   pendingFiles: [],
-  resizeTimer: null,
-  toastTimer: null,
-  verifying: false
+  chat: [
+    {
+      role: "assistant",
+      content: "Ask me anything you have saved about Lily. I can use notes, screenshots, photos, addresses, dates, and preferences once you add them."
+    }
+  ],
+  loading: false,
+  toastTimer: null
 };
-
-function imageUrl(id, width = 1500) {
-  return `https://images.unsplash.com/photo-${id}?auto=format&fit=crop&w=${width}&q=88`;
-}
 
 function init() {
   renderShell();
-  bindShellEvents();
-  renderWall();
-
-  if (hasValidAuth()) {
+  bindEvents();
+  if (hasStoredToken()) {
     setLocked(false);
+    loadMemories();
   } else {
     setLocked(true);
   }
-
-  window.addEventListener("resize", () => {
-    window.clearTimeout(state.resizeTimer);
-    state.resizeTimer = window.setTimeout(renderWall, 120);
-  });
 }
 
 function renderShell() {
   app.innerHTML = `
     <section class="memory-app is-locked" id="memoryApp">
-      <div class="app-surface" aria-hidden="true" id="appSurface">
+      <div class="app-surface" id="appSurface" aria-hidden="true">
         <header class="topbar">
           <div class="brand">
             <h1>Lily</h1>
             <p>memory bank of Lily</p>
           </div>
           <div class="actions">
-            <button class="icon-button" type="button" id="lockButton" title="Lock" aria-label="Lock">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <rect x="6" y="10" width="12" height="10" rx="2"></rect>
-                <path d="M8.5 10V7.5a3.5 3.5 0 0 1 7 0V10"></path>
-              </svg>
+            <button class="icon-button" type="button" id="refreshButton" title="Refresh memories" aria-label="Refresh memories">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 0 1-14 5.3"></path><path d="M4 12A8 8 0 0 1 18 6.7"></path><path d="M18 3v4h-4"></path><path d="M6 21v-4h4"></path></svg>
             </button>
-            <button class="icon-button" type="button" id="openComposer" title="Add memory" aria-label="Add memory">+</button>
+            <button class="icon-button" type="button" id="lockButton" title="Lock" aria-label="Lock">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="10" width="12" height="10" rx="2"></rect><path d="M8.5 10V7.5a3.5 3.5 0 0 1 7 0V10"></path></svg>
+            </button>
           </div>
         </header>
-        <main class="memory-wall" id="memoryWall" aria-label="Lily media and info wall"></main>
+
+        <main class="workspace">
+          <section class="chat-panel" aria-labelledby="chatTitle">
+            <div class="panel-head">
+              <div>
+                <h2 id="chatTitle">Ask Lily memory</h2>
+                <p>Answers come from saved notes and screenshots.</p>
+              </div>
+            </div>
+            <div class="suggestions" aria-label="Suggested questions">
+              <button type="button" data-question="When is Lily's birthday?">birthday</button>
+              <button type="button" data-question="Where does Lily want to eat today?">food</button>
+              <button type="button" data-question="What does Lily like?">likes</button>
+            </div>
+            <div class="messages" id="messages" aria-live="polite"></div>
+            <form class="chat-form" id="chatForm">
+              <textarea id="chatInput" rows="2" placeholder="Ask about Lily"></textarea>
+              <button class="primary-button" type="submit">Ask</button>
+            </form>
+          </section>
+
+          <section class="ingest-panel" aria-labelledby="saveTitle">
+            <div class="panel-head">
+              <div>
+                <h2 id="saveTitle">Add memory</h2>
+                <p>Paste paragraphs, facts, or screenshots.</p>
+              </div>
+            </div>
+            <form id="memoryForm">
+              <label class="drop-zone" id="dropZone" tabindex="0" for="photoInput">
+                <span>
+                  <strong>Photos and screenshots</strong>
+                  <span>Choose or drop images</span>
+                </span>
+              </label>
+              <input class="file-input" id="photoInput" type="file" accept="image/*" multiple>
+              <div class="file-count" id="fileCount" aria-live="polite"></div>
+              <textarea class="memory-field" id="memoryText" placeholder="Paste notes, screenshots context, birthday, address, number, preferences, stories..."></textarea>
+              <div class="composer-actions">
+                <button class="secondary-button" id="clearComposer" type="button">Clear</button>
+                <button class="primary-button" type="submit">Save to Lily</button>
+              </div>
+            </form>
+          </section>
+        </main>
+
+        <section class="memory-section" aria-labelledby="wallTitle">
+          <div class="wall-head">
+            <div>
+              <h2 id="wallTitle">Saved memory</h2>
+              <p id="memoryCount">No memories yet</p>
+            </div>
+          </div>
+          <div class="memory-wall" id="memoryWall" aria-label="Saved Lily memory wall"></div>
+        </section>
       </div>
 
       <div class="pin-overlay" id="pinOverlay" role="dialog" aria-modal="true" aria-labelledby="pinTitle">
@@ -205,189 +122,148 @@ function renderShell() {
         </form>
       </div>
 
-      <div class="composer-overlay" id="composerOverlay" role="dialog" aria-modal="true" aria-labelledby="composerTitle">
-        <form class="composer-window" id="composerForm">
-          <div class="composer-head">
-            <h2 id="composerTitle">Add memory</h2>
-            <button class="close-button" id="closeComposer" type="button" aria-label="Close">x</button>
-          </div>
-          <label class="drop-zone" id="dropZone" tabindex="0" for="photoInput">
-            <span>
-              <strong>Photos</strong>
-              <span>Choose or drop pictures</span>
-            </span>
-          </label>
-          <input class="file-input" id="photoInput" type="file" accept="image/*" multiple>
-          <div class="file-count" id="fileCount" aria-live="polite"></div>
-          <textarea class="composer-field" id="memoryText" placeholder="quote, address, number, bday, tiny note"></textarea>
-          <div class="composer-actions">
-            <button class="secondary-button" id="clearComposer" type="button">Clear</button>
-            <button class="primary-button" type="submit">Save</button>
-          </div>
-        </form>
-      </div>
-
       <div class="toast" id="toast" role="status" aria-live="polite"></div>
     </section>
   `;
+  renderChat();
+  renderWall();
 }
 
-function bindShellEvents() {
-  const pinForm = document.getElementById("pinForm");
-  const pinInput = document.getElementById("pinInput");
-  const openComposer = document.getElementById("openComposer");
-  const closeComposer = document.getElementById("closeComposer");
-  const clearComposer = document.getElementById("clearComposer");
-  const composerForm = document.getElementById("composerForm");
-  const photoInput = document.getElementById("photoInput");
-  const dropZone = document.getElementById("dropZone");
-  const lockButton = document.getElementById("lockButton");
-
-  pinForm.addEventListener("submit", (event) => {
+function bindEvents() {
+  document.getElementById("pinForm").addEventListener("submit", (event) => {
     event.preventDefault();
     verifyPin();
   });
 
-  pinInput.addEventListener("input", () => {
-    pinInput.value = pinInput.value.replace(/\D/g, "").slice(0, 4);
-    if (pinInput.value.length === 4) {
-      window.setTimeout(verifyPin, 90);
-    }
+  document.getElementById("pinInput").addEventListener("input", (event) => {
+    event.target.value = event.target.value.replace(/\D/g, "").slice(0, 4);
+    if (event.target.value.length === 4) window.setTimeout(verifyPin, 80);
   });
 
-  openComposer.addEventListener("click", () => {
-    if (!hasValidAuth()) return;
-    openComposerPanel();
+  document.getElementById("lockButton").addEventListener("click", () => {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(TOKEN_EXP_KEY);
+    setLocked(true);
   });
 
-  closeComposer.addEventListener("click", closeComposerPanel);
-  clearComposer.addEventListener("click", clearComposerFields);
-
-  composerForm.addEventListener("submit", (event) => {
-    event.preventDefault();
-    saveComposer();
+  document.getElementById("refreshButton").addEventListener("click", loadMemories);
+  document.getElementById("memoryForm").addEventListener("submit", saveMemory);
+  document.getElementById("clearComposer").addEventListener("click", clearComposer);
+  document.getElementById("photoInput").addEventListener("change", (event) => {
+    addPendingFiles(Array.from(event.target.files || []));
+    event.target.value = "";
   });
 
-  photoInput.addEventListener("change", () => {
-    addPendingFiles(Array.from(photoInput.files || []));
-    photoInput.value = "";
-  });
-
+  const dropZone = document.getElementById("dropZone");
   ["dragenter", "dragover"].forEach((type) => {
     dropZone.addEventListener(type, (event) => {
       event.preventDefault();
       dropZone.classList.add("is-dragging");
     });
   });
-
   ["dragleave", "drop"].forEach((type) => {
-    dropZone.addEventListener(type, () => {
-      dropZone.classList.remove("is-dragging");
-    });
+    dropZone.addEventListener(type, () => dropZone.classList.remove("is-dragging"));
   });
-
   dropZone.addEventListener("drop", (event) => {
     event.preventDefault();
     addPendingFiles(Array.from(event.dataTransfer.files || []));
   });
-
   dropZone.addEventListener("keydown", (event) => {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
-      photoInput.click();
+      document.getElementById("photoInput").click();
     }
   });
 
-  lockButton.addEventListener("click", () => {
-    localStorage.removeItem(AUTH_UNTIL_KEY);
-    sessionStorage.removeItem(SESSION_AUTH_KEY);
-    closeComposerPanel();
-    setLocked(true);
+  document.getElementById("chatForm").addEventListener("submit", askQuestion);
+  document.querySelectorAll("[data-question]").forEach((button) => {
+    button.addEventListener("click", () => {
+      document.getElementById("chatInput").value = button.dataset.question;
+      document.getElementById("chatForm").requestSubmit();
+    });
   });
+}
+
+function apiUrl(path) {
+  return `${API_BASE}${path}`;
+}
+
+function storedToken() {
+  return localStorage.getItem(TOKEN_KEY) || "";
+}
+
+function hasStoredToken() {
+  const exp = Number(localStorage.getItem(TOKEN_EXP_KEY) || 0);
+  return Boolean(storedToken()) && exp > Date.now();
+}
+
+async function apiFetch(path, options = {}) {
+  const headers = { ...(options.headers || {}) };
+  if (storedToken()) headers.Authorization = `Bearer ${storedToken()}`;
+  const response = await fetch(apiUrl(path), { ...options, headers });
+  if (response.status === 401) {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(TOKEN_EXP_KEY);
+    setLocked(true);
+  }
+  const contentType = response.headers.get("content-type") || "";
+  const data = contentType.includes("application/json") ? await response.json() : await response.text();
+  if (!response.ok) throw new Error(data.error || data || "Request failed");
+  return data;
 }
 
 function setLocked(isLocked) {
   const memoryApp = document.getElementById("memoryApp");
   const appSurface = document.getElementById("appSurface");
-  const pinInput = document.getElementById("pinInput");
-
   memoryApp.classList.toggle("is-locked", isLocked);
   appSurface.setAttribute("aria-hidden", String(isLocked));
-
+  state.authenticated = !isLocked;
   if (isLocked) {
-    pinInput.value = "";
-    window.setTimeout(() => pinInput.focus(), 40);
+    window.setTimeout(() => document.getElementById("pinInput").focus(), 40);
   }
 }
 
-function hasValidAuth() {
-  const rememberedUntil = Number(localStorage.getItem(AUTH_UNTIL_KEY) || 0);
-  return rememberedUntil > Date.now() || sessionStorage.getItem(SESSION_AUTH_KEY) === "true";
-}
-
 async function verifyPin() {
-  if (state.verifying) return;
   const pinInput = document.getElementById("pinInput");
   const pinError = document.getElementById("pinError");
-  const pinWindow = document.getElementById("pinForm");
-  const rememberDevice = document.getElementById("rememberDevice");
-  const value = pinInput.value.replace(/\D/g, "").slice(0, 4);
-
-  if (value.length !== 4) {
+  const remember = document.getElementById("rememberDevice").checked;
+  const pin = pinInput.value.replace(/\D/g, "").slice(0, 4);
+  if (pin.length !== 4) {
     pinError.textContent = "Enter exactly 4 digits.";
     return;
   }
 
-  state.verifying = true;
-  const digest = await hashPin(value);
-  state.verifying = false;
-
-  if (digest === PIN_HASH) {
+  try {
+    const result = await apiFetch("/api/auth", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pin, remember })
+    });
+    localStorage.setItem(TOKEN_KEY, result.token);
+    localStorage.setItem(TOKEN_EXP_KEY, String(result.expiresAt));
     pinError.textContent = "";
-    if (rememberDevice.checked) {
-      localStorage.setItem(AUTH_UNTIL_KEY, String(Date.now() + REMEMBER_MS));
-    } else {
-      sessionStorage.setItem(SESSION_AUTH_KEY, "true");
-    }
+    pinInput.value = "";
     setLocked(false);
     showToast("Unlocked");
-    return;
+    await loadMemories();
+    await migrateLegacyLocalMemories();
+  } catch (error) {
+    pinInput.value = "";
+    pinError.textContent = "Wrong PIN or server unavailable.";
+    document.getElementById("pinForm").classList.add("is-wrong");
+    window.setTimeout(() => document.getElementById("pinForm").classList.remove("is-wrong"), 400);
   }
-
-  pinInput.value = "";
-  pinError.textContent = "Wrong PIN.";
-  pinWindow.classList.remove("is-wrong");
-  void pinWindow.offsetWidth;
-  pinWindow.classList.add("is-wrong");
-  pinInput.focus();
 }
 
-async function hashPin(value) {
-  if (window.crypto && window.crypto.subtle) {
-    const bytes = new TextEncoder().encode(value);
-    const digest = await window.crypto.subtle.digest("SHA-256", bytes);
-    return Array.from(new Uint8Array(digest))
-      .map((byte) => byte.toString(16).padStart(2, "0"))
-      .join("");
+async function loadMemories() {
+  if (!hasStoredToken()) return;
+  try {
+    const result = await apiFetch("/api/memories");
+    state.memories = result.memories || [];
+    renderWall();
+  } catch (error) {
+    showToast(error.message);
   }
-
-  return value === PIN_FALLBACK ? PIN_HASH : "";
-}
-
-function openComposerPanel() {
-  clearComposerFields();
-  document.getElementById("composerOverlay").classList.add("is-open");
-  window.setTimeout(() => document.getElementById("memoryText").focus(), 40);
-}
-
-function closeComposerPanel() {
-  document.getElementById("composerOverlay").classList.remove("is-open");
-}
-
-function clearComposerFields() {
-  state.pendingFiles = [];
-  document.getElementById("memoryText").value = "";
-  updateFileCount();
 }
 
 function addPendingFiles(files) {
@@ -397,227 +273,200 @@ function addPendingFiles(files) {
 }
 
 function updateFileCount() {
-  const fileCount = document.getElementById("fileCount");
   const count = state.pendingFiles.length;
-  fileCount.textContent = count ? `${count} photo${count === 1 ? "" : "s"} ready` : "";
+  document.getElementById("fileCount").textContent = count ? `${count} image${count === 1 ? "" : "s"} ready` : "";
 }
 
-async function saveComposer() {
-  const memoryText = document.getElementById("memoryText");
-  const rawText = memoryText.value.trim();
+function clearComposer() {
+  state.pendingFiles = [];
+  document.getElementById("memoryText").value = "";
+  updateFileCount();
+}
+
+async function saveMemory(event) {
+  event.preventDefault();
+  const text = document.getElementById("memoryText").value.trim();
   const files = state.pendingFiles.slice();
-
-  if (!rawText && files.length === 0) {
-    showToast("Add a photo or a note first.");
+  if (!text && !files.length) {
+    showToast("Add a note or image first.");
     return;
   }
 
-  const created = [];
-  const textPieces = splitTextPieces(rawText);
-  const sharedCaption = textPieces[0] || "";
-
-  for (const file of files) {
-    try {
-      const mediaId = createId("media");
-      const dataUrl = await readFileAsDataUrl(file);
-      await putMedia({ id: mediaId, dataUrl, name: file.name, type: file.type, createdAt: new Date().toISOString() });
-      created.push({
-        id: createId("photo"),
-        kind: "photo",
-        source: "user",
-        mediaId,
-        caption: sharedCaption || cleanFileName(file.name),
-        shape: choosePhotoShape(file.name),
-        focus: "center",
-        createdAt: new Date().toISOString()
-      });
-    } catch (error) {
-      showToast("Could not save one photo in this browser.");
+  setBusy(true);
+  try {
+    const encodedFiles = [];
+    for (const file of files) {
+      encodedFiles.push({ name: file.name, type: file.type, dataUrl: await readFileAsDataUrl(file) });
     }
-  }
-
-  for (const piece of textPieces) {
-    created.push({
-      id: createId("memory"),
-      kind: classifyText(piece),
-      source: "user",
-      text: piece,
-      createdAt: new Date().toISOString()
+    await apiFetch("/api/memories", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, files: encodedFiles })
     });
+    clearComposer();
+    await loadMemories();
+    showToast("Saved to Lily");
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    setBusy(false);
   }
-
-  if (created.length === 0) {
-    return;
-  }
-
-  state.memories = [...created.reverse(), ...state.memories];
-  saveMemories(state.memories);
-  renderWall();
-  closeComposerPanel();
-  clearComposerFields();
-  showToast(`${created.length} saved`);
 }
 
-function splitTextPieces(rawText) {
-  if (!rawText) return [];
-  return rawText
-    .split(/\n+/)
-    .map((line) => line.trim())
-    .filter(Boolean);
+async function askQuestion(event) {
+  event.preventDefault();
+  const input = document.getElementById("chatInput");
+  const message = input.value.trim();
+  if (!message || state.loading) return;
+
+  state.chat.push({ role: "user", content: message });
+  input.value = "";
+  renderChat();
+  setBusy(true);
+
+  try {
+    const result = await apiFetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message })
+    });
+    state.chat.push({ role: "assistant", content: result.answer, sources: result.sources || [], warning: result.warning });
+  } catch (error) {
+    state.chat.push({ role: "assistant", content: error.message || "I could not answer that yet." });
+  } finally {
+    setBusy(false);
+    renderChat();
+  }
 }
 
-function classifyText(text) {
-  const lower = text.toLowerCase();
-  const phonePattern = /(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/;
-  const datePattern = /\b(?:bday|birthday|anniversary|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?)\b/i;
-  const addressPattern = /\b\d{1,6}\s+([a-z0-9'.-]+\s+){1,7}(street|st|avenue|ave|road|rd|drive|dr|lane|ln|court|ct|place|pl|way|blvd|boulevard|apt|unit|circle|cir)\b/i;
-  const quotePattern = /^["']|["']$/;
+function renderChat() {
+  const messages = document.getElementById("messages");
+  if (!messages) return;
+  messages.innerHTML = "";
+  state.chat.forEach((message) => {
+    const node = document.createElement("article");
+    node.className = `message ${message.role}`;
+    const content = document.createElement("p");
+    content.textContent = message.content;
+    node.appendChild(content);
 
-  if (phonePattern.test(text) || lower.includes("phone") || lower.includes("number")) return "contact";
-  if (addressPattern.test(text) || lower.includes("address")) return "address";
-  if (datePattern.test(text)) return "date";
-  if (quotePattern.test(text) || text.length > 86) return "quote";
-  return "note";
+    if (message.warning) {
+      const warning = document.createElement("span");
+      warning.className = "message-warning";
+      warning.textContent = message.warning;
+      node.appendChild(warning);
+    }
+
+    if (message.sources && message.sources.length) {
+      const sources = document.createElement("div");
+      sources.className = "sources";
+      message.sources.slice(0, 4).forEach((source) => {
+        const item = document.createElement("span");
+        item.textContent = source.text || source.caption || source.summary || source.kind;
+        sources.appendChild(item);
+      });
+      node.appendChild(sources);
+    }
+
+    messages.appendChild(node);
+  });
+  messages.scrollTop = messages.scrollHeight;
 }
 
 function renderWall() {
   const wall = document.getElementById("memoryWall");
-  if (!wall) return;
-
-  const columns = getColumnCount();
-  const visibleStarterItems = starterItems.filter((item) => !state.hiddenStarterIds.includes(item.id));
-  const items = [...state.memories, ...visibleStarterItems];
-  wall.style.setProperty("--columns", String(columns));
+  const count = document.getElementById("memoryCount");
+  if (!wall || !count) return;
+  count.textContent = state.memories.length ? `${state.memories.length} saved` : "No memories yet";
   wall.innerHTML = "";
 
-  const columnNodes = Array.from({ length: columns }, () => {
-    const column = document.createElement("div");
-    column.className = "masonry-column";
-    wall.appendChild(column);
-    return column;
-  });
+  if (!state.memories.length) {
+    const empty = document.createElement("div");
+    empty.className = "empty-state";
+    empty.textContent = "Add notes, screenshots, photos, birthdays, addresses, numbers, preferences, or paragraphs. They will sync here.";
+    wall.appendChild(empty);
+    return;
+  }
 
-  items.forEach((item, index) => {
-    const card = item.kind === "photo" ? createPhotoCard(item) : createInfoCard(item);
-    columnNodes[index % columns].appendChild(card);
+  state.memories.forEach((memory) => {
+    const card = memory.kind === "photo" ? createPhotoCard(memory) : createTextCard(memory);
+    wall.appendChild(card);
   });
 }
 
-function getColumnCount() {
-  const width = window.innerWidth;
-  if (width < 420) return 2;
-  if (width < 680) return 3;
-  if (width < 980) return 4;
-  if (width < 1240) return 5;
-  return 6;
-}
-
-function createPhotoCard(item) {
+function createPhotoCard(memory) {
   const card = document.createElement("article");
-  card.className = `memory-card photo ${item.shape || "portrait"}`;
-  card.style.setProperty("--focus", item.focus || "center");
+  card.className = "memory-card photo";
 
   const image = document.createElement("img");
-  image.alt = item.caption || "Lily memory";
+  image.alt = memory.caption || "Saved Lily image";
   image.loading = "lazy";
-  image.decoding = "async";
-
-  if (item.image) {
-    image.src = item.image;
-  } else if (item.mediaId) {
-    image.src = "";
-    getMedia(item.mediaId).then((media) => {
-      if (media && media.dataUrl) {
-        image.src = media.dataUrl;
-      }
-    });
-  }
+  const mediaPath = memory.file && memory.file.url ? memory.file.url : "";
+  image.src = apiUrl(`${mediaPath}?token=${encodeURIComponent(storedToken())}`);
+  card.appendChild(image);
 
   const caption = document.createElement("div");
   caption.className = "photo-caption";
-  const captionText = document.createElement("span");
-  captionText.textContent = item.caption || "saved photo";
-  caption.appendChild(captionText);
-
-  card.appendChild(image);
+  const text = document.createElement("span");
+  text.textContent = memory.summary || memory.caption || "saved image";
+  caption.appendChild(text);
   card.appendChild(caption);
-  appendDeleteButton(card, item);
+
+  appendDelete(card, memory);
   return card;
 }
 
-function createInfoCard(item) {
+function createTextCard(memory) {
   const card = document.createElement("article");
-  card.className = `memory-card info-card ${item.kind}`;
+  card.className = `memory-card info-card ${memory.kind || "note"}`;
 
   const label = document.createElement("span");
   label.className = "type-label";
-  label.textContent = labelForKind(item.kind);
+  label.textContent = labelForKind(memory.kind);
 
   const text = document.createElement("p");
   text.className = "info-text";
-  text.textContent = trimDisplayText(item.text || "");
+  text.textContent = memory.text || memory.summary || "";
 
   const meta = document.createElement("div");
   meta.className = "meta-row";
-  const date = document.createElement("span");
-  date.textContent = item.createdAt === "starter" ? "starter" : formatDate(item.createdAt);
-  meta.appendChild(date);
+  meta.textContent = formatDate(memory.createdAt);
 
   card.appendChild(label);
   card.appendChild(text);
   card.appendChild(meta);
-  appendDeleteButton(card, item);
+  appendDelete(card, memory);
   return card;
 }
 
-function appendDeleteButton(card, item) {
+function appendDelete(card, memory) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "delete-button";
   button.setAttribute("aria-label", "Delete memory");
   button.textContent = "x";
-  button.addEventListener("click", () => deleteMemory(item));
+  button.addEventListener("click", async () => {
+    if (!window.confirm("Delete this memory?")) return;
+    try {
+      await apiFetch(`/api/memories/${encodeURIComponent(memory.id)}`, { method: "DELETE" });
+      await loadMemories();
+      showToast("Deleted");
+    } catch (error) {
+      showToast(error.message);
+    }
+  });
   card.appendChild(button);
 }
 
-async function deleteMemory(item) {
-  const confirmed = window.confirm("Delete this memory?");
-  if (!confirmed) return;
-
-  if (item.source === "starter") {
-    state.hiddenStarterIds = Array.from(new Set([...state.hiddenStarterIds, item.id]));
-    saveHiddenStarterIds(state.hiddenStarterIds);
-    renderWall();
-    showToast("Deleted");
-    return;
-  }
-
-  const memory = state.memories.find((memoryItem) => memoryItem.id === item.id);
-  if (!memory) return;
-
-  state.memories = state.memories.filter((memoryItem) => memoryItem.id !== item.id);
-  saveMemories(state.memories);
-  if (memory.mediaId) {
-    await deleteMedia(memory.mediaId);
-  }
-  renderWall();
-  showToast("Deleted");
-}
-
 function labelForKind(kind) {
-  const labels = {
+  return {
     quote: "quote",
     date: "date",
     contact: "number",
     address: "place",
-    note: "fact"
-  };
-  return labels[kind] || "fact";
-}
-
-function trimDisplayText(text) {
-  if (text.length <= 180) return text;
-  return `${text.slice(0, 177).trim()}...`;
+    note: "note",
+    photo: "photo"
+  }[kind] || "note";
 }
 
 function formatDate(value) {
@@ -626,53 +475,11 @@ function formatDate(value) {
   return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date);
 }
 
-function createId(prefix) {
-  const random = Math.random().toString(36).slice(2, 10);
-  return `${prefix}-${Date.now().toString(36)}-${random}`;
-}
-
-function cleanFileName(name) {
-  return name
-    .replace(/\.[^.]+$/, "")
-    .replace(/[_-]+/g, " ")
-    .trim() || "saved photo";
-}
-
-function choosePhotoShape(seed) {
-  const shapes = ["portrait", "square", "tall", "wide"];
-  let total = 0;
-  for (const char of seed) total += char.charCodeAt(0);
-  return shapes[total % shapes.length];
-}
-
-function loadMemories() {
-  try {
-    const raw = localStorage.getItem(MEMORY_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch (error) {
-    return [];
-  }
-}
-
-function saveMemories(memories) {
-  localStorage.setItem(MEMORY_KEY, JSON.stringify(memories));
-}
-
-function loadHiddenStarterIds() {
-  try {
-    const raw = localStorage.getItem(HIDDEN_STARTERS_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch (error) {
-    return [];
-  }
-}
-
-function saveHiddenStarterIds(ids) {
-  localStorage.setItem(HIDDEN_STARTERS_KEY, JSON.stringify(ids));
+function setBusy(isBusy) {
+  state.loading = isBusy;
+  document.querySelectorAll(".primary-button").forEach((button) => {
+    button.disabled = isBusy;
+  });
 }
 
 function readFileAsDataUrl(file) {
@@ -684,66 +491,29 @@ function readFileAsDataUrl(file) {
   });
 }
 
-let dbPromise = null;
-
-function openDatabase() {
-  if (!("indexedDB" in window)) {
-    return Promise.resolve(null);
-  }
-
-  if (dbPromise) return dbPromise;
-
-  dbPromise = new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
-
-    request.addEventListener("upgradeneeded", () => {
-      const db = request.result;
-      if (!db.objectStoreNames.contains(MEDIA_STORE)) {
-        db.createObjectStore(MEDIA_STORE, { keyPath: "id" });
-      }
+async function migrateLegacyLocalMemories() {
+  if (localStorage.getItem(LEGACY_MIGRATED_KEY) === "true") return;
+  try {
+    const raw = localStorage.getItem(LEGACY_MEMORY_KEY);
+    const legacy = raw ? JSON.parse(raw) : [];
+    const textItems = Array.isArray(legacy)
+      ? legacy.filter((item) => item && item.text).map((item) => item.text).slice(0, 50)
+      : [];
+    if (!textItems.length) {
+      localStorage.setItem(LEGACY_MIGRATED_KEY, "true");
+      return;
+    }
+    await apiFetch("/api/memories", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: textItems.join("\n\n") })
     });
-
-    request.addEventListener("success", () => resolve(request.result));
-    request.addEventListener("error", () => reject(request.error));
-  });
-
-  return dbPromise;
-}
-
-async function putMedia(record) {
-  const db = await openDatabase();
-  if (!db) throw new Error("IndexedDB unavailable");
-
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(MEDIA_STORE, "readwrite");
-    tx.objectStore(MEDIA_STORE).put(record);
-    tx.addEventListener("complete", () => resolve());
-    tx.addEventListener("error", () => reject(tx.error));
-  });
-}
-
-async function getMedia(id) {
-  const db = await openDatabase();
-  if (!db) return null;
-
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(MEDIA_STORE, "readonly");
-    const request = tx.objectStore(MEDIA_STORE).get(id);
-    request.addEventListener("success", () => resolve(request.result || null));
-    request.addEventListener("error", () => reject(request.error));
-  });
-}
-
-async function deleteMedia(id) {
-  const db = await openDatabase();
-  if (!db) return;
-
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(MEDIA_STORE, "readwrite");
-    tx.objectStore(MEDIA_STORE).delete(id);
-    tx.addEventListener("complete", () => resolve());
-    tx.addEventListener("error", () => reject(tx.error));
-  });
+    localStorage.setItem(LEGACY_MIGRATED_KEY, "true");
+    await loadMemories();
+    showToast("Imported browser-only notes");
+  } catch (error) {
+    localStorage.setItem(LEGACY_MIGRATED_KEY, "true");
+  }
 }
 
 function showToast(message) {
@@ -751,9 +521,7 @@ function showToast(message) {
   window.clearTimeout(state.toastTimer);
   toast.textContent = message;
   toast.classList.add("is-visible");
-  state.toastTimer = window.setTimeout(() => {
-    toast.classList.remove("is-visible");
-  }, 2200);
+  state.toastTimer = window.setTimeout(() => toast.classList.remove("is-visible"), 2400);
 }
 
 init();
