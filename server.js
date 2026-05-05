@@ -279,9 +279,14 @@ function tokenize(text) {
   return new Set(String(text).toLowerCase().match(/[a-z0-9']{3,}/g) || []);
 }
 
+function memoryTimestamp(memory) {
+  const timestamp = Date.parse(memory.updatedAt || memory.createdAt || "");
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
 function selectContext(question, memories) {
   const questionTokens = tokenize(question);
-  return memories
+  const scored = memories
     .map((memory) => {
       const text = searchableText(memory);
       const tokens = tokenize(text);
@@ -294,9 +299,28 @@ function selectContext(question, memories) {
       if (memory.kind === "address" && /where|address|live|place/i.test(question)) score += 4;
       if (memory.kind === "contact" && /phone|number|contact|call|text/i.test(question)) score += 4;
       if (/eat|food|restaurant|want|like|preference/i.test(question) && /eat|food|restaurant|like|favorite|want|crave|sushi|ramen|korean|cafe/i.test(text)) score += 4;
-      return { memory, score, text };
+      return { memory, score, text, timestamp: memoryTimestamp(memory) };
     })
-    .sort((a, b) => b.score - a.score || String(b.memory.createdAt).localeCompare(String(a.memory.createdAt)))
+    .sort((a, b) => b.score - a.score || b.timestamp - a.timestamp);
+
+  const selected = new Map();
+  const relevant = scored
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.timestamp - a.timestamp || b.score - a.score)
+    .slice(0, 30);
+  const recent = scored
+    .slice()
+    .sort((a, b) => b.timestamp - a.timestamp || b.score - a.score)
+    .slice(0, 8);
+
+  for (const item of relevant) selected.set(item.memory.id, item);
+  for (const item of recent) selected.set(item.memory.id, item);
+
+  return Array.from(selected.values())
+    .sort((a, b) => {
+      const relevanceDelta = Number(b.score > 0) - Number(a.score > 0);
+      return relevanceDelta || b.timestamp - a.timestamp || b.score - a.score;
+    })
     .slice(0, 36);
 }
 
@@ -315,7 +339,8 @@ async function answerQuestion(question, memories) {
 
   const compactContext = context
     .map((item, index) => {
-      const created = item.memory.createdAt ? `saved ${item.memory.createdAt}` : "saved memory";
+      const savedAt = item.memory.updatedAt || item.memory.createdAt;
+      const created = savedAt ? `saved ${savedAt}` : "saved memory";
       return `[${index + 1}] ${item.memory.kind} (${created})\n${item.text.slice(0, 1300)}`;
     })
     .join("\n\n");
@@ -324,6 +349,7 @@ async function answerQuestion(question, memories) {
     "You are the private Lily memory assistant.",
     "Answer only from the saved context. If the context is not enough, say what is missing.",
     "Be practical, concise, and warm. Do not invent facts.",
+    "When saved entries conflict, treat the newest saved entry as the current truth because details can change.",
     "For preference questions, synthesize patterns and clearly state uncertainty."
   ].join(" ");
 
@@ -340,7 +366,7 @@ async function answerQuestion(question, memories) {
           { role: "system", content: system },
           {
             role: "user",
-            content: `Question: ${question}\n\nSaved Lily context:\n${compactContext || "(none)"}`
+            content: `Question: ${question}\n\nSaved Lily context, newest relevant memories first. Newer entries override older conflicting entries:\n${compactContext || "(none)"}`
           }
         ],
         max_output_tokens: 650
