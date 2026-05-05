@@ -161,7 +161,7 @@ function classifyText(text) {
   const addressPattern = /\b\d{1,6}\s+([a-z0-9'.-]+\s+){1,7}(street|st|avenue|ave|road|rd|drive|dr|lane|ln|court|ct|place|pl|way|blvd|boulevard|apt|unit|circle|cir)\b/i;
   if (phonePattern.test(text) || lower.includes("phone") || lower.includes("number")) return "contact";
   if (addressPattern.test(text) || lower.includes("address")) return "address";
-  if (datePattern.test(text)) return "date";
+  if (datePattern.test(text) && (text.length < 140 || /bday|birthday|anniversary/i.test(text))) return "date";
   if (/^["']|["']$/.test(text) || text.length > 220) return "quote";
   return "note";
 }

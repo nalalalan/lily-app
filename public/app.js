@@ -20,6 +20,8 @@ const state = {
   toastTimer: null
 };
 
+const memoryTextPlaceholder = "Paste long notes, facts, birthdays, addresses, preferences, stories, or Ctrl+V a screenshot here...";
+
 function init() {
   renderShell();
   bindEvents();
@@ -38,7 +40,7 @@ function renderShell() {
         <header class="topbar">
           <div class="brand">
             <h1>Lily</h1>
-            <p>memory bank of Lily</p>
+            <p>Memory bank of Lily</p>
           </div>
           <div class="actions">
             <button class="icon-button" type="button" id="refreshButton" title="Refresh memories" aria-label="Refresh memories">
@@ -54,8 +56,8 @@ function renderShell() {
           <section class="chat-panel" aria-labelledby="chatTitle">
             <div class="panel-head">
               <div>
-                <h2 id="chatTitle">Ask Lily memory</h2>
-                <p>Answers come from saved notes and screenshots.</p>
+                <h2 id="chatTitle">Ask</h2>
+                <p>Uses the saved memory below.</p>
               </div>
             </div>
             <div class="suggestions" aria-label="Suggested questions">
@@ -73,20 +75,20 @@ function renderShell() {
           <section class="ingest-panel" aria-labelledby="saveTitle">
             <div class="panel-head">
               <div>
-                <h2 id="saveTitle">Add memory</h2>
-                <p>Paste paragraphs, facts, or screenshots.</p>
+                <h2 id="saveTitle">Add</h2>
+                <p>Notes, screenshots, photos, facts.</p>
               </div>
             </div>
             <form id="memoryForm">
               <label class="drop-zone" id="dropZone" tabindex="0" for="photoInput">
                 <span>
-                  <strong>Photos and screenshots</strong>
-                  <span>Choose or drop images</span>
+                  <strong>Photos</strong>
+                  <span>Choose, drop, or paste screenshots into the note box</span>
                 </span>
               </label>
               <input class="file-input" id="photoInput" type="file" accept="image/*" multiple>
               <div class="file-count" id="fileCount" aria-live="polite"></div>
-              <textarea class="memory-field" id="memoryText" placeholder="Paste notes, screenshots context, birthday, address, number, preferences, stories..."></textarea>
+              <textarea class="memory-field" id="memoryText" placeholder="${memoryTextPlaceholder}"></textarea>
               <div class="composer-actions">
                 <button class="secondary-button" id="clearComposer" type="button">Clear</button>
                 <button class="primary-button" type="submit">Save to Lily</button>
@@ -98,7 +100,7 @@ function renderShell() {
         <section class="memory-section" aria-labelledby="wallTitle">
           <div class="wall-head">
             <div>
-              <h2 id="wallTitle">Saved memory</h2>
+              <h2 id="wallTitle">Memory</h2>
               <p id="memoryCount">No memories yet</p>
             </div>
           </div>
@@ -149,6 +151,7 @@ function bindEvents() {
   document.getElementById("refreshButton").addEventListener("click", loadMemories);
   document.getElementById("memoryForm").addEventListener("submit", saveMemory);
   document.getElementById("clearComposer").addEventListener("click", clearComposer);
+  document.getElementById("memoryText").addEventListener("paste", handleMemoryPaste);
   document.getElementById("photoInput").addEventListener("change", (event) => {
     addPendingFiles(Array.from(event.target.files || []));
     event.target.value = "";
@@ -270,6 +273,9 @@ function addPendingFiles(files) {
   const images = files.filter((file) => file.type.startsWith("image/"));
   state.pendingFiles.push(...images);
   updateFileCount();
+  if (images.length) {
+    showToast(`${images.length} image${images.length === 1 ? "" : "s"} added`);
+  }
 }
 
 function updateFileCount() {
@@ -281,6 +287,27 @@ function clearComposer() {
   state.pendingFiles = [];
   document.getElementById("memoryText").value = "";
   updateFileCount();
+}
+
+function handleMemoryPaste(event) {
+  const clipboard = event.clipboardData;
+  if (!clipboard || !clipboard.items) return;
+
+  const images = Array.from(clipboard.items)
+    .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+    .map((item, index) => {
+      const file = item.getAsFile();
+      if (!file) return null;
+      const extension = item.type.split("/")[1] || "png";
+      return new File([file], file.name || `pasted-screenshot-${Date.now()}-${index}.${extension}`, { type: file.type || item.type });
+    })
+    .filter(Boolean);
+
+  if (!images.length) return;
+
+  const hasText = clipboard.getData("text/plain").trim().length > 0;
+  if (!hasText) event.preventDefault();
+  addPendingFiles(images);
 }
 
 async function saveMemory(event) {
@@ -418,11 +445,12 @@ function createPhotoCard(memory) {
 
 function createTextCard(memory) {
   const card = document.createElement("article");
-  card.className = `memory-card info-card ${memory.kind || "note"}`;
+  const displayKind = displayKindForMemory(memory);
+  card.className = `memory-card info-card ${displayKind} ${isLongMemory(memory) ? "long" : ""}`;
 
   const label = document.createElement("span");
   label.className = "type-label";
-  label.textContent = labelForKind(memory.kind);
+  label.textContent = labelForKind(displayKind);
 
   const text = document.createElement("p");
   text.className = "info-text";
@@ -430,13 +458,21 @@ function createTextCard(memory) {
 
   const meta = document.createElement("div");
   meta.className = "meta-row";
-  meta.textContent = formatDate(memory.createdAt);
+  meta.textContent = `${labelForKind(displayKind)} / ${formatDate(memory.createdAt)}`;
 
   card.appendChild(label);
   card.appendChild(text);
   card.appendChild(meta);
   appendDelete(card, memory);
   return card;
+}
+
+function isLongMemory(memory) {
+  return String(memory.text || memory.summary || "").length > 220;
+}
+
+function displayKindForMemory(memory) {
+  return isLongMemory(memory) ? "note" : (memory.kind || "note");
 }
 
 function appendDelete(card, memory) {
