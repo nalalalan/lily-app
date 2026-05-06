@@ -1,10 +1,22 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Lily icon">
-  <rect width="128" height="128" rx="26" fill="#0c0d12"/>
-  <style>
-    .w { font-family: Inter, Arial, Helvetica, sans-serif; font-weight: 950; fill: #f7f5ef; }
-    .r { font-family: Inter, Arial, Helvetica, sans-serif; font-weight: 950; fill: #d76d86; }
-  </style>
-  <text x="52" y="89" text-anchor="middle" font-size="76" class="r" >L</text>
-  <path d="M76 42c15-13 30-12 40 2-16 1-29 9-39 24-2-9-2-17-1-26Z" fill="#18c8bd"/>
-  <rect x="42" y="97" width="52" height="5" rx="2.5" fill="#f7f5ef"/>
+  <defs>
+    <radialGradient id="glass" cx="72%" cy="16%" r="86%">
+      <stop offset="0" stop-color="#252936"/>
+      <stop offset="0.45" stop-color="#11131b"/>
+      <stop offset="1" stop-color="#05060a"/>
+    </radialGradient>
+    <linearGradient id="metal" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fff9ed"/>
+      <stop offset="0.48" stop-color="#f4efe7"/>
+      <stop offset="1" stop-color="#aeb4c3"/>
+    </linearGradient>
+    <linearGradient id="roseGold" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#d84f70"/>
+      <stop offset="0.48" stop-color="#f1a36f"/>
+      <stop offset="1" stop-color="#f2cc70"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="28" fill="url(#glass)"/>
+  <text x="64" y="75" text-anchor="middle" font-family="Inter, Arial, Helvetica, sans-serif" font-size="50" font-weight="950" letter-spacing="0" fill="url(#metal)">LY</text>
+  <rect x="38" y="89" width="52" height="5" rx="2.5" fill="url(#roseGold)"/>
 </svg>
