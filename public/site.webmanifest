@@ -3,8 +3,8 @@
   "short_name": "Lily",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#171016",
-  "theme_color": "#171016",
+  "background_color": "#fbf8f2",
+  "theme_color": "#d8ccc0",
   "icons": [
     {
       "src": "/icon.svg",
