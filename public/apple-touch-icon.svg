@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Lily icon">
-  <rect width="128" height="128" rx="20" fill="#f5efe6"/>
-  <rect x="7" y="7" width="114" height="114" rx="15" fill="none" stroke="#d8cab8" stroke-width="1.2" opacity=".88"/>
-  <g><g><path d="M64 22c14 17 13 31 0 43-13-12-14-26 0-43z" fill="#c99598"/><path d="M37 38c21 4 31 14 27 32-18 3-30-8-27-32z" fill="#d8afa8"/><path d="M91 38c-21 4-31 14-27 32 18 3 30-8 27-32z" fill="#8da18d"/><path d="M42 83c17-13 31-12 43 0-12 13-27 13-43 0z" fill="#fffaf2"/><circle cx="64" cy="69" r="10" fill="#b99a60"/><path d="M65 78c5 14 15 22 30 25" fill="none" stroke="#667c67" stroke-width="7" stroke-linecap="round"/></g></g>
+  <rect width="128" height="128" rx="20" fill="#e6dacb"/>
+  <rect x="8" y="8" width="112" height="112" rx="15" fill="none" stroke="#cbbba8" stroke-width="2" opacity=".95"/>
+  <g><path d="M64 22c14 17 13 31 0 43-13-12-14-26 0-43z" fill="#bf858a"/><path d="M37 38c21 4 31 14 27 32-18 3-30-8-27-32z" fill="#d1a1a0"/><path d="M91 38c-21 4-31 14-27 32 18 3 30-8 27-32z" fill="#6f8a72"/><path d="M42 83c17-13 31-12 43 0-12 13-27 13-43 0z" fill="#fffaf0"/><circle cx="64" cy="69" r="10" fill="#a88443"/><path d="M65 78c5 14 15 22 30 25" fill="none" stroke="#526b55" stroke-width="7" stroke-linecap="round"/></g>
 </svg>
