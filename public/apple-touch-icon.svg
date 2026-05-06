@@ -1,22 +1,37 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Lily icon">
   <defs>
-    <radialGradient id="glass" cx="72%" cy="16%" r="86%">
-      <stop offset="0" stop-color="#252936"/>
-      <stop offset="0.45" stop-color="#11131b"/>
-      <stop offset="1" stop-color="#05060a"/>
+    <radialGradient id="tile" cx="70%" cy="12%" r="94%">
+      <stop offset="0" stop-color="#222736"/>
+      <stop offset="0.42" stop-color="#10131b"/>
+      <stop offset="1" stop-color="#040509"/>
     </radialGradient>
-    <linearGradient id="metal" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#fff9ed"/>
-      <stop offset="0.48" stop-color="#f4efe7"/>
-      <stop offset="1" stop-color="#aeb4c3"/>
+    <linearGradient id="ivory" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fff8ea"/>
+      <stop offset="0.6" stop-color="#e2dbcf"/>
+      <stop offset="1" stop-color="#949bad"/>
     </linearGradient>
-    <linearGradient id="roseGold" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#d84f70"/>
-      <stop offset="0.48" stop-color="#f1a36f"/>
-      <stop offset="1" stop-color="#f2cc70"/>
+    <linearGradient id="warm" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#d84d6b"/>
+      <stop offset="0.5" stop-color="#ee8d64"/>
+      <stop offset="1" stop-color="#e9c268"/>
     </linearGradient>
+    <linearGradient id="aqua" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#9cf5ec"/>
+      <stop offset="1" stop-color="#13b7af"/>
+    </linearGradient>
+    <linearGradient id="blue" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#c4c7ff"/>
+      <stop offset="1" stop-color="#7187ff"/>
+    </linearGradient>
+    <filter id="shade" x="-25%" y="-25%" width="150%" height="150%">
+      <feDropShadow dx="0" dy="7" stdDeviation="6" flood-color="#000" flood-opacity=".34"/>
+    </filter>
   </defs>
-  <rect width="128" height="128" rx="28" fill="url(#glass)"/>
-  <text x="64" y="75" text-anchor="middle" font-family="Inter, Arial, Helvetica, sans-serif" font-size="50" font-weight="950" letter-spacing="0" fill="url(#metal)">LY</text>
-  <rect x="38" y="89" width="52" height="5" rx="2.5" fill="url(#roseGold)"/>
+  <rect width="128" height="128" rx="18" fill="url(#tile)"/>
+  <path d="M16 18c22-6 72-7 96 3v89c-23 6-76 6-96-2Z" fill="#090b11" opacity=".18"/>
+    <path d="M64 28c-13 19-11 40 0 56 11-16 13-37 0-56Z" fill="url(#warm)" filter="url(#shade)"/>
+    <path d="M34 58c18-1 29 10 31 30-18-1-29-12-31-30Z" fill="url(#ivory)" opacity=".94"/>
+    <path d="M94 57c-16 2-27 12-31 31 19 0 31-13 31-31Z" fill="url(#aqua)" opacity=".96"/>
+    <path d="M45 96c13-7 28-8 42 0l-4 6c-10-5-22-5-34 1Z" fill="url(#ivory)" />
+    <ellipse cx="38" cy="91" rx="4.8" ry="4.3" fill="url(#warm)" />
 </svg>
