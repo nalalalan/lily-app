@@ -110,7 +110,7 @@ function renderShell() {
 
       <div class="pin-overlay" id="pinOverlay" role="dialog" aria-modal="true" aria-labelledby="pinTitle">
         <form class="pin-window" id="pinForm" autocomplete="off">
-          <div class="pin-icon" aria-hidden="true"><img src="/icon.svg" alt=""></div>
+          <div class="pin-icon" aria-hidden="true"><img src="/icon.svg?v=20260506-icons" alt=""></div>
           <h2 id="pinTitle">Lily</h2>
           <p>memory bank of Lily</p>
           <label class="pin-label" for="pinInput">4 digits required</label>
