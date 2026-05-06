@@ -1,14 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Lily icon">
-  <rect width="128" height="128" rx="18" fill="#141419"/>
-
-  <path d="M31 69c0-28 15-49 37-49s38 21 38 49c0 25-15 42-38 42S31 94 31 69Z" fill="#0f1016" stroke="#f7f8f5" stroke-width="7"/>
-  <path d="M43 67c0-17 10-30 25-30s25 13 25 30v15c0 15-10 26-25 26S43 97 43 82V67Z" fill="#ff907d" stroke="#0f1016" stroke-width="6"/>
-  <path d="M43 63c16-4 30-13 41-28 6 9 9 18 9 29-17-2-33-9-50-1Z" fill="#0f1016"/>
-  <circle cx="58" cy="77" r="5" fill="#0f1016"/>
-  <circle cx="78" cy="77" r="5" fill="#0f1016"/>
-  <path d="M60 93c6 4 12 4 18 0" fill="none" stroke="#d9789b" stroke-width="5" stroke-linecap="round"/>
-  <path d="M96 35c10 2 17 9 17 18-11 2-20-2-25-11 0 11-7 18-18 22-1-13 8-25 26-29Z" fill="#f7f8f5" stroke="#59c5b8" stroke-width="6" stroke-linejoin="round"/>
-  <path d="M93 41c5 6 10 10 18 12M89 42c-2 8-7 15-16 20" stroke="#d9789b" stroke-width="4" stroke-linecap="round"/>
-  <circle cx="32" cy="101" r="11" fill="#f3c969" stroke="#141419" stroke-width="4"/>
-  <path d="M26 101h12M32 95v12" stroke="#f7f8f5" stroke-width="3.5" stroke-linecap="round"/>
+  <rect width="128" height="128" rx="26" fill="#0c0d12"/>
+  <style>
+    .w { font-family: Inter, Arial, Helvetica, sans-serif; font-weight: 950; fill: #f7f5ef; }
+    .r { font-family: Inter, Arial, Helvetica, sans-serif; font-weight: 950; fill: #d76d86; }
+  </style>
+  <text x="52" y="89" text-anchor="middle" font-size="76" class="r" >L</text>
+  <path d="M76 42c15-13 30-12 40 2-16 1-29 9-39 24-2-9-2-17-1-26Z" fill="#18c8bd"/>
+  <rect x="42" y="97" width="52" height="5" rx="2.5" fill="#f7f5ef"/>
 </svg>
