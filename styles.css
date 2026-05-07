@@ -133,6 +133,16 @@ noscript {
   stroke-linejoin: round;
 }
 
+.icon-button img {
+  width: 23px;
+  height: 23px;
+  display: block;
+}
+
+.icon-button.ao-home {
+  text-decoration: none;
+}
+
 .workspace {
   display: grid;
   grid-template-columns: minmax(0, 1.04fr) minmax(360px, 0.78fr);
