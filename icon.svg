@@ -1,15 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Lily icon">
-  <defs>
-    <filter id="shadow" x="-30%" y="-30%" width="160%" height="170%" color-interpolation-filters="sRGB">
-      <feDropShadow dx="0" dy="5" stdDeviation="4" flood-color="#2b241d" flood-opacity="0.20"/>
-    </filter>
-  </defs>
-  <g filter="url(#shadow)">
-    <path d="M34 34c9 4 14 11 15 21" fill="none" stroke="#2f5941" stroke-width="6" stroke-linecap="round"/>
-    <path d="M32 31c-10-1-18-8-19-19 10 1 18 8 19 19z" fill="#e4b4ae"/>
-    <path d="M33 30c1-11 8-20 17-24 2 11-4 21-17 24z" fill="#c9858e"/>
-    <path d="M34 35c11-8 20-9 25-2-8 7-17 8-25 2z" fill="#668d68"/>
-    <path d="M30 39c-8 5-15 5-21 0 6-6 14-7 21 0z" fill="#fffaf2"/>
-    <circle cx="31" cy="34" r="7" fill="#c49a45"/>
-  </g>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="6 6 116 116" role="img" aria-label="Lily icon"><defs><filter id="d" x="-35%" y="-35%" width="170%" height="170%"><feDropShadow dx="0" dy="10" stdDeviation="6" flood-color="#2b211d" flood-opacity=".18"/><feDropShadow dx="0" dy="1" stdDeviation="1" flood-color="#fffaf4" flood-opacity=".48"/></filter><linearGradient id="cream" x1="18" y1="18" x2="108" y2="114"><stop stop-color="#fff8ef"/><stop offset="1" stop-color="#e4d7c6"/></linearGradient><linearGradient id="rose" x1="18" y1="18" x2="108" y2="114"><stop stop-color="#e4a8b2"/><stop offset=".55" stop-color="#be748a"/><stop offset="1" stop-color="#70465e"/></linearGradient><linearGradient id="green" x1="18" y1="20" x2="108" y2="112"><stop stop-color="#87a982"/><stop offset=".56" stop-color="#5f8b65"/><stop offset="1" stop-color="#3f6a49"/></linearGradient><linearGradient id="gold" x1="20" y1="16" x2="108" y2="112"><stop stop-color="#efc868"/><stop offset=".58" stop-color="#bd8337"/><stop offset="1" stop-color="#6d4522"/></linearGradient></defs><g filter="url(#d)"><ellipse cx="64" cy="46" rx="16" ry="24" fill="url(#rose)"/><ellipse cx="49" cy="62" rx="15" ry="24" transform="rotate(-34 49 62)" fill="#e0aaa8"/><ellipse cx="80" cy="62" rx="15" ry="24" transform="rotate(34 80 62)" fill="url(#green)"/><ellipse cx="64" cy="82" rx="24" ry="12" fill="url(#cream)"/><circle cx="64" cy="69" r="10" fill="url(#gold)"/><path d="M67 78c4 12 13 20 25 24" fill="none" stroke="#3f6948" stroke-width="8" stroke-linecap="round"/><ellipse cx="82" cy="88" rx="11" ry="6" transform="rotate(32 82 88)" fill="#5f8b65" opacity=".88"/></g></svg>
