@@ -140,7 +140,15 @@ noscript {
 }
 
 .icon-button.ao-home {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
   text-decoration: none;
+}
+
+.icon-button.ao-home img {
+  width: 31px;
+  height: 31px;
 }
 
 .workspace {
