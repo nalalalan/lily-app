@@ -44,7 +44,7 @@ function renderShell() {
           </div>
           <div class="actions">
             <a class="icon-button ao-home" href="https://aolabs.io/" title="AO Labs" aria-label="AO Labs">
-              <img src="https://aolabs.io/favicon.svg?v=20260507-suite3" alt="">
+              <img src="https://aolabs.io/favicon.svg?v=20260508-visible" alt="">
             </a>
             <button class="icon-button" type="button" id="refreshButton" title="Refresh memories" aria-label="Refresh memories">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 0 1-14 5.3"></path><path d="M4 12A8 8 0 0 1 18 6.7"></path><path d="M18 3v4h-4"></path><path d="M6 21v-4h4"></path></svg>
