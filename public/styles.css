@@ -745,11 +745,11 @@ noscript {
     position: fixed;
     top: 50%;
     right: auto;
-    left: 50%;
-    width: min(320px, calc(100vw - 64px));
-    max-width: none;
+    left: 20px;
+    width: 300px;
+    max-width: calc(100vw - 40px);
     padding: 20px;
-    transform: translate(-50%, -50%);
+    transform: translateY(-50%);
   }
 
   .topbar {
