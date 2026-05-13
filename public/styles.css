@@ -590,7 +590,7 @@ noscript {
 }
 
 .pin-window {
-  width: min(100%, 402px);
+  width: min(360px, calc(100vw - 40px));
   padding: 20px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -737,6 +737,14 @@ noscript {
 }
 
 @media (max-width: 560px) {
+  .pin-overlay {
+    padding: 20px;
+  }
+
+  .pin-window {
+    padding: 20px;
+  }
+
   .topbar {
     align-items: flex-start;
     width: calc(100% - 14px);
