@@ -79,6 +79,28 @@ noscript {
   transform: scale(1.01);
 }
 
+.floating-ao-home {
+  position: fixed;
+  top: 18px;
+  left: 18px;
+  z-index: 80;
+  width: 42px;
+  height: 42px;
+  display: none;
+  place-items: center;
+  text-decoration: none;
+}
+
+.floating-ao-home img {
+  width: 34px;
+  height: 34px;
+  display: block;
+}
+
+.memory-app.is-locked .floating-ao-home {
+  display: grid;
+}
+
 .topbar {
   position: relative;
   z-index: 2;
