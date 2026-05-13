@@ -744,12 +744,12 @@ noscript {
   .pin-window {
     position: fixed;
     top: 50%;
-    right: 20px;
-    left: 20px;
-    width: auto;
+    right: auto;
+    left: 50%;
+    width: min(320px, calc(100vw - 64px));
     max-width: none;
     padding: 20px;
-    transform: translateY(-50%);
+    transform: translate(-50%, -50%);
   }
 
   .topbar {
