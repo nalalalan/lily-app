@@ -37,13 +37,13 @@ function renderShell() {
   app.innerHTML = `
     <section class="memory-app is-locked" id="memoryApp">
       <a class="floating-ao-home" href="https://aolabs.io/" title="AO Labs" aria-label="AO Labs">
-        <img src="https://aolabs.io/marks/ao-rose.svg?v=20260513-ao-size" alt="">
+        <img src="https://aolabs.io/marks/ao-rose.svg?v=20260513-favicon-contrast" alt="">
       </a>
       <div class="app-surface" id="appSurface" aria-hidden="true">
         <header class="topbar">
           <div class="brand-row">
             <a class="icon-button ao-home" href="https://aolabs.io/" title="AO Labs" aria-label="AO Labs">
-              <img src="https://aolabs.io/marks/ao-rose.svg?v=20260513-ao-size" alt="">
+              <img src="https://aolabs.io/marks/ao-rose.svg?v=20260513-favicon-contrast" alt="">
             </a>
             <div class="brand">
               <h1>Lily</h1>
