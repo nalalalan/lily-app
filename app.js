@@ -38,14 +38,16 @@ function renderShell() {
     <section class="memory-app is-locked" id="memoryApp">
       <div class="app-surface" id="appSurface" aria-hidden="true">
         <header class="topbar">
-          <div class="brand">
-            <h1>Lily</h1>
-            <p>Memory bank of Lily</p>
+          <div class="brand-row">
+            <a class="icon-button ao-home" href="https://aolabs.io/" title="AO Labs" aria-label="AO Labs">
+              <img src="https://aolabs.io/marks/ao-rose.svg?v=20260513-ao-ring" alt="">
+            </a>
+            <div class="brand">
+              <h1>Lily</h1>
+              <p>Memory bank of Lily</p>
+            </div>
           </div>
           <div class="actions">
-            <a class="icon-button ao-home" href="https://aolabs.io/" title="AO Labs" aria-label="AO Labs">
-              <img src="https://aolabs.io/favicon.svg?v=20260512-suite-mark" alt="">
-            </a>
             <button class="icon-button" type="button" id="refreshButton" title="Refresh memories" aria-label="Refresh memories">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 0 1-14 5.3"></path><path d="M4 12A8 8 0 0 1 18 6.7"></path><path d="M18 3v4h-4"></path><path d="M6 21v-4h4"></path></svg>
             </button>

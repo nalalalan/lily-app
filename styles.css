@@ -91,6 +91,13 @@ noscript {
   padding: 18px 0 12px;
 }
 
+.brand-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
 .brand h1 {
   margin: 0;
   font-size: clamp(42px, 5vw, 68px);
@@ -147,8 +154,8 @@ noscript {
 }
 
 .icon-button.ao-home img {
-  width: 31px;
-  height: 31px;
+  width: 34px;
+  height: 34px;
 }
 
 .workspace {
