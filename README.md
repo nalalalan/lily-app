@@ -18,7 +18,7 @@ Set `public/config.js` to an empty API base for same-origin local API testing, o
 
 ## API
 
-- `POST /api/auth` - verify 4 digit PIN and return an API token
+- `POST /api/auth` - verify the configured PIN and return an API token
 - `GET /api/memories` - list shared memories
 - `POST /api/memories` - save notes and image data
 - `DELETE /api/memories/:id` - delete a saved memory
@@ -27,7 +27,7 @@ Set `public/config.js` to an empty API base for same-origin local API testing, o
 Railway variables:
 
 - `DATA_DIR=/data`
-- `LILY_PIN=6699`
+- `LILY_PIN=<private PIN>`
 - `SESSION_SECRET`
 - `OPENAI_API_KEY`
 - `ALLOWED_ORIGINS=https://lily.aolabs.io,http://localhost:3000,http://127.0.0.1:3000`
