@@ -38,21 +38,18 @@ function init() {
 function renderShell() {
   app.innerHTML = `
     <section class="memory-app is-locked" id="memoryApp">
-      <a class="floating-ao-home" href="https://aolabs.io/" title="AO Labs" aria-label="AO Labs">
-        <img src="https://aolabs.io/marks/ao-rose.svg?v=20260515-ao-disc-a" alt="">
-      </a>
       <div class="app-surface" id="appSurface" aria-hidden="true">
-        <header class="topbar">
-          <div class="brand-row">
-            <a class="icon-button ao-home" href="https://aolabs.io/" title="AO Labs" aria-label="AO Labs">
-              <img src="https://aolabs.io/marks/ao-rose.svg?v=20260515-ao-disc-a" alt="">
+        <header class="suite-topbar" aria-label="lily navigation">
+          <div class="suite-brand-cluster">
+            <a class="suite-ao-home" href="https://aolabs.io/" aria-label="aolabs.io">
+              <img src="https://aolabs.io/marks/ao-ink.svg?v=20260515-ao-disc-a" alt="">
             </a>
-            <div class="brand">
-              <h1>Lily</h1>
-              <p>Synced memory</p>
-            </div>
+            <a class="suite-app-brand" href="/" aria-label="lily home">
+              <img class="suite-app-mark" src="/icon.svg?v=20260507-suite3" alt="">
+              <span class="suite-app-name">lily</span>
+            </a>
           </div>
-          <div class="actions">
+          <div class="suite-topbar-actions" aria-label="lily actions">
             <button class="icon-button" type="button" id="refreshButton" title="Refresh memories" aria-label="Refresh memories">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 0 1-14 5.3"></path><path d="M4 12A8 8 0 0 1 18 6.7"></path><path d="M18 3v4h-4"></path><path d="M6 21v-4h4"></path></svg>
             </button>
@@ -132,10 +129,10 @@ function renderShell() {
       <div class="pin-overlay" id="pinOverlay" role="dialog" aria-modal="true" aria-labelledby="pinTitle">
         <form class="pin-window" id="pinForm" autocomplete="off">
           <div class="pin-icon" aria-hidden="true"><img src="/icon.svg?v=20260507-suite3" alt=""></div>
-          <h2 id="pinTitle">Lily</h2>
+          <h2 id="pinTitle">lily</h2>
           <p>private memory</p>
-          <label class="pin-label" for="pinInput">6 digits required</label>
-          <input class="pin-input" id="pinInput" name="pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="one-time-code" aria-describedby="pinError">
+          <label class="pin-label" for="pinInput">4 digits required</label>
+          <input class="pin-input" id="pinInput" name="pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="one-time-code" aria-describedby="pinError">
           <button class="pin-submit" type="submit">Verify</button>
           <label class="remember-row">
             <input id="rememberDevice" type="checkbox">
@@ -159,8 +156,8 @@ function bindEvents() {
   });
 
   document.getElementById("pinInput").addEventListener("input", (event) => {
-    event.target.value = event.target.value.replace(/\D/g, "").slice(0, 6);
-    if (event.target.value.length === 6) window.setTimeout(verifyPin, 80);
+    event.target.value = event.target.value.replace(/\D/g, "").slice(0, 4);
+    if (event.target.value.length === 4) window.setTimeout(verifyPin, 80);
   });
 
   document.getElementById("lockButton").addEventListener("click", () => {
@@ -271,9 +268,9 @@ async function verifyPin() {
   const pinInput = document.getElementById("pinInput");
   const pinError = document.getElementById("pinError");
   const remember = document.getElementById("rememberDevice").checked;
-  const pin = pinInput.value.replace(/\D/g, "").slice(0, 6);
-  if (pin.length !== 6) {
-    pinError.textContent = "Enter exactly 6 digits.";
+  const pin = pinInput.value.replace(/\D/g, "").slice(0, 4);
+  if (pin.length !== 4) {
+    pinError.textContent = "Enter exactly 4 digits.";
     return;
   }
 
