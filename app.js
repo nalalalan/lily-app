@@ -9,6 +9,8 @@ const LEGACY_MIGRATED_KEY = "lily-legacy-migrated-v1";
 const state = {
   authenticated: false,
   memories: [],
+  memoryFilter: "all",
+  memoryQuery: "",
   pendingFiles: [],
   chat: [
     {
@@ -37,13 +39,13 @@ function renderShell() {
   app.innerHTML = `
     <section class="memory-app is-locked" id="memoryApp">
       <a class="floating-ao-home" href="https://aolabs.io/" title="AO Labs" aria-label="AO Labs">
-        <img src="https://aolabs.io/marks/ao-rose.svg?v=20260515-ao-monogram-centered" alt="">
+        <img src="https://aolabs.io/marks/ao-rose.svg?v=20260515-ao-disc-a" alt="">
       </a>
       <div class="app-surface" id="appSurface" aria-hidden="true">
         <header class="topbar">
           <div class="brand-row">
             <a class="icon-button ao-home" href="https://aolabs.io/" title="AO Labs" aria-label="AO Labs">
-              <img src="https://aolabs.io/marks/ao-rose.svg?v=20260515-ao-monogram-centered" alt="">
+              <img src="https://aolabs.io/marks/ao-rose.svg?v=20260515-ao-disc-a" alt="">
             </a>
             <div class="brand">
               <h1>Lily</h1>
@@ -60,8 +62,30 @@ function renderShell() {
           </div>
         </header>
 
+        <section class="memory-section" aria-labelledby="wallTitle">
+          <div class="wall-head">
+            <div>
+              <h2 id="wallTitle">Memory</h2>
+              <p id="memoryCount">No memories yet</p>
+            </div>
+            <div class="memory-controls" aria-label="Memory controls">
+              <input class="memory-search" id="memorySearch" type="search" placeholder="Search memory" autocomplete="off">
+              <div class="filter-row" aria-label="Memory filter">
+                <button class="filter-button is-active" type="button" data-filter="all">All</button>
+                <button class="filter-button" type="button" data-filter="photo">Images</button>
+                <button class="filter-button" type="button" data-filter="text">Text</button>
+              </div>
+            </div>
+          </div>
+          <div class="memory-wall" id="memoryWall" aria-label="Saved Lily memory wall"></div>
+        </section>
+
         <main class="workspace">
-          <section class="chat-panel" aria-labelledby="chatTitle">
+          <details class="tool-panel chat-panel">
+            <summary>
+              <span>Ask</span>
+              <small>Saved notes only.</small>
+            </summary>
             <div class="panel-head">
               <div>
                 <h2 id="chatTitle">Ask</h2>
@@ -73,9 +97,13 @@ function renderShell() {
               <textarea id="chatInput" rows="2" placeholder="Ask about Lily"></textarea>
               <button class="primary-button" type="submit">Ask</button>
             </form>
-          </section>
+          </details>
 
-          <section class="ingest-panel" aria-labelledby="saveTitle">
+          <details class="tool-panel ingest-panel">
+            <summary>
+              <span>Add</span>
+              <small>Notes and images.</small>
+            </summary>
             <div class="panel-head">
               <div>
                 <h2 id="saveTitle">Add</h2>
@@ -97,18 +125,8 @@ function renderShell() {
                 <button class="primary-button" type="submit">Save to Lily</button>
               </div>
             </form>
-          </section>
+          </details>
         </main>
-
-        <section class="memory-section" aria-labelledby="wallTitle">
-          <div class="wall-head">
-            <div>
-              <h2 id="wallTitle">Memory</h2>
-              <p id="memoryCount">No memories yet</p>
-            </div>
-          </div>
-          <div class="memory-wall" id="memoryWall" aria-label="Saved Lily memory wall"></div>
-        </section>
       </div>
 
       <div class="pin-overlay" id="pinOverlay" role="dialog" aria-modal="true" aria-labelledby="pinTitle">
@@ -152,6 +170,19 @@ function bindEvents() {
   });
 
   document.getElementById("refreshButton").addEventListener("click", loadMemories);
+  document.getElementById("memorySearch").addEventListener("input", (event) => {
+    state.memoryQuery = event.target.value.trim().toLowerCase();
+    renderWall();
+  });
+  document.querySelectorAll("[data-filter]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.memoryFilter = button.dataset.filter || "all";
+      document.querySelectorAll("[data-filter]").forEach((node) => {
+        node.classList.toggle("is-active", node === button);
+      });
+      renderWall();
+    });
+  });
   document.getElementById("memoryForm").addEventListener("submit", saveMemory);
   document.getElementById("clearComposer").addEventListener("click", clearComposer);
   document.getElementById("memoryText").addEventListener("paste", handleMemoryPaste);
@@ -414,26 +445,55 @@ function renderWall() {
   const wall = document.getElementById("memoryWall");
   const count = document.getElementById("memoryCount");
   if (!wall || !count) return;
-  count.textContent = state.memories.length ? `${state.memories.length} saved` : "No memories yet";
+  const memories = visibleMemories();
+  const isFiltered = state.memoryQuery || state.memoryFilter !== "all";
+  count.textContent = state.memories.length
+    ? isFiltered
+      ? `${memories.length} of ${state.memories.length}`
+      : `${state.memories.length} saved`
+    : "No memories yet";
   wall.innerHTML = "";
 
-  if (!state.memories.length) {
+  if (!memories.length) {
     const empty = document.createElement("div");
     empty.className = "empty-state";
-    empty.textContent = "No saved memory.";
+    empty.textContent = state.memories.length ? "No matching memory." : "No saved memory.";
     wall.appendChild(empty);
     return;
   }
 
-  state.memories.forEach((memory) => {
+  memories.forEach((memory) => {
     const card = memory.kind === "photo" ? createPhotoCard(memory) : createTextCard(memory);
     wall.appendChild(card);
   });
 }
 
+function visibleMemories() {
+  const query = state.memoryQuery;
+  return state.memories.filter((memory) => {
+    const isPhoto = memory.kind === "photo";
+    if (state.memoryFilter === "photo" && !isPhoto) return false;
+    if (state.memoryFilter === "text" && isPhoto) return false;
+    if (!query) return true;
+    return searchableMemoryText(memory).toLowerCase().includes(query);
+  });
+}
+
+function searchableMemoryText(memory) {
+  return [
+    memory.kind,
+    memory.text,
+    memory.caption,
+    memory.summary,
+    memory.extractedText,
+    Array.isArray(memory.facts) ? memory.facts.join(" ") : ""
+  ].filter(Boolean).join(" ");
+}
+
 function createPhotoCard(memory) {
   const card = document.createElement("article");
   card.className = "memory-card photo";
+  card.title = memory.summary || memory.caption || "saved image";
 
   const image = document.createElement("img");
   image.alt = memory.caption || "Saved Lily image";
@@ -465,6 +525,7 @@ function createTextCard(memory) {
   const text = document.createElement("p");
   text.className = "info-text";
   text.textContent = memory.text || memory.summary || "";
+  text.title = memory.text || memory.summary || "";
 
   const meta = document.createElement("div");
   meta.className = "meta-row";
