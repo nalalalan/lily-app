@@ -13,14 +13,14 @@ const state = {
   chat: [
     {
       role: "assistant",
-      content: "Ask me anything you have saved about Lily. I can use notes, screenshots, photos, addresses, dates, and preferences once you add them."
+      content: "Saved Lily memory answers appear here."
     }
   ],
   loading: false,
   toastTimer: null
 };
 
-const memoryTextPlaceholder = "Paste long notes, facts, birthdays, addresses, preferences, stories, or Ctrl+V a screenshot here...";
+const memoryTextPlaceholder = "Notes, facts, dates, addresses, preferences, or pasted screenshots.";
 
 function init() {
   renderShell();
@@ -37,17 +37,17 @@ function renderShell() {
   app.innerHTML = `
     <section class="memory-app is-locked" id="memoryApp">
       <a class="floating-ao-home" href="https://aolabs.io/" title="AO Labs" aria-label="AO Labs">
-        <img src="https://aolabs.io/marks/ao-rose.svg?v=20260513-favicon-contrast" alt="">
+        <img src="https://aolabs.io/marks/ao-rose.svg?v=20260515-ao-monogram" alt="">
       </a>
       <div class="app-surface" id="appSurface" aria-hidden="true">
         <header class="topbar">
           <div class="brand-row">
             <a class="icon-button ao-home" href="https://aolabs.io/" title="AO Labs" aria-label="AO Labs">
-              <img src="https://aolabs.io/marks/ao-rose.svg?v=20260513-favicon-contrast" alt="">
+              <img src="https://aolabs.io/marks/ao-rose.svg?v=20260515-ao-monogram" alt="">
             </a>
             <div class="brand">
               <h1>Lily</h1>
-              <p>Memory bank of Lily</p>
+              <p>Synced memory</p>
             </div>
           </div>
           <div class="actions">
@@ -65,13 +65,8 @@ function renderShell() {
             <div class="panel-head">
               <div>
                 <h2 id="chatTitle">Ask</h2>
-                <p>Uses the saved memory below.</p>
+                <p>Saved notes only.</p>
               </div>
-            </div>
-            <div class="suggestions" aria-label="Suggested questions">
-              <button type="button" data-question="When is Lily's birthday?">birthday</button>
-              <button type="button" data-question="Where does Lily want to eat today?">food</button>
-              <button type="button" data-question="What does Lily like?">likes</button>
             </div>
             <div class="messages" id="messages" aria-live="polite"></div>
             <form class="chat-form" id="chatForm">
@@ -84,14 +79,14 @@ function renderShell() {
             <div class="panel-head">
               <div>
                 <h2 id="saveTitle">Add</h2>
-                <p>Notes, screenshots, photos, facts.</p>
+                <p>Notes and images.</p>
               </div>
             </div>
             <form id="memoryForm">
               <label class="drop-zone" id="dropZone" tabindex="0" for="photoInput">
                 <span>
-                  <strong>Photos</strong>
-                  <span>Choose, drop, or paste screenshots into the note box</span>
+                  <strong>Images</strong>
+                  <span>Choose, drop, or paste screenshots</span>
                 </span>
               </label>
               <input class="file-input" id="photoInput" type="file" accept="image/*" multiple>
@@ -120,7 +115,7 @@ function renderShell() {
         <form class="pin-window" id="pinForm" autocomplete="off">
           <div class="pin-icon" aria-hidden="true"><img src="/icon.svg?v=20260507-suite3" alt=""></div>
           <h2 id="pinTitle">Lily</h2>
-          <p>memory bank of Lily</p>
+          <p>private memory</p>
           <label class="pin-label" for="pinInput">4 digits required</label>
           <input class="pin-input" id="pinInput" name="pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="one-time-code" aria-describedby="pinError">
           <button class="pin-submit" type="submit">Verify</button>
@@ -189,12 +184,6 @@ function bindEvents() {
 
   document.getElementById("chatForm").addEventListener("submit", askQuestion);
   document.getElementById("chatInput").addEventListener("keydown", submitFormOnEnter("chatForm"));
-  document.querySelectorAll("[data-question]").forEach((button) => {
-    button.addEventListener("click", () => {
-      document.getElementById("chatInput").value = button.dataset.question;
-      document.getElementById("chatForm").requestSubmit();
-    });
-  });
 }
 
 function submitFormOnEnter(formId) {
@@ -431,7 +420,7 @@ function renderWall() {
   if (!state.memories.length) {
     const empty = document.createElement("div");
     empty.className = "empty-state";
-    empty.textContent = "Add notes, screenshots, photos, birthdays, addresses, numbers, preferences, or paragraphs. They will sync here.";
+    empty.textContent = "No saved memory.";
     wall.appendChild(empty);
     return;
   }
