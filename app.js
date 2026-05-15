@@ -116,8 +116,8 @@ function renderShell() {
           <div class="pin-icon" aria-hidden="true"><img src="/icon.svg?v=20260507-suite3" alt=""></div>
           <h2 id="pinTitle">Lily</h2>
           <p>private memory</p>
-          <label class="pin-label" for="pinInput">4 digits required</label>
-          <input class="pin-input" id="pinInput" name="pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="one-time-code" aria-describedby="pinError">
+          <label class="pin-label" for="pinInput">6 digits required</label>
+          <input class="pin-input" id="pinInput" name="pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="one-time-code" aria-describedby="pinError">
           <button class="pin-submit" type="submit">Verify</button>
           <label class="remember-row">
             <input id="rememberDevice" type="checkbox">
@@ -141,8 +141,8 @@ function bindEvents() {
   });
 
   document.getElementById("pinInput").addEventListener("input", (event) => {
-    event.target.value = event.target.value.replace(/\D/g, "").slice(0, 4);
-    if (event.target.value.length === 4) window.setTimeout(verifyPin, 80);
+    event.target.value = event.target.value.replace(/\D/g, "").slice(0, 6);
+    if (event.target.value.length === 6) window.setTimeout(verifyPin, 80);
   });
 
   document.getElementById("lockButton").addEventListener("click", () => {
@@ -240,9 +240,9 @@ async function verifyPin() {
   const pinInput = document.getElementById("pinInput");
   const pinError = document.getElementById("pinError");
   const remember = document.getElementById("rememberDevice").checked;
-  const pin = pinInput.value.replace(/\D/g, "").slice(0, 4);
-  if (pin.length !== 4) {
-    pinError.textContent = "Enter exactly 4 digits.";
+  const pin = pinInput.value.replace(/\D/g, "").slice(0, 6);
+  if (pin.length !== 6) {
+    pinError.textContent = "Enter exactly 6 digits.";
     return;
   }
 
