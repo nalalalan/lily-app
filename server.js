@@ -166,6 +166,31 @@ function classifyText(text) {
   return "note";
 }
 
+function splitFactText(text) {
+  const cleaned = String(text || "")
+    .replace(/\r/g, "")
+    .replace(/[ \t]+/g, " ")
+    .trim();
+  if (!cleaned) return [];
+
+  const lineParts = cleaned
+    .split(/\n+/)
+    .flatMap((line) => line.split(/\s*(?:\u2022|;| - )\s*/))
+    .map((part) => part.replace(/^[-*]\s+/, "").trim())
+    .filter(Boolean);
+
+  const sentenceParts = lineParts.flatMap((part) => {
+    const sentences = part.match(/[^.!?]+(?:[.!?]+|$)/g) || [part];
+    if (sentences.length > 1) return sentences;
+    return [part];
+  });
+
+  return sentenceParts
+    .map((part) => part.trim())
+    .filter((part) => part.length > 2)
+    .slice(0, 200);
+}
+
 function sanitizeFileName(name) {
   const ext = path.extname(name || "").toLowerCase().replace(/[^a-z0-9.]/g, "");
   const safeExt = [".jpg", ".jpeg", ".png", ".webp", ".gif"].includes(ext) ? ext : ".jpg";
@@ -260,9 +285,29 @@ function publicMemory(memory) {
     summary: memory.summary,
     extractedText: memory.extractedText,
     facts: memory.facts,
+    sourceId: memory.sourceId,
+    factIndex: memory.factIndex,
+    derivedFact: memory.derivedFact,
     createdAt: memory.createdAt,
     updatedAt: memory.updatedAt
   };
+}
+
+function publicMemories(memories) {
+  return memories.flatMap((memory) => {
+    if (memory.kind === "photo") return [publicMemory(memory)];
+    const facts = splitFactText(memory.text || memory.summary || "");
+    if (facts.length <= 1) return [publicMemory(memory)];
+    return facts.map((fact, index) => publicMemory({
+      ...memory,
+      id: `${memory.id}__fact_${index + 1}`,
+      sourceId: memory.id,
+      factIndex: index + 1,
+      derivedFact: true,
+      kind: classifyText(fact),
+      text: fact
+    }));
+  });
 }
 
 function searchableText(memory) {
@@ -420,7 +465,7 @@ async function handleApi(req, res, pathname) {
 
   if (pathname === "/api/memories" && req.method === "GET") {
     const store = await readStore();
-    send(res, 200, { memories: store.memories.map(publicMemory).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))) });
+    send(res, 200, { memories: publicMemories(store.memories).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))) });
     return;
   }
 
@@ -432,12 +477,16 @@ async function handleApi(req, res, pathname) {
     const created = [];
 
     if (text) {
-      created.push({
-        id: createId("mem"),
-        kind: classifyText(text),
-        text,
-        createdAt: now,
-        updatedAt: now
+      const facts = splitFactText(text);
+      const textItems = facts.length ? facts : [text];
+      textItems.forEach((fact) => {
+        created.push({
+          id: createId("mem"),
+          kind: classifyText(fact),
+          text: fact,
+          createdAt: now,
+          updatedAt: now
+        });
       });
     }
 
