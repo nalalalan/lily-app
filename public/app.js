@@ -42,11 +42,11 @@ function renderShell() {
         <header class="suite-topbar" aria-label="lily navigation">
           <div class="suite-brand-cluster">
             <a class="suite-ao-home" href="https://aolabs.io/" aria-label="aolabs.io">
-              <img src="https://aolabs.io/marks/ao-ink.svg?v=20260515-ao-disc-a" alt="">
+              <img src="https://aolabs.io/marks/ao-ink.svg?v=20260516-domain-header" alt="">
             </a>
             <a class="suite-app-brand" href="/" aria-label="lily home">
               <img class="suite-app-mark" src="/icon.svg?v=20260507-suite3" alt="">
-              <span class="suite-app-name">lily</span>
+              <span class="suite-app-name">lily.aolabs.io</span>
             </a>
           </div>
           <div class="suite-topbar-actions" aria-label="lily actions">
