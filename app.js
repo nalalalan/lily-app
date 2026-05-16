@@ -9,20 +9,20 @@ const LEGACY_MIGRATED_KEY = "lily-legacy-migrated-v1";
 const state = {
   authenticated: false,
   memories: [],
-  memoryFilter: "all",
-  memoryQuery: "",
   pendingFiles: [],
   chat: [
     {
       role: "assistant",
-      content: "Saved Lily memory answers appear here."
+      content: "Ask about Lily."
     }
   ],
   loading: false,
   toastTimer: null
 };
 
-const memoryTextPlaceholder = "Notes, facts, dates, addresses, preferences, or pasted screenshots.";
+let resizeTimer = null;
+
+const memoryTextPlaceholder = "Paste a note.";
 
 function init() {
   renderShell();
@@ -59,34 +59,11 @@ function renderShell() {
           </div>
         </header>
 
-        <section class="memory-section" aria-labelledby="wallTitle">
-          <div class="wall-head">
-            <div>
-              <h2 id="wallTitle">Memory</h2>
-              <p id="memoryCount">No memories yet</p>
-            </div>
-            <div class="memory-controls" aria-label="Memory controls">
-              <input class="memory-search" id="memorySearch" type="search" placeholder="Search memory" autocomplete="off">
-              <div class="filter-row" aria-label="Memory filter">
-                <button class="filter-button is-active" type="button" data-filter="all">All</button>
-                <button class="filter-button" type="button" data-filter="photo">Images</button>
-                <button class="filter-button" type="button" data-filter="text">Text</button>
-              </div>
-            </div>
-          </div>
-          <div class="memory-wall" id="memoryWall" aria-label="Saved Lily memory wall"></div>
-        </section>
-
         <main class="workspace">
-          <details class="tool-panel chat-panel">
-            <summary>
-              <span>Ask</span>
-              <small>Saved notes only.</small>
-            </summary>
+          <section class="chat-panel" aria-labelledby="chatTitle">
             <div class="panel-head">
               <div>
                 <h2 id="chatTitle">Ask</h2>
-                <p>Saved notes only.</p>
               </div>
             </div>
             <div class="messages" id="messages" aria-live="polite"></div>
@@ -94,24 +71,19 @@ function renderShell() {
               <textarea id="chatInput" rows="2" placeholder="Ask about Lily"></textarea>
               <button class="primary-button" type="submit">Ask</button>
             </form>
-          </details>
+          </section>
 
-          <details class="tool-panel ingest-panel">
-            <summary>
-              <span>Add</span>
-              <small>Notes and images.</small>
-            </summary>
+          <section class="ingest-panel" aria-labelledby="saveTitle">
             <div class="panel-head">
               <div>
                 <h2 id="saveTitle">Add</h2>
-                <p>Notes and images.</p>
               </div>
             </div>
             <form id="memoryForm">
               <label class="drop-zone" id="dropZone" tabindex="0" for="photoInput">
                 <span>
                   <strong>Images</strong>
-                  <span>Choose, drop, or paste screenshots</span>
+                  <span>Choose, drop, or paste</span>
                 </span>
               </label>
               <input class="file-input" id="photoInput" type="file" accept="image/*" multiple>
@@ -119,11 +91,39 @@ function renderShell() {
               <textarea class="memory-field" id="memoryText" placeholder="${memoryTextPlaceholder}"></textarea>
               <div class="composer-actions">
                 <button class="secondary-button" id="clearComposer" type="button">Clear</button>
-                <button class="primary-button" type="submit">Save to Lily</button>
+                <button class="primary-button" type="submit">Save</button>
               </div>
             </form>
-          </details>
+          </section>
         </main>
+
+        <section class="memory-grid" aria-label="Saved Lily memory">
+          <section class="image-section" aria-labelledby="imageTitle">
+            <div class="section-head">
+              <h2 id="imageTitle">Images</h2>
+              <p id="imageCount">No images yet</p>
+            </div>
+            <div class="photo-wall" id="photoWall" aria-label="Saved Lily images"></div>
+          </section>
+
+          <section class="notes-section" aria-labelledby="notesTitle">
+            <div class="section-head">
+              <h2 id="notesTitle">Notes</h2>
+              <p id="factCount">No notes yet</p>
+            </div>
+            <div class="fact-table-wrap">
+              <table class="fact-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Fact</th>
+                    <th scope="col">Date</th>
+                  </tr>
+                </thead>
+                <tbody id="factTableBody"></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
       </div>
 
       <div class="pin-overlay" id="pinOverlay" role="dialog" aria-modal="true" aria-labelledby="pinTitle">
@@ -167,19 +167,6 @@ function bindEvents() {
   });
 
   document.getElementById("refreshButton").addEventListener("click", loadMemories);
-  document.getElementById("memorySearch").addEventListener("input", (event) => {
-    state.memoryQuery = event.target.value.trim().toLowerCase();
-    renderWall();
-  });
-  document.querySelectorAll("[data-filter]").forEach((button) => {
-    button.addEventListener("click", () => {
-      state.memoryFilter = button.dataset.filter || "all";
-      document.querySelectorAll("[data-filter]").forEach((node) => {
-        node.classList.toggle("is-active", node === button);
-      });
-      renderWall();
-    });
-  });
   document.getElementById("memoryForm").addEventListener("submit", saveMemory);
   document.getElementById("clearComposer").addEventListener("click", clearComposer);
   document.getElementById("memoryText").addEventListener("paste", handleMemoryPaste);
@@ -212,6 +199,10 @@ function bindEvents() {
 
   document.getElementById("chatForm").addEventListener("submit", askQuestion);
   document.getElementById("chatInput").addEventListener("keydown", submitFormOnEnter("chatForm"));
+  window.addEventListener("resize", () => {
+    window.clearTimeout(resizeTimer);
+    resizeTimer = window.setTimeout(renderPhotoWall, 120);
+  });
 }
 
 function submitFormOnEnter(formId) {
@@ -439,57 +430,105 @@ function renderChat() {
 }
 
 function renderWall() {
-  const wall = document.getElementById("memoryWall");
-  const count = document.getElementById("memoryCount");
+  renderPhotoWall();
+  renderFactTable();
+}
+
+function renderPhotoWall() {
+  const wall = document.getElementById("photoWall");
+  const count = document.getElementById("imageCount");
   if (!wall || !count) return;
-  const memories = visibleMemories();
-  const isFiltered = state.memoryQuery || state.memoryFilter !== "all";
-  count.textContent = state.memories.length
-    ? isFiltered
-      ? `${memories.length} of ${state.memories.length}`
-      : `${state.memories.length} saved`
-    : "No memories yet";
+  const photos = state.memories.filter((memory) => memory.kind === "photo");
+  count.textContent = photos.length ? `${photos.length} saved` : "No images yet";
   wall.innerHTML = "";
 
-  if (!memories.length) {
+  if (!photos.length) {
     const empty = document.createElement("div");
     empty.className = "empty-state";
-    empty.textContent = state.memories.length ? "No matching memory." : "No saved memory.";
+    empty.textContent = "No images.";
     wall.appendChild(empty);
     return;
   }
 
-  memories.forEach((memory) => {
-    const card = memory.kind === "photo" ? createPhotoCard(memory) : createTextCard(memory);
-    wall.appendChild(card);
+  const width = wall.clientWidth || window.innerWidth || 320;
+  const columnCount = Math.max(2, Math.min(8, Math.floor(width / 150)));
+  wall.style.setProperty("--photo-columns", String(columnCount));
+  const columns = Array.from({ length: columnCount }, () => {
+    const column = document.createElement("div");
+    column.className = "photo-column";
+    wall.appendChild(column);
+    return column;
+  });
+  photos.forEach((memory, index) => columns[index % columnCount].appendChild(createPhotoTile(memory)));
+}
+
+function renderFactTable() {
+  const body = document.getElementById("factTableBody");
+  const count = document.getElementById("factCount");
+  if (!body || !count) return;
+  const rows = factRows();
+  count.textContent = rows.length ? `${rows.length} facts` : "No notes yet";
+  body.innerHTML = "";
+
+  if (!rows.length) {
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 2;
+    cell.textContent = "No notes.";
+    row.appendChild(cell);
+    body.appendChild(row);
+    return;
+  }
+
+  rows.forEach((item) => {
+    const row = document.createElement("tr");
+    const fact = document.createElement("td");
+    const date = document.createElement("td");
+    fact.textContent = item.fact;
+    date.textContent = formatDate(item.createdAt);
+    row.append(fact, date);
+    body.appendChild(row);
   });
 }
 
-function visibleMemories() {
-  const query = state.memoryQuery;
-  return state.memories.filter((memory) => {
-    const isPhoto = memory.kind === "photo";
-    if (state.memoryFilter === "photo" && !isPhoto) return false;
-    if (state.memoryFilter === "text" && isPhoto) return false;
-    if (!query) return true;
-    return searchableMemoryText(memory).toLowerCase().includes(query);
-  });
+function factRows() {
+  return state.memories
+    .filter((memory) => memory.kind !== "photo")
+    .flatMap((memory) => {
+      const facts = splitFactText(memory.text || memory.summary || "");
+      return facts.map((fact, index) => ({
+        id: `${memory.id || "fact"}_${index}`,
+        fact,
+        createdAt: memory.createdAt || memory.updatedAt
+      }));
+    });
 }
 
-function searchableMemoryText(memory) {
-  return [
-    memory.kind,
-    memory.text,
-    memory.caption,
-    memory.summary,
-    memory.extractedText,
-    Array.isArray(memory.facts) ? memory.facts.join(" ") : ""
-  ].filter(Boolean).join(" ");
+function splitFactText(text) {
+  const cleaned = String(text || "")
+    .replace(/\r/g, "")
+    .replace(/[ \t]+/g, " ")
+    .trim();
+  if (!cleaned) return [];
+
+  const lineParts = cleaned
+    .split(/\n+/)
+    .flatMap((line) => line.split(/\s*(?:\u2022|;| - )\s*/))
+    .map((part) => part.replace(/^[-*]\s+/, "").trim())
+    .filter(Boolean);
+
+  return lineParts.flatMap((part) => {
+    const sentences = part.match(/[^.!?]+(?:[.!?]+|$)/g) || [part];
+    if (sentences.length <= 1) return [part];
+    return sentences
+      .map((sentence) => sentence.trim())
+      .filter((sentence) => sentence.length > 2);
+  }).slice(0, 200);
 }
 
-function createPhotoCard(memory) {
-  const card = document.createElement("article");
-  card.className = "memory-card photo";
+function createPhotoTile(memory) {
+  const card = document.createElement("figure");
+  card.className = "photo-tile";
   card.title = memory.summary || memory.caption || "saved image";
 
   const image = document.createElement("img");
@@ -499,48 +538,13 @@ function createPhotoCard(memory) {
   image.src = apiUrl(`${mediaPath}?token=${encodeURIComponent(storedToken())}`);
   card.appendChild(image);
 
-  const caption = document.createElement("div");
+  const caption = document.createElement("figcaption");
   caption.className = "photo-caption";
-  const text = document.createElement("span");
-  text.textContent = memory.summary || memory.caption || "saved image";
-  caption.appendChild(text);
+  caption.textContent = memory.summary || memory.caption || "saved image";
   card.appendChild(caption);
 
   appendDelete(card, memory);
   return card;
-}
-
-function createTextCard(memory) {
-  const card = document.createElement("article");
-  const displayKind = displayKindForMemory(memory);
-  card.className = `memory-card info-card ${displayKind} ${isLongMemory(memory) ? "long" : ""}`;
-
-  const label = document.createElement("span");
-  label.className = "type-label";
-  label.textContent = labelForKind(displayKind);
-
-  const text = document.createElement("p");
-  text.className = "info-text";
-  text.textContent = memory.text || memory.summary || "";
-  text.title = memory.text || memory.summary || "";
-
-  const meta = document.createElement("div");
-  meta.className = "meta-row";
-  meta.textContent = `${labelForKind(displayKind)} / ${formatDate(memory.createdAt)}`;
-
-  card.appendChild(label);
-  card.appendChild(text);
-  card.appendChild(meta);
-  appendDelete(card, memory);
-  return card;
-}
-
-function isLongMemory(memory) {
-  return String(memory.text || memory.summary || "").length > 220;
-}
-
-function displayKindForMemory(memory) {
-  return isLongMemory(memory) ? "note" : (memory.kind || "note");
 }
 
 function appendDelete(card, memory) {
