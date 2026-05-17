@@ -59,45 +59,7 @@ function renderShell() {
           </div>
         </header>
 
-        <main class="workspace">
-          <section class="chat-panel" aria-labelledby="chatTitle">
-            <div class="panel-head">
-              <div>
-                <h2 id="chatTitle">Ask</h2>
-              </div>
-            </div>
-            <div class="messages" id="messages" aria-live="polite"></div>
-            <form class="chat-form" id="chatForm">
-              <textarea id="chatInput" rows="2" placeholder="Ask about Lily"></textarea>
-              <button class="primary-button" type="submit">Ask</button>
-            </form>
-          </section>
-
-          <section class="ingest-panel" aria-labelledby="saveTitle">
-            <div class="panel-head">
-              <div>
-                <h2 id="saveTitle">Add</h2>
-              </div>
-            </div>
-            <form id="memoryForm">
-              <label class="drop-zone" id="dropZone" tabindex="0" for="photoInput">
-                <span>
-                  <strong>Images</strong>
-                  <span>Choose, drop, or paste</span>
-                </span>
-              </label>
-              <input class="file-input" id="photoInput" type="file" accept="image/*" multiple>
-              <div class="file-count" id="fileCount" aria-live="polite"></div>
-              <textarea class="memory-field" id="memoryText" placeholder="${memoryTextPlaceholder}"></textarea>
-              <div class="composer-actions">
-                <button class="secondary-button" id="clearComposer" type="button">Clear</button>
-                <button class="primary-button" type="submit">Save</button>
-              </div>
-            </form>
-          </section>
-        </main>
-
-        <section class="memory-grid" aria-label="Saved Lily memory">
+        <main class="split-workspace">
           <section class="image-section" aria-labelledby="imageTitle">
             <div class="section-head">
               <h2 id="imageTitle">Images</h2>
@@ -106,24 +68,58 @@ function renderShell() {
             <div class="photo-wall" id="photoWall" aria-label="Saved Lily images"></div>
           </section>
 
-          <section class="notes-section" aria-labelledby="notesTitle">
-            <div class="section-head">
-              <h2 id="notesTitle">Notes</h2>
-              <p id="factCount">No notes yet</p>
-            </div>
-            <div class="fact-table-wrap">
-              <table class="fact-table">
-                <thead>
-                  <tr>
-                    <th scope="col">Fact</th>
-                    <th scope="col">Date</th>
-                  </tr>
-                </thead>
-                <tbody id="factTableBody"></tbody>
-              </table>
-            </div>
+          <section class="right-rail" aria-label="Lily tools">
+            <section class="chat-panel" aria-labelledby="chatTitle">
+              <div class="panel-head">
+                <h2 id="chatTitle">Ask</h2>
+              </div>
+              <div class="messages" id="messages" aria-live="polite"></div>
+              <form class="chat-form" id="chatForm">
+                <textarea id="chatInput" rows="2" placeholder="Ask about Lily"></textarea>
+                <button class="primary-button" type="submit">Ask</button>
+              </form>
+            </section>
+
+            <section class="ingest-panel" aria-labelledby="saveTitle">
+              <div class="panel-head">
+                <h2 id="saveTitle">Add</h2>
+              </div>
+              <form id="memoryForm">
+                <label class="drop-zone" id="dropZone" tabindex="0" for="photoInput">
+                  <span>
+                    <strong>Images</strong>
+                    <span>Choose, drop, or paste</span>
+                  </span>
+                </label>
+                <input class="file-input" id="photoInput" type="file" accept="image/*" multiple>
+                <div class="file-count" id="fileCount" aria-live="polite"></div>
+                <textarea class="memory-field" id="memoryText" placeholder="${memoryTextPlaceholder}"></textarea>
+                <div class="composer-actions">
+                  <button class="secondary-button" id="clearComposer" type="button">Clear</button>
+                  <button class="primary-button" type="submit">Save</button>
+                </div>
+              </form>
+            </section>
+
+            <section class="notes-section" aria-labelledby="notesTitle">
+              <div class="section-head">
+                <h2 id="notesTitle">Notes</h2>
+                <p id="factCount">No notes yet</p>
+              </div>
+              <div class="fact-table-wrap">
+                <table class="fact-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Fact</th>
+                      <th scope="col">Date</th>
+                    </tr>
+                  </thead>
+                  <tbody id="factTableBody"></tbody>
+                </table>
+              </div>
+            </section>
           </section>
-        </section>
+        </main>
       </div>
 
       <div class="pin-overlay" id="pinOverlay" role="dialog" aria-modal="true" aria-labelledby="pinTitle">
@@ -451,7 +447,7 @@ function renderPhotoWall() {
   }
 
   const width = wall.clientWidth || window.innerWidth || 320;
-  const columnCount = Math.max(2, Math.min(8, Math.floor(width / 150)));
+  const columnCount = Math.max(2, Math.min(6, Math.floor(width / 185)));
   wall.style.setProperty("--photo-columns", String(columnCount));
   const columns = Array.from({ length: columnCount }, () => {
     const column = document.createElement("div");
