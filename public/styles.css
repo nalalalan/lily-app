@@ -1,15 +1,15 @@
 :root {
   color-scheme: light;
-  --page: #f5f5f3;
-  --surface: #ffffff;
-  --surface-muted: #fafafa;
-  --ink: #1f1f1f;
-  --muted: #666666;
-  --soft: #8a8a8a;
-  --line: #d8d8d8;
-  --line-strong: #bdbdbd;
-  --button: #2a2a2a;
-  --error: #9f2836;
+  --page: #fff5f6;
+  --surface: #fffdfb;
+  --surface-muted: #fff8f9;
+  --ink: #2b2022;
+  --muted: #765f63;
+  --soft: #9d7d84;
+  --line: #ead2d7;
+  --line-strong: #d9aeb8;
+  --button: #7b2f42;
+  --error: #a53644;
 }
 
 * {
@@ -261,7 +261,7 @@ noscript {
 
 .message.user {
   margin-left: auto;
-  background: #f0f0f0;
+  background: #f8ecef;
 }
 
 .message p {
@@ -345,7 +345,7 @@ noscript {
 
 .drop-zone.is-dragging {
   border-color: var(--button);
-  background: #f0f0f0;
+  background: #fff0f2;
 }
 
 .drop-zone strong {
@@ -432,7 +432,7 @@ noscript {
   position: relative;
   margin: 0;
   overflow: hidden;
-  background: #eeeeee;
+  background: #f4e8ea;
 }
 
 .photo-tile img {
@@ -501,7 +501,7 @@ noscript {
   place-items: center;
   border: 1px solid var(--line);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.92);
+  background: rgba(255, 251, 252, 0.94);
   color: var(--muted);
   font-size: 13px;
   font-weight: 600;
