@@ -35,6 +35,10 @@ body {
   letter-spacing: 0;
 }
 
+body.viewer-open {
+  overflow: hidden;
+}
+
 button,
 input,
 textarea {
@@ -460,6 +464,7 @@ noscript {
   overflow: hidden;
   background: #f4e8ea;
   border-radius: 4px;
+  cursor: zoom-in;
 }
 
 .photo-tile img {
@@ -467,6 +472,11 @@ noscript {
   height: auto;
   min-height: 74px;
   object-fit: cover;
+}
+
+.photo-tile:focus-visible {
+  outline: 2px solid var(--button);
+  outline-offset: -2px;
 }
 
 .photo-caption {
@@ -618,7 +628,7 @@ noscript {
 }
 
 .pin-input {
-  width: 150px;
+  width: 196px;
   height: 50px;
   border: 1px solid var(--line-strong);
   border-radius: 8px;
@@ -681,6 +691,65 @@ noscript {
 .toast.is-visible {
   opacity: 1;
   transform: translate(-50%, 0);
+}
+
+.image-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: none;
+  place-items: center;
+  padding: 24px;
+}
+
+.image-viewer.is-open {
+  display: grid;
+}
+
+.viewer-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(43, 32, 32, 0.74);
+  backdrop-filter: blur(10px);
+  cursor: zoom-out;
+}
+
+.viewer-frame {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  max-width: min(92vw, 1240px);
+  max-height: 90vh;
+  place-items: center;
+}
+
+.viewer-frame img {
+  max-width: 100%;
+  max-height: 90vh;
+  border: 1px solid rgba(255, 244, 238, 0.45);
+  border-radius: 8px;
+  background: #1e1717;
+  box-shadow: 0 22px 80px rgba(24, 14, 16, 0.46);
+  object-fit: contain;
+}
+
+.viewer-close {
+  position: absolute;
+  top: -14px;
+  right: -14px;
+  z-index: 2;
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 1px solid rgba(239, 207, 198, 0.9);
+  border-radius: 999px;
+  background: #fffdf8;
+  color: var(--button);
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1;
+  box-shadow: 0 10px 30px rgba(24, 14, 16, 0.22);
 }
 
 @keyframes shake {
@@ -781,6 +850,21 @@ noscript {
 
   .pin-window {
     width: min(320px, calc(100vw - 40px));
+  }
+
+  .image-viewer {
+    padding: 10px;
+  }
+
+  .viewer-frame,
+  .viewer-frame img {
+    max-width: 96vw;
+    max-height: 86vh;
+  }
+
+  .viewer-close {
+    top: 8px;
+    right: 8px;
   }
 }
 
