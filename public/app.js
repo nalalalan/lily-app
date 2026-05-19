@@ -5,6 +5,7 @@ const TOKEN_KEY = "lily-api-token-v1";
 const TOKEN_EXP_KEY = "lily-api-token-exp-v1";
 const LEGACY_MEMORY_KEY = "lily-memories-v1";
 const LEGACY_MIGRATED_KEY = "lily-legacy-migrated-v1";
+const PIN_LENGTH = 6;
 
 const state = {
   authenticated: false,
@@ -127,8 +128,8 @@ function renderShell() {
           <div class="pin-icon" aria-hidden="true"><img src="/icon.svg?v=20260507-suite3" alt=""></div>
           <h2 id="pinTitle">lily</h2>
           <p>private memory</p>
-          <label class="pin-label" for="pinInput">4 digits required</label>
-          <input class="pin-input" id="pinInput" name="pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="one-time-code" aria-describedby="pinError">
+          <label class="pin-label" for="pinInput">6 digits required</label>
+          <input class="pin-input" id="pinInput" name="pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="${PIN_LENGTH}" autocomplete="one-time-code" aria-describedby="pinError">
           <button class="pin-submit" type="submit">Verify</button>
           <label class="remember-row">
             <input id="rememberDevice" type="checkbox">
@@ -139,6 +140,14 @@ function renderShell() {
       </div>
 
       <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+      <div class="image-viewer" id="imageViewer" aria-hidden="true">
+        <button class="viewer-backdrop" id="viewerBackdrop" type="button" aria-label="Close image"></button>
+        <div class="viewer-frame" role="dialog" aria-modal="true" aria-label="Image preview">
+          <button class="viewer-close" id="viewerClose" type="button" aria-label="Close image">x</button>
+          <img id="viewerImage" alt="">
+        </div>
+      </div>
     </section>
   `;
   renderChat();
@@ -152,8 +161,8 @@ function bindEvents() {
   });
 
   document.getElementById("pinInput").addEventListener("input", (event) => {
-    event.target.value = event.target.value.replace(/\D/g, "").slice(0, 4);
-    if (event.target.value.length === 4) window.setTimeout(verifyPin, 80);
+    event.target.value = event.target.value.replace(/\D/g, "").slice(0, PIN_LENGTH);
+    if (event.target.value.length === PIN_LENGTH) window.setTimeout(verifyPin, 80);
   });
 
   document.getElementById("lockButton").addEventListener("click", () => {
@@ -195,6 +204,11 @@ function bindEvents() {
 
   document.getElementById("chatForm").addEventListener("submit", askQuestion);
   document.getElementById("chatInput").addEventListener("keydown", submitFormOnEnter("chatForm"));
+  document.getElementById("viewerBackdrop").addEventListener("click", closeImageViewer);
+  document.getElementById("viewerClose").addEventListener("click", closeImageViewer);
+  window.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeImageViewer();
+  });
   window.addEventListener("resize", () => {
     window.clearTimeout(resizeTimer);
     resizeTimer = window.setTimeout(renderPhotoWall, 120);
@@ -255,9 +269,9 @@ async function verifyPin() {
   const pinInput = document.getElementById("pinInput");
   const pinError = document.getElementById("pinError");
   const remember = document.getElementById("rememberDevice").checked;
-  const pin = pinInput.value.replace(/\D/g, "").slice(0, 4);
-  if (pin.length !== 4) {
-    pinError.textContent = "Enter exactly 4 digits.";
+  const pin = pinInput.value.replace(/\D/g, "").slice(0, PIN_LENGTH);
+  if (pin.length !== PIN_LENGTH) {
+    pinError.textContent = `Enter exactly ${PIN_LENGTH} digits.`;
     return;
   }
 
@@ -526,12 +540,23 @@ function createPhotoTile(memory) {
   const card = document.createElement("figure");
   card.className = "photo-tile";
   card.title = memory.summary || memory.caption || "saved image";
+  card.tabIndex = 0;
+  card.setAttribute("role", "button");
+  card.setAttribute("aria-label", "Open image");
+  card.addEventListener("click", (event) => {
+    if (event.target.closest(".delete-button")) return;
+    openImageViewer(memory);
+  });
+  card.addEventListener("keydown", (event) => {
+    if (event.target !== card || (event.key !== "Enter" && event.key !== " ")) return;
+    event.preventDefault();
+    openImageViewer(memory);
+  });
 
   const image = document.createElement("img");
   image.alt = memory.caption || "Saved Lily image";
   image.loading = "lazy";
-  const mediaPath = memory.file && memory.file.url ? memory.file.url : "";
-  image.src = apiUrl(`${mediaPath}?token=${encodeURIComponent(storedToken())}`);
+  image.src = imageUrlForMemory(memory);
   card.appendChild(image);
 
   const caption = document.createElement("figcaption");
@@ -543,13 +568,48 @@ function createPhotoTile(memory) {
   return card;
 }
 
+function imageUrlForMemory(memory) {
+  const mediaPath = memory.file && memory.file.url ? memory.file.url : "";
+  return apiUrl(`${mediaPath}?token=${encodeURIComponent(storedToken())}`);
+}
+
+function openImageViewer(memory) {
+  const viewer = document.getElementById("imageViewer");
+  const image = document.getElementById("viewerImage");
+  const close = document.getElementById("viewerClose");
+  if (!viewer || !image || !memory) return;
+
+  image.src = imageUrlForMemory(memory);
+  image.alt = memory.caption || memory.summary || "Saved Lily image";
+  viewer.classList.add("is-open");
+  viewer.setAttribute("aria-hidden", "false");
+  document.body.classList.add("viewer-open");
+  window.setTimeout(() => close && close.focus(), 0);
+}
+
+function closeImageViewer() {
+  const viewer = document.getElementById("imageViewer");
+  const image = document.getElementById("viewerImage");
+  if (!viewer || !viewer.classList.contains("is-open")) return;
+
+  viewer.classList.remove("is-open");
+  viewer.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("viewer-open");
+  if (image) {
+    image.removeAttribute("src");
+    image.alt = "";
+  }
+}
+
 function appendDelete(card, memory) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "delete-button";
   button.setAttribute("aria-label", "Delete memory");
   button.textContent = "x";
-  button.addEventListener("click", async () => {
+  button.addEventListener("click", async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
     if (!window.confirm("Delete this memory?")) return;
     try {
       await apiFetch(`/api/memories/${encodeURIComponent(memory.id)}`, { method: "DELETE" });
