@@ -599,40 +599,42 @@ function layoutPictureWall() {
   if (!wallWidth) return;
   const compact = window.matchMedia("(max-width: 720px)").matches;
   const gap = 4;
-  const targetHeight = compact ? 190 : 224;
-  const minHeight = compact ? 118 : 158;
-  const maxHeight = compact ? 258 : 292;
-  let row = [];
-  let ratioSum = 0;
-
-  const finish = (items, sum, fillRow) => {
-    if (!items.length || !sum) return;
-    const rowGaps = gap * Math.max(0, items.length - 1);
-    const naturalWidth = targetHeight * sum + rowGaps;
-    const shouldFill = fillRow || naturalWidth >= wallWidth * (compact ? 0.62 : 0.7);
-    const rawHeight = shouldFill ? (wallWidth - rowGaps) / sum : targetHeight;
-    const height = Math.round(Math.max(minHeight, Math.min(maxHeight, rawHeight)));
-    items.forEach((card) => {
-      const ratio = Number(card.dataset.ratio || 1) || 1;
-      card.style.setProperty("--tile-width", `${Math.max(44, Math.round(height * ratio))}px`);
-      card.style.setProperty("--tile-height", `${height}px`);
-    });
-  };
+  const targetColumnWidth = compact ? 116 : 160;
+  const columnCount = Math.max(2, Math.floor((wallWidth + gap) / (targetColumnWidth + gap)));
+  const columnWidth = (wallWidth - gap * (columnCount - 1)) / columnCount;
+  const targetArea = compact ? 46000 : 78000;
+  const columnHeights = Array(columnCount).fill(0);
 
   cards.forEach((card) => {
-    const ratio = Number(card.dataset.ratio || 1) || 1;
-    const naturalWidth = targetHeight * ratioSum + gap * Math.max(0, row.length - 1);
-    const projectedWidth = targetHeight * (ratioSum + ratio) + gap * row.length;
-    if (row.length && (naturalWidth >= wallWidth * (compact ? 0.86 : 0.9) || projectedWidth > wallWidth * 1.08)) {
-      finish(row, ratioSum, true);
-      row = [];
-      ratioSum = 0;
+    const ratio = Math.max(0.3, Math.min(3.4, Number(card.dataset.ratio || 1) || 1));
+    const desiredWidth = Math.sqrt(targetArea * ratio);
+    const desiredSpan = Math.round((desiredWidth + gap) / (columnWidth + gap));
+    const span = Math.max(1, Math.min(columnCount, desiredSpan));
+    const width = Math.round(columnWidth * span + gap * (span - 1));
+    const height = Math.round(width / ratio);
+    let bestStart = 0;
+    let bestY = Number.POSITIVE_INFINITY;
+
+    for (let start = 0; start <= columnCount - span; start += 1) {
+      const y = Math.max(...columnHeights.slice(start, start + span));
+      if (y < bestY) {
+        bestY = y;
+        bestStart = start;
+      }
     }
-    row.push(card);
-    ratioSum += ratio;
+
+    const x = Math.round(bestStart * (columnWidth + gap));
+    card.style.setProperty("--tile-width", `${width}px`);
+    card.style.setProperty("--tile-height", `${height}px`);
+    card.style.transform = `translate(${x}px, ${Math.round(bestY)}px)`;
+
+    const nextY = bestY + height + gap;
+    for (let column = bestStart; column < bestStart + span; column += 1) {
+      columnHeights[column] = nextY;
+    }
   });
 
-  finish(row, ratioSum, false);
+  wall.style.height = `${Math.max(...columnHeights) - gap}px`;
 }
 
 function photoMemoryText(memory) {
