@@ -14,7 +14,7 @@ const state = {
   chat: [
     {
       role: "assistant",
-      content: "Ask about Lily."
+      content: "Ask from saved Lily memory."
     }
   ],
   loading: false,
@@ -23,7 +23,7 @@ const state = {
 
 let resizeTimer = null;
 
-const memoryTextPlaceholder = "Paste a note.";
+const memoryTextPlaceholder = "Save a note, date, preference, or pasted screenshot context.";
 
 function init() {
   renderShell();
@@ -63,7 +63,7 @@ function renderShell() {
         <main class="split-workspace">
           <section class="image-section" aria-labelledby="imageTitle">
             <div class="section-head">
-              <h2 id="imageTitle">Images</h2>
+              <h2 id="imageTitle">image memory</h2>
               <p id="imageCount">No images yet</p>
             </div>
             <div class="photo-wall" id="photoWall" aria-label="Saved Lily images"></div>
@@ -72,7 +72,10 @@ function renderShell() {
           <section class="right-rail" aria-label="Lily tools">
             <section class="chat-panel" aria-labelledby="chatTitle">
               <div class="panel-head">
-                <h2 id="chatTitle">Ask</h2>
+                <div>
+                  <h2 id="chatTitle">ask memory</h2>
+                  <p>Answers only from saved Lily context.</p>
+                </div>
               </div>
               <div class="messages" id="messages" aria-live="polite"></div>
               <form class="chat-form" id="chatForm">
@@ -83,12 +86,15 @@ function renderShell() {
 
             <section class="ingest-panel" aria-labelledby="saveTitle">
               <div class="panel-head">
-                <h2 id="saveTitle">Add</h2>
+                <div>
+                  <h2 id="saveTitle">save memory</h2>
+                  <p>Notes, screenshots, photos.</p>
+                </div>
               </div>
               <form id="memoryForm">
                 <label class="drop-zone" id="dropZone" tabindex="0" for="photoInput">
                   <span>
-                    <strong>Images</strong>
+                    <strong>Add images</strong>
                     <span>Choose, drop, or paste</span>
                   </span>
                 </label>
@@ -104,7 +110,7 @@ function renderShell() {
 
             <section class="notes-section" aria-labelledby="notesTitle">
               <div class="section-head">
-                <h2 id="notesTitle">Notes</h2>
+                <h2 id="notesTitle">saved notes</h2>
                 <p id="factCount">No notes yet</p>
               </div>
               <div class="fact-table-wrap">
@@ -124,19 +130,38 @@ function renderShell() {
       </div>
 
       <div class="pin-overlay" id="pinOverlay" role="dialog" aria-modal="true" aria-labelledby="pinTitle">
-        <form class="pin-window" id="pinForm" autocomplete="off">
-          <div class="pin-icon" aria-hidden="true"><img src="/icon.svg?v=20260507-suite3" alt=""></div>
-          <h2 id="pinTitle">lily</h2>
-          <p>private memory</p>
-          <label class="pin-label" for="pinInput">6 digits required</label>
-          <input class="pin-input" id="pinInput" name="pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="${PIN_LENGTH}" autocomplete="one-time-code" aria-describedby="pinError">
-          <button class="pin-submit" type="submit">Verify</button>
-          <label class="remember-row">
-            <input id="rememberDevice" type="checkbox">
-            <span>Remember this device for 1 week</span>
-          </label>
-          <p class="pin-error" id="pinError" aria-live="polite"></p>
-        </form>
+        <div class="pin-stage">
+          <section class="pin-intro" aria-labelledby="pinTitle">
+            <div class="pin-brand">
+              <img src="/icon.svg?v=20260507-suite3" alt="">
+              <span>lily.aolabs.io</span>
+            </div>
+            <h2 id="pinTitle">lily memory</h2>
+            <p>Private synced notes, screenshots, photos, and answers from saved context.</p>
+            <div class="pin-capabilities" aria-label="Available after unlock">
+              <span>notes</span>
+              <span>images</span>
+              <span>chat</span>
+            </div>
+          </section>
+          <form class="pin-window" id="pinForm" autocomplete="off">
+            <div class="pin-window-head">
+              <div class="pin-icon" aria-hidden="true"><img src="/icon.svg?v=20260507-suite3" alt=""></div>
+              <div>
+                <h3>unlock</h3>
+                <p>Private memory bank</p>
+              </div>
+            </div>
+            <label class="pin-label" for="pinInput">6-digit PIN</label>
+            <input class="pin-input" id="pinInput" name="pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="${PIN_LENGTH}" autocomplete="one-time-code" aria-describedby="pinError">
+            <button class="pin-submit" type="submit">Unlock</button>
+            <label class="remember-row">
+              <input id="rememberDevice" type="checkbox">
+              <span>Remember for 1 week</span>
+            </label>
+            <p class="pin-error" id="pinError" aria-live="polite"></p>
+          </form>
+        </div>
       </div>
 
       <div class="toast" id="toast" role="status" aria-live="polite"></div>
