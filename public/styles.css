@@ -81,7 +81,7 @@ noscript {
   position: relative;
   min-height: 100svh;
   padding-bottom: 16px;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .app-surface::before {
@@ -177,10 +177,9 @@ noscript {
   grid-template-columns: minmax(0, 1fr) minmax(320px, 354px);
   gap: 12px;
   width: min(calc(100% - 28px), 1520px);
-  height: calc(100svh - 78px);
-  min-height: 660px;
+  min-height: calc(100svh - 78px);
   margin: 12px auto 0;
-  align-items: stretch;
+  align-items: start;
 }
 
 .right-rail {
@@ -233,7 +232,7 @@ noscript {
 
 .image-section {
   position: relative;
-  min-height: 0;
+  min-height: calc(100svh - 92px);
   overflow: hidden;
   border: 1px solid rgba(34, 25, 29, 0.08);
   border-radius: 12px;
@@ -480,9 +479,8 @@ noscript {
   display: grid;
   grid-template-columns: repeat(var(--photo-columns, 4), minmax(0, 1fr));
   gap: 14px;
-  min-height: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
+  min-height: calc(100svh - 92px);
+  overflow: visible;
   padding: 66px 18px 18px;
   border: 0;
   border-radius: 12px;
@@ -561,6 +559,19 @@ noscript {
   background:
     linear-gradient(180deg, rgba(255, 253, 249, 0.94), rgba(252, 242, 239, 0.86)),
     radial-gradient(circle at 100% 0%, rgba(231, 164, 179, 0.2), transparent 7rem);
+}
+
+.photo-tile.is-source-tile {
+  min-height: 96px;
+  cursor: zoom-in;
+}
+
+.photo-tile.is-source-tile .photo-note {
+  border-left-color: rgba(95, 139, 101, 0.42);
+}
+
+.photo-tile.is-source-tile:hover {
+  border-color: rgba(95, 139, 101, 0.26);
 }
 
 .photo-tile.is-fact-tile {
