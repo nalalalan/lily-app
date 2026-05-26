@@ -174,8 +174,8 @@ noscript {
 
 .split-workspace {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(330px, 370px);
-  gap: 18px;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 354px);
+  gap: 12px;
   width: min(calc(100% - 28px), 1520px);
   height: calc(100svh - 78px);
   min-height: 660px;
@@ -272,10 +272,11 @@ noscript {
   position: absolute;
   top: 14px;
   left: 14px;
-  right: 14px;
+  right: auto;
   z-index: 2;
+  min-width: 210px;
   margin: 0;
-  padding: 10px 12px;
+  padding: 9px 11px;
   border: 1px solid rgba(34, 25, 29, 0.1);
   border-radius: 8px;
   background: rgba(255, 253, 249, 0.78);
@@ -482,12 +483,12 @@ noscript {
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
-  padding: 76px 18px 18px;
+  padding: 66px 18px 18px;
   border: 0;
   border-radius: 12px;
   background:
     linear-gradient(180deg, rgba(255, 253, 249, 0.05), rgba(42, 35, 29, 0.1)),
-    var(--lily-room) center / cover no-repeat,
+    var(--lily-room) 42% center / cover no-repeat,
     #eee9e2;
 }
 
@@ -506,17 +507,19 @@ noscript {
   position: relative;
   z-index: 1;
   min-width: 0;
+  min-height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  justify-content: space-between;
+  gap: 10px;
 }
 
 .photo-column:nth-child(2n) {
-  padding-top: 42px;
+  padding-top: 28px;
 }
 
 .photo-column:nth-child(3n) {
-  padding-top: 18px;
+  padding-top: 12px;
 }
 
 .photo-tile {
@@ -550,7 +553,7 @@ noscript {
 }
 
 .photo-tile.is-note-tile {
-  min-height: 154px;
+  min-height: 112px;
   display: flex;
   align-items: flex-end;
   padding: 10px;
@@ -561,7 +564,7 @@ noscript {
 }
 
 .photo-tile.is-fact-tile {
-  min-height: 128px;
+  min-height: 94px;
 }
 
 .photo-note {
@@ -576,7 +579,7 @@ noscript {
 .photo-note p {
   margin: 0;
   color: var(--ink);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 800;
   line-height: 1.25;
 }
@@ -696,7 +699,7 @@ noscript {
   background:
     radial-gradient(circle at 50% 45%, rgba(255, 253, 249, 0.5), rgba(255, 253, 249, 0.16) 17rem, rgba(35, 30, 25, 0.34) 100%),
     linear-gradient(90deg, rgba(20, 16, 15, 0.16), rgba(251, 247, 241, 0.02) 47%, rgba(20, 16, 15, 0.16)),
-    var(--lily-room) center / cover no-repeat,
+    var(--lily-room) 42% center / cover no-repeat,
     #f5efe7;
 }
 
@@ -707,7 +710,7 @@ noscript {
 .pin-stage {
   position: relative;
   z-index: 1;
-  width: min(calc(100vw - 56px), 390px);
+  width: min(calc(100vw - 40px), 370px);
   display: grid;
   grid-template-columns: 1fr;
   gap: 18px;
@@ -755,7 +758,7 @@ noscript {
 
 .pin-window {
   width: 100%;
-  padding: 20px;
+  padding: 18px;
   border: 1px solid rgba(64, 45, 50, 0.13);
   border-radius: 16px;
   background:
@@ -777,8 +780,8 @@ noscript {
 }
 
 .pin-icon {
-  width: 54px;
-  height: 54px;
+  width: 46px;
+  height: 46px;
   flex: 0 0 auto;
   overflow: hidden;
   border-radius: 14px;
@@ -794,7 +797,7 @@ noscript {
 .pin-window h3 {
   margin: 0;
   color: var(--ink);
-  font-size: 27px;
+  font-size: 30px;
   line-height: 1;
   font-weight: 780;
 }
@@ -808,14 +811,14 @@ noscript {
 
 .pin-label {
   display: block;
-  margin: 22px 0 8px;
+  margin: 16px 0 8px;
   color: var(--muted);
   font-size: 12px;
   font-weight: 720;
 }
 
 .pin-input {
-  height: 58px;
+  height: 52px;
   padding: 0 14px;
   color: var(--ink);
   font-size: 27px;
@@ -827,7 +830,7 @@ noscript {
 .pin-submit {
   display: block;
   width: 100%;
-  margin-top: 16px;
+  margin-top: 12px;
 }
 
 .remember-row {
@@ -955,6 +958,7 @@ noscript {
 
   .right-rail {
     grid-template-rows: auto auto;
+    gap: 10px;
   }
 
   .chat-panel,
@@ -966,7 +970,8 @@ noscript {
 
   .photo-wall {
     min-height: 58vh;
-    max-height: 58vh;
+    max-height: none;
+    overflow-y: visible;
   }
 
   .messages {
@@ -999,7 +1004,7 @@ noscript {
   }
 
   .pin-stage {
-    width: min(100%, 340px);
+    width: min(100%, 318px);
     grid-template-columns: 1fr;
     gap: 18px;
     margin: auto;
@@ -1019,8 +1024,12 @@ noscript {
   }
 
   .pin-window {
-    padding: 18px;
+    padding: 16px;
     border-radius: 16px;
+  }
+
+  .pin-input {
+    height: 50px;
   }
 }
 
@@ -1081,10 +1090,18 @@ noscript {
   }
 
   .photo-wall {
-    min-height: 55vh;
-    max-height: 55vh;
-    padding: 70px 10px 10px;
+    min-height: 620px;
+    max-height: none;
+    padding: 58px 10px 10px;
     gap: 10px;
+  }
+
+  .image-section > .section-head {
+    top: 10px;
+    left: 10px;
+    min-width: 0;
+    max-width: calc(100% - 20px);
+    padding: 8px 10px;
   }
 
   .drop-zone {
@@ -1120,10 +1137,6 @@ noscript {
 
   .pin-stage {
     width: min(100%, 300px);
-  }
-
-  .pin-intro h2 {
-    font-size: 44px;
   }
 
   .image-viewer {

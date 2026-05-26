@@ -113,20 +113,12 @@ function renderShell() {
 
       <div class="pin-overlay" id="pinOverlay" role="dialog" aria-modal="true" aria-labelledby="pinTitle">
         <div class="pin-stage">
-          <section class="pin-intro" aria-labelledby="pinTitle">
-            <div class="pin-brand">
-              <img src="/icon.svg?v=20260507-suite3" alt="">
-              <span>lily.aolabs.io</span>
-            </div>
-            <h2 id="pinTitle">lily</h2>
-            <p>Private memory room</p>
-          </section>
           <form class="pin-window" id="pinForm" autocomplete="off">
             <div class="pin-window-head">
               <div class="pin-icon" aria-hidden="true"><img src="/icon.svg?v=20260507-suite3" alt=""></div>
               <div>
-                <h3>unlock</h3>
-                <p>Private memory bank</p>
+                <h3 id="pinTitle">lily</h3>
+                <p>Private memory room</p>
               </div>
             </div>
             <label class="pin-label" for="pinInput">6-digit PIN</label>
@@ -470,7 +462,7 @@ function renderPhotoWall() {
   }
 
   const width = wall.clientWidth || window.innerWidth || 320;
-  const columnCount = Math.max(2, Math.min(6, Math.floor(width / 210)));
+  const columnCount = Math.max(2, Math.min(4, Math.floor(width / 280)));
   wall.style.setProperty("--photo-columns", String(columnCount));
   const columns = Array.from({ length: columnCount }, () => {
     const column = document.createElement("div");
