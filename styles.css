@@ -32,6 +32,9 @@ body {
   margin: 0;
   overflow-x: hidden;
   background:
+    radial-gradient(circle at 11% 18%, rgba(231, 164, 179, 0.34), transparent 22rem),
+    radial-gradient(circle at 88% 12%, rgba(127, 163, 122, 0.32), transparent 24rem),
+    radial-gradient(circle at 64% 86%, rgba(216, 190, 122, 0.2), transparent 22rem),
     linear-gradient(135deg, var(--page) 0%, var(--page-cool) 54%, #f7ecee 100%);
   color: var(--ink);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -75,8 +78,35 @@ noscript {
 }
 
 .app-surface {
+  position: relative;
   min-height: 100svh;
   padding-bottom: 16px;
+  overflow: hidden;
+}
+
+.app-surface::before,
+.app-surface::after {
+  content: "";
+  position: fixed;
+  z-index: -1;
+  width: 420px;
+  height: 420px;
+  pointer-events: none;
+  background: url("/icon.svg?v=20260507-suite3") center / contain no-repeat;
+  opacity: 0.13;
+  filter: saturate(1.05);
+}
+
+.app-surface::before {
+  left: -96px;
+  top: 104px;
+  transform: rotate(-18deg);
+}
+
+.app-surface::after {
+  right: -112px;
+  bottom: -84px;
+  transform: rotate(16deg) scale(1.14);
 }
 
 .memory-app.is-locked .app-surface {
@@ -418,6 +448,7 @@ noscript {
 }
 
 .photo-wall {
+  position: relative;
   flex: 1;
   display: grid;
   grid-template-columns: repeat(var(--photo-columns, 4), minmax(0, 1fr));
@@ -428,10 +459,28 @@ noscript {
   padding: 6px;
   border: 1px solid rgba(34, 25, 29, 0.08);
   border-radius: 8px;
-  background: #eee9e2;
+  background:
+    radial-gradient(circle at 82% 18%, rgba(231, 164, 179, 0.16), transparent 12rem),
+    radial-gradient(circle at 18% 84%, rgba(123, 157, 117, 0.16), transparent 14rem),
+    #eee9e2;
+}
+
+.photo-wall::before {
+  content: "";
+  position: absolute;
+  inset: 8%;
+  pointer-events: none;
+  background:
+    url("/icon.svg?v=20260507-suite3") 12% 18% / 130px 130px no-repeat,
+    url("/icon.svg?v=20260507-suite3") 88% 76% / 180px 180px no-repeat,
+    url("/icon.svg?v=20260507-suite3") 55% 48% / 110px 110px no-repeat;
+  opacity: 0.08;
+  filter: saturate(1.08);
 }
 
 .photo-column {
+  position: relative;
+  z-index: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -539,6 +588,8 @@ noscript {
 }
 
 .empty-state {
+  position: relative;
+  z-index: 1;
   min-height: 140px;
   display: grid;
   place-items: center;
@@ -561,18 +612,175 @@ noscript {
   overflow: auto;
   padding: 28px;
   background:
-    linear-gradient(135deg, #f7f2ee 0%, #eef4ef 52%, #f7e9ed 100%);
+    radial-gradient(circle at 18% 24%, rgba(233, 158, 176, 0.42), transparent 19rem),
+    radial-gradient(circle at 83% 22%, rgba(102, 145, 104, 0.32), transparent 24rem),
+    radial-gradient(circle at 42% 82%, rgba(220, 187, 116, 0.21), transparent 22rem),
+    linear-gradient(135deg, #f8f2ee 0%, #eef5ef 50%, #f8e8ed 100%);
 }
 
 .memory-app.is-locked .pin-overlay {
   display: grid;
 }
 
+.lily-field {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.lily-field::before {
+  content: "";
+  position: absolute;
+  inset: 5.5vh 5vw;
+  border: 1px solid rgba(84, 58, 64, 0.08);
+  border-radius: 42px;
+  background:
+    linear-gradient(90deg, rgba(255, 253, 249, 0.44), rgba(255, 253, 249, 0.12)),
+    radial-gradient(circle at 22% 16%, rgba(255, 255, 255, 0.7), transparent 14rem);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.54);
+}
+
+.lily-bloom,
+.memory-leaf,
+.memory-card {
+  position: absolute;
+  display: block;
+}
+
+.lily-bloom {
+  border-radius: 999px;
+  filter: drop-shadow(0 30px 42px rgba(45, 31, 35, 0.14));
+}
+
+.lily-bloom img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.bloom-1 {
+  width: 260px;
+  height: 260px;
+  left: 5vw;
+  top: 8vh;
+  opacity: 0.38;
+  transform: rotate(-22deg);
+}
+
+.bloom-2 {
+  width: 460px;
+  height: 460px;
+  right: -90px;
+  top: 5vh;
+  opacity: 0.2;
+  transform: rotate(18deg);
+}
+
+.bloom-3 {
+  width: 340px;
+  height: 340px;
+  left: 11vw;
+  bottom: -70px;
+  opacity: 0.22;
+  transform: rotate(24deg);
+}
+
+.bloom-4 {
+  width: 140px;
+  height: 140px;
+  right: 19vw;
+  bottom: 12vh;
+  opacity: 0.28;
+  transform: rotate(-12deg);
+}
+
+.bloom-5 {
+  width: 94px;
+  height: 94px;
+  left: 47vw;
+  top: 17vh;
+  opacity: 0.36;
+  transform: rotate(8deg);
+}
+
+.bloom-6 {
+  width: 118px;
+  height: 118px;
+  left: 68vw;
+  bottom: 23vh;
+  opacity: 0.24;
+  transform: rotate(-28deg);
+}
+
+.memory-leaf {
+  width: 210px;
+  height: 92px;
+  border-radius: 100% 0 100% 0;
+  background: linear-gradient(135deg, rgba(88, 125, 80, 0.16), rgba(255, 253, 249, 0.24));
+  box-shadow: 0 24px 54px rgba(50, 65, 52, 0.09);
+}
+
+.leaf-1 {
+  left: -32px;
+  top: 42vh;
+  transform: rotate(22deg);
+}
+
+.leaf-2 {
+  right: 7vw;
+  bottom: 8vh;
+  transform: rotate(-16deg);
+}
+
+.leaf-3 {
+  left: 37vw;
+  bottom: 4vh;
+  transform: rotate(8deg) scale(0.84);
+}
+
+.leaf-4 {
+  right: -48px;
+  top: 48vh;
+  transform: rotate(-34deg) scale(0.96);
+}
+
+.memory-card {
+  width: 150px;
+  height: 108px;
+  border: 1px solid rgba(84, 58, 64, 0.08);
+  border-radius: 16px;
+  background:
+    linear-gradient(180deg, rgba(255, 253, 249, 0.72), rgba(255, 247, 242, 0.34)),
+    radial-gradient(circle at 72% 18%, rgba(229, 168, 182, 0.22), transparent 4rem);
+  box-shadow: 0 22px 44px rgba(44, 33, 36, 0.08);
+}
+
+.card-1 {
+  left: 18vw;
+  top: 22vh;
+  transform: rotate(-8deg);
+}
+
+.card-2 {
+  right: 10vw;
+  top: 62vh;
+  transform: rotate(7deg);
+}
+
+.card-3 {
+  left: 52vw;
+  bottom: 8vh;
+  transform: rotate(-4deg);
+}
+
 .pin-stage {
-  width: min(calc(100vw - 56px), 980px);
+  position: relative;
+  z-index: 1;
+  width: min(calc(100vw - 56px), 1100px);
   display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(320px, 380px);
-  gap: 22px;
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 382px);
+  gap: 34px;
   align-items: center;
 }
 
@@ -584,33 +792,34 @@ noscript {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 22px;
+  margin-bottom: 24px;
   color: var(--muted);
   font-size: 14px;
   font-weight: 700;
 }
 
 .pin-brand img {
-  width: 38px;
-  height: 38px;
+  width: 46px;
+  height: 46px;
 }
 
 .pin-intro h2 {
   margin: 0;
-  max-width: 540px;
+  max-width: 650px;
   color: var(--ink);
-  font-size: 58px;
-  line-height: 0.96;
-  font-weight: 800;
+  font-size: 72px;
+  line-height: 0.9;
+  font-weight: 830;
+  text-wrap: balance;
 }
 
 .pin-intro p {
-  max-width: 520px;
-  margin: 18px 0 0;
-  color: var(--muted);
-  font-size: 18px;
-  line-height: 1.42;
-  font-weight: 560;
+  max-width: 570px;
+  margin: 22px 0 0;
+  color: #55484c;
+  font-size: 19px;
+  line-height: 1.46;
+  font-weight: 610;
 }
 
 .pin-capabilities {
@@ -621,10 +830,10 @@ noscript {
 }
 
 .pin-capabilities span {
-  padding: 7px 10px;
+  padding: 8px 12px;
   border: 1px solid rgba(34, 25, 29, 0.11);
   border-radius: 999px;
-  background: rgba(255, 253, 249, 0.78);
+  background: rgba(255, 253, 249, 0.86);
   color: var(--ink);
   font-size: 13px;
   font-weight: 700;
@@ -633,12 +842,14 @@ noscript {
 
 .pin-window {
   width: 100%;
-  padding: 22px;
-  border: 1px solid rgba(34, 25, 29, 0.12);
-  border-radius: 8px;
-  background: rgba(255, 253, 249, 0.95);
+  padding: 24px;
+  border: 1px solid rgba(64, 45, 50, 0.13);
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(255, 253, 249, 0.97), rgba(255, 249, 244, 0.92)),
+    radial-gradient(circle at 92% 0%, rgba(233, 158, 176, 0.17), transparent 10rem);
   color: var(--ink);
-  box-shadow: 0 26px 70px var(--shadow);
+  box-shadow: 0 32px 84px rgba(59, 42, 48, 0.18);
 }
 
 .pin-window.is-wrong {
@@ -652,12 +863,13 @@ noscript {
 }
 
 .pin-icon {
-  width: 48px;
-  height: 48px;
+  width: 54px;
+  height: 54px;
   flex: 0 0 auto;
   overflow: hidden;
-  border-radius: 8px;
+  border-radius: 14px;
   background: var(--surface-muted);
+  box-shadow: 0 12px 24px rgba(57, 43, 46, 0.08);
 }
 
 .pin-icon img {
@@ -668,7 +880,7 @@ noscript {
 .pin-window h3 {
   margin: 0;
   color: var(--ink);
-  font-size: 24px;
+  font-size: 27px;
   line-height: 1;
   font-weight: 780;
 }
@@ -689,10 +901,10 @@ noscript {
 }
 
 .pin-input {
-  height: 54px;
+  height: 58px;
   padding: 0 14px;
   color: var(--ink);
-  font-size: 26px;
+  font-size: 27px;
   font-weight: 780;
   font-variant-numeric: tabular-nums;
   text-align: center;
@@ -701,7 +913,7 @@ noscript {
 .pin-submit {
   display: block;
   width: 100%;
-  margin-top: 14px;
+  margin-top: 16px;
 }
 
 .remember-row {
@@ -860,6 +1072,46 @@ noscript {
     padding: 20px 16px;
   }
 
+  .lily-field::before {
+    inset: 3vh 12px;
+    border-radius: 28px;
+  }
+
+  .bloom-1 {
+    width: 148px;
+    height: 148px;
+    left: -22px;
+    top: 9vh;
+    opacity: 0.28;
+  }
+
+  .bloom-2 {
+    width: 230px;
+    height: 230px;
+    right: -74px;
+    top: 3vh;
+    opacity: 0.16;
+  }
+
+  .bloom-3 {
+    width: 190px;
+    height: 190px;
+    left: -42px;
+    bottom: -32px;
+    opacity: 0.16;
+  }
+
+  .bloom-4,
+  .bloom-5,
+  .bloom-6,
+  .memory-card {
+    display: none;
+  }
+
+  .memory-leaf {
+    opacity: 0.55;
+  }
+
   .pin-stage {
     width: min(100%, 340px);
     grid-template-columns: 1fr;
@@ -868,7 +1120,7 @@ noscript {
   }
 
   .pin-intro h2 {
-    font-size: 38px;
+    font-size: 41px;
   }
 
   .pin-intro p {
@@ -882,6 +1134,7 @@ noscript {
 
   .pin-window {
     padding: 18px;
+    border-radius: 16px;
   }
 }
 
@@ -979,7 +1232,7 @@ noscript {
   }
 
   .pin-intro h2 {
-    font-size: 34px;
+    font-size: 37px;
   }
 
   .pin-capabilities {

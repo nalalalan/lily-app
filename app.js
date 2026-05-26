@@ -130,14 +130,29 @@ function renderShell() {
       </div>
 
       <div class="pin-overlay" id="pinOverlay" role="dialog" aria-modal="true" aria-labelledby="pinTitle">
+        <div class="lily-field" aria-hidden="true">
+          <span class="lily-bloom bloom-1"><img src="/icon.svg?v=20260507-suite3" alt=""></span>
+          <span class="lily-bloom bloom-2"><img src="/icon.svg?v=20260507-suite3" alt=""></span>
+          <span class="lily-bloom bloom-3"><img src="/icon.svg?v=20260507-suite3" alt=""></span>
+          <span class="lily-bloom bloom-4"><img src="/icon.svg?v=20260507-suite3" alt=""></span>
+          <span class="lily-bloom bloom-5"><img src="/icon.svg?v=20260507-suite3" alt=""></span>
+          <span class="lily-bloom bloom-6"><img src="/icon.svg?v=20260507-suite3" alt=""></span>
+          <span class="memory-leaf leaf-1"></span>
+          <span class="memory-leaf leaf-2"></span>
+          <span class="memory-leaf leaf-3"></span>
+          <span class="memory-leaf leaf-4"></span>
+          <span class="memory-card card-1"></span>
+          <span class="memory-card card-2"></span>
+          <span class="memory-card card-3"></span>
+        </div>
         <div class="pin-stage">
           <section class="pin-intro" aria-labelledby="pinTitle">
             <div class="pin-brand">
               <img src="/icon.svg?v=20260507-suite3" alt="">
               <span>lily.aolabs.io</span>
             </div>
-            <h2 id="pinTitle">lily memory</h2>
-            <p>Private synced notes, screenshots, photos, and answers from saved context.</p>
+            <h2 id="pinTitle">surrounded by lily</h2>
+            <p>Private memory for the notes, screenshots, photos, dates, and preferences that make Lily feel present.</p>
             <div class="pin-capabilities" aria-label="Available after unlock">
               <span>notes</span>
               <span>images</span>
