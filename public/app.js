@@ -442,18 +442,16 @@ function renderPhotoWall() {
   const wall = document.getElementById("photoWall");
   const count = document.getElementById("imageCount");
   if (!wall || !count) return;
-  const photos = state.memories.filter((memory) => memory.kind === "photo");
-  const facts = factRows();
-  const roomItems = [
-    ...facts.slice(0, 60).map((fact) => ({ type: "fact", fact, createdAt: fact.createdAt })),
-    ...photos.map((memory) => ({ type: "photo", memory, createdAt: memory.createdAt || memory.updatedAt }))
-  ].sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
-  count.textContent = roomItems.length
+  const photos = state.memories
+    .filter((memory) => memory.kind === "photo")
+    .sort((a, b) => String(b.createdAt || b.updatedAt || "").localeCompare(String(a.createdAt || a.updatedAt || "")));
+  const facts = factRows().slice(0, 60);
+  count.textContent = photos.length || facts.length
     ? `${photos.length} image${photos.length === 1 ? "" : "s"} / ${facts.length} note${facts.length === 1 ? "" : "s"}`
     : "No memories yet";
   wall.innerHTML = "";
 
-  if (!roomItems.length) {
+  if (!photos.length && !facts.length) {
     const empty = document.createElement("div");
     empty.className = "empty-state";
     empty.textContent = "Add notes or photos.";
@@ -461,19 +459,19 @@ function renderPhotoWall() {
     return;
   }
 
-  const width = wall.clientWidth || window.innerWidth || 320;
-  const columnCount = Math.max(2, Math.min(4, Math.floor(width / 280)));
-  wall.style.setProperty("--photo-columns", String(columnCount));
-  const columns = Array.from({ length: columnCount }, () => {
-    const column = document.createElement("div");
-    column.className = "photo-column";
-    wall.appendChild(column);
-    return column;
-  });
-  roomItems.forEach((item, index) => {
-    const tile = item.type === "photo" ? createPhotoTile(item.memory) : createFactTile(item.fact);
-    columns[index % columnCount].appendChild(tile);
-  });
+  if (photos.length) {
+    const pictureWall = document.createElement("div");
+    pictureWall.className = "picture-wall";
+    photos.forEach((memory) => pictureWall.appendChild(createPhotoTile(memory)));
+    wall.appendChild(pictureWall);
+  }
+
+  if (facts.length) {
+    const notesWall = document.createElement("div");
+    notesWall.className = "notes-wall";
+    facts.forEach((fact) => notesWall.appendChild(createFactTile(fact)));
+    wall.appendChild(notesWall);
+  }
 }
 
 function renderFactTable() {
@@ -542,7 +540,7 @@ function splitFactText(text) {
 
 function createPhotoTile(memory) {
   const card = document.createElement("figure");
-  card.className = "photo-tile is-note-tile is-source-tile";
+  card.className = "photo-tile is-image-tile";
   card.title = photoMemoryText(memory);
   if (hasDisplayablePhoto(memory)) {
     card.tabIndex = 0;
@@ -558,20 +556,33 @@ function createPhotoTile(memory) {
       openImageViewer(memory);
     });
 
+    const image = document.createElement("img");
+    image.alt = memory.caption || memory.summary || "Saved Lily image";
+    image.loading = "lazy";
+    image.src = imageUrlForMemory(memory);
+    image.addEventListener("error", () => card.classList.add("is-image-missing"), { once: true });
+    card.appendChild(image);
+
+    const caption = document.createElement("figcaption");
+    caption.className = "photo-caption";
+    caption.textContent = photoMemoryText(memory);
+    card.appendChild(caption);
+  } else {
+    card.classList.add("is-note-tile", "is-source-tile");
+    const note = document.createElement("figcaption");
+    note.className = "photo-note";
+
+    const text = document.createElement("p");
+    text.textContent = photoMemoryText(memory);
+
+    const date = document.createElement("time");
+    date.dateTime = memory.createdAt || "";
+    date.textContent = formatDate(memory.createdAt || memory.updatedAt);
+
+    note.append(text, date);
+    card.appendChild(note);
   }
 
-  const note = document.createElement("figcaption");
-  note.className = "photo-note";
-
-  const text = document.createElement("p");
-  text.textContent = photoMemoryText(memory);
-
-  const date = document.createElement("time");
-  date.dateTime = memory.createdAt || "";
-  date.textContent = formatDate(memory.createdAt || memory.updatedAt);
-
-  note.append(text, date);
-  card.appendChild(note);
   appendDelete(card, memory);
   return card;
 }
