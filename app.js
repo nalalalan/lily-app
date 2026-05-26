@@ -61,12 +61,9 @@ function renderShell() {
         </header>
 
         <main class="split-workspace">
-          <section class="image-section" aria-labelledby="imageTitle">
-            <div class="section-head">
-              <h2 id="imageTitle">lily room</h2>
-              <p id="imageCount">No images yet</p>
-            </div>
-            <div class="photo-wall" id="photoWall" aria-label="Saved Lily room"></div>
+          <section class="image-section" aria-label="Saved Lily pictures and notes">
+            <p class="memory-count" id="imageCount" aria-live="polite">No images yet</p>
+            <div class="photo-wall" id="photoWall" aria-label="Saved Lily pictures and notes"></div>
           </section>
 
           <section class="right-rail" aria-label="Lily tools">
@@ -442,16 +439,18 @@ function renderPhotoWall() {
   const wall = document.getElementById("photoWall");
   const count = document.getElementById("imageCount");
   if (!wall || !count) return;
-  const photos = state.memories
+  const photoMemories = state.memories
     .filter((memory) => memory.kind === "photo")
     .sort((a, b) => String(b.createdAt || b.updatedAt || "").localeCompare(String(a.createdAt || a.updatedAt || "")));
+  const displayPhotos = photoMemories.filter(hasDisplayablePhoto);
+  const sourcePhotoNotes = photoMemories.filter((memory) => !hasDisplayablePhoto(memory));
   const facts = factRows().slice(0, 60);
-  count.textContent = photos.length || facts.length
-    ? `${photos.length} image${photos.length === 1 ? "" : "s"} / ${facts.length} note${facts.length === 1 ? "" : "s"}`
+  count.textContent = displayPhotos.length || sourcePhotoNotes.length || facts.length
+    ? `${displayPhotos.length} image${displayPhotos.length === 1 ? "" : "s"} / ${sourcePhotoNotes.length + facts.length} note${sourcePhotoNotes.length + facts.length === 1 ? "" : "s"}`
     : "No memories yet";
   wall.innerHTML = "";
 
-  if (!photos.length && !facts.length) {
+  if (!displayPhotos.length && !sourcePhotoNotes.length && !facts.length) {
     const empty = document.createElement("div");
     empty.className = "empty-state";
     empty.textContent = "Add notes or photos.";
@@ -459,16 +458,17 @@ function renderPhotoWall() {
     return;
   }
 
-  if (photos.length) {
+  if (displayPhotos.length) {
     const pictureWall = document.createElement("div");
     pictureWall.className = "picture-wall";
-    photos.forEach((memory) => pictureWall.appendChild(createPhotoTile(memory)));
+    displayPhotos.forEach((memory) => pictureWall.appendChild(createPhotoTile(memory)));
     wall.appendChild(pictureWall);
   }
 
-  if (facts.length) {
+  if (sourcePhotoNotes.length || facts.length) {
     const notesWall = document.createElement("div");
     notesWall.className = "notes-wall";
+    sourcePhotoNotes.forEach((memory) => notesWall.appendChild(createPhotoTile(memory)));
     facts.forEach((fact) => notesWall.appendChild(createFactTile(fact)));
     wall.appendChild(notesWall);
   }
