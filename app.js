@@ -22,6 +22,7 @@ const state = {
 };
 
 let resizeTimer = null;
+let pictureWallLayoutTimer = null;
 
 const memoryTextPlaceholder = "Save a note, date, preference, or pasted screenshot context.";
 
@@ -444,13 +445,13 @@ function renderPhotoWall() {
     .sort((a, b) => String(b.createdAt || b.updatedAt || "").localeCompare(String(a.createdAt || a.updatedAt || "")));
   const displayPhotos = photoMemories.filter(hasDisplayablePhoto);
   const sourcePhotoNotes = photoMemories.filter((memory) => !hasDisplayablePhoto(memory));
-  const facts = factRows().slice(0, 60);
-  count.textContent = displayPhotos.length || sourcePhotoNotes.length || facts.length
-    ? `${displayPhotos.length} image${displayPhotos.length === 1 ? "" : "s"} / ${sourcePhotoNotes.length + facts.length} note${sourcePhotoNotes.length + facts.length === 1 ? "" : "s"}`
+  const notes = noteRows().slice(0, 60);
+  count.textContent = displayPhotos.length || sourcePhotoNotes.length || notes.length
+    ? `${displayPhotos.length} image${displayPhotos.length === 1 ? "" : "s"} / ${sourcePhotoNotes.length + notes.length} note${sourcePhotoNotes.length + notes.length === 1 ? "" : "s"}`
     : "No memories yet";
   wall.innerHTML = "";
 
-  if (!displayPhotos.length && !sourcePhotoNotes.length && !facts.length) {
+  if (!displayPhotos.length && !sourcePhotoNotes.length && !notes.length) {
     const empty = document.createElement("div");
     empty.className = "empty-state";
     empty.textContent = "Add notes or photos.";
@@ -463,13 +464,14 @@ function renderPhotoWall() {
     pictureWall.className = "picture-wall";
     displayPhotos.forEach((memory) => pictureWall.appendChild(createPhotoTile(memory)));
     wall.appendChild(pictureWall);
+    queuePictureWallLayout();
   }
 
-  if (sourcePhotoNotes.length || facts.length) {
+  if (sourcePhotoNotes.length || notes.length) {
     const notesWall = document.createElement("div");
     notesWall.className = "notes-wall";
     sourcePhotoNotes.forEach((memory) => notesWall.appendChild(createPhotoTile(memory)));
-    facts.forEach((fact) => notesWall.appendChild(createFactTile(fact)));
+    notes.forEach((memory) => notesWall.appendChild(createNoteTile(memory)));
     wall.appendChild(notesWall);
   }
 }
@@ -478,8 +480,8 @@ function renderFactTable() {
   const body = document.getElementById("factTableBody");
   const count = document.getElementById("factCount");
   if (!body || !count) return;
-  const rows = factRows();
-  count.textContent = rows.length ? `${rows.length} facts` : "No notes yet";
+  const rows = noteRows();
+  count.textContent = rows.length ? `${rows.length} notes` : "No notes yet";
   body.innerHTML = "";
 
   if (!rows.length) {
@@ -496,7 +498,7 @@ function renderFactTable() {
     const row = document.createElement("tr");
     const fact = document.createElement("td");
     const date = document.createElement("td");
-    fact.textContent = item.fact;
+    fact.textContent = noteMemoryText(item);
     date.textContent = formatDate(item.createdAt);
     row.append(fact, date);
     body.appendChild(row);
@@ -504,45 +506,25 @@ function renderFactTable() {
 }
 
 function factRows() {
-  return state.memories
-    .filter((memory) => memory.kind !== "photo")
-    .flatMap((memory) => {
-      const facts = splitFactText(memory.text || memory.summary || "");
-      return facts.map((fact, index) => ({
-        id: `${memory.id || "fact"}_${index}`,
-        fact,
-        createdAt: memory.createdAt || memory.updatedAt
-      }));
-    });
+  return noteRows().map((memory) => ({
+    id: memory.id,
+    fact: noteMemoryText(memory),
+    createdAt: memory.createdAt || memory.updatedAt
+  }));
 }
 
-function splitFactText(text) {
-  const cleaned = String(text || "")
-    .replace(/\r/g, "")
-    .replace(/[ \t]+/g, " ")
-    .trim();
-  if (!cleaned) return [];
-
-  const lineParts = cleaned
-    .split(/\n+/)
-    .flatMap((line) => line.split(/\s*(?:\u2022|;| - )\s*/))
-    .map((part) => part.replace(/^[-*]\s+/, "").trim())
-    .filter(Boolean);
-
-  return lineParts.flatMap((part) => {
-    const sentences = part.match(/[^.!?]+(?:[.!?]+|$)/g) || [part];
-    if (sentences.length <= 1) return [part];
-    return sentences
-      .map((sentence) => sentence.trim())
-      .filter((sentence) => sentence.length > 2);
-  }).slice(0, 200);
+function noteRows() {
+  return state.memories
+    .filter((memory) => memory.kind !== "photo")
+    .sort((a, b) => String(b.createdAt || b.updatedAt || "").localeCompare(String(a.createdAt || a.updatedAt || "")));
 }
 
 function createPhotoTile(memory) {
   const card = document.createElement("figure");
-  card.className = "photo-tile is-image-tile";
+  card.className = "photo-tile";
   card.title = photoMemoryText(memory);
   if (hasDisplayablePhoto(memory)) {
+    card.classList.add("is-image-tile");
     card.tabIndex = 0;
     card.setAttribute("role", "button");
     card.setAttribute("aria-label", "Open saved image");
@@ -560,10 +542,13 @@ function createPhotoTile(memory) {
     image.alt = memory.caption || memory.summary || "Saved Lily image";
     image.loading = "lazy";
     image.src = imageUrlForMemory(memory);
-    if (image.complete) {
-      sizePhotoTile(card, image);
+    if (image.complete && image.naturalWidth && image.naturalHeight) {
+      setPhotoTileRatio(card, image);
     } else {
-      image.addEventListener("load", () => sizePhotoTile(card, image), { once: true });
+      image.addEventListener("load", () => {
+        setPhotoTileRatio(card, image);
+        queuePictureWallLayout();
+      }, { once: true });
     }
     image.addEventListener("error", () => card.classList.add("is-image-missing"), { once: true });
     card.appendChild(image);
@@ -592,25 +577,62 @@ function createPhotoTile(memory) {
   return card;
 }
 
-function sizePhotoTile(card, image) {
+function setPhotoTileRatio(card, image) {
   const naturalWidth = Number(image.naturalWidth || 0);
   const naturalHeight = Number(image.naturalHeight || 0);
   if (!naturalWidth || !naturalHeight) return;
+  card.dataset.ratio = String(naturalWidth / naturalHeight);
+}
 
-  const ratio = Math.max(0.28, Math.min(3.6, naturalWidth / naturalHeight));
+function queuePictureWallLayout() {
+  window.clearTimeout(pictureWallLayoutTimer);
+  pictureWallLayoutTimer = window.setTimeout(layoutPictureWall, 30);
+}
+
+function layoutPictureWall() {
+  const wall = document.querySelector(".picture-wall");
+  if (!wall) return;
+  const cards = Array.from(wall.querySelectorAll(".photo-tile.is-image-tile"));
+  if (!cards.length) return;
+
+  const wallWidth = Math.floor(wall.clientWidth || 0);
+  if (!wallWidth) return;
   const compact = window.matchMedia("(max-width: 720px)").matches;
-  const targetArea = compact ? 16500 : 21800;
-  const minWidth = compact ? 74 : 84;
-  const maxWidth = compact ? 224 : 260;
-  const width = Math.round(Math.max(minWidth, Math.min(maxWidth, Math.sqrt(targetArea * ratio))));
-  const height = Math.round(width / ratio);
-  const track = 2;
   const gap = 4;
-  const spanFor = (value) => Math.max(1, Math.round((value + gap) / (track + gap)));
-  card.style.setProperty("--tile-width", `${width}px`);
-  card.style.setProperty("--tile-height", `${height}px`);
-  card.style.setProperty("--tile-col-span", String(spanFor(width)));
-  card.style.setProperty("--tile-row-span", String(spanFor(height)));
+  const targetHeight = compact ? 190 : 224;
+  const minHeight = compact ? 118 : 158;
+  const maxHeight = compact ? 258 : 292;
+  let row = [];
+  let ratioSum = 0;
+
+  const finish = (items, sum, fillRow) => {
+    if (!items.length || !sum) return;
+    const rowGaps = gap * Math.max(0, items.length - 1);
+    const naturalWidth = targetHeight * sum + rowGaps;
+    const shouldFill = fillRow || naturalWidth >= wallWidth * (compact ? 0.62 : 0.7);
+    const rawHeight = shouldFill ? (wallWidth - rowGaps) / sum : targetHeight;
+    const height = Math.round(Math.max(minHeight, Math.min(maxHeight, rawHeight)));
+    items.forEach((card) => {
+      const ratio = Number(card.dataset.ratio || 1) || 1;
+      card.style.setProperty("--tile-width", `${Math.max(44, Math.round(height * ratio))}px`);
+      card.style.setProperty("--tile-height", `${height}px`);
+    });
+  };
+
+  cards.forEach((card) => {
+    const ratio = Number(card.dataset.ratio || 1) || 1;
+    const naturalWidth = targetHeight * ratioSum + gap * Math.max(0, row.length - 1);
+    const projectedWidth = targetHeight * (ratioSum + ratio) + gap * row.length;
+    if (row.length && (naturalWidth >= wallWidth * (compact ? 0.86 : 0.9) || projectedWidth > wallWidth * 1.08)) {
+      finish(row, ratioSum, true);
+      row = [];
+      ratioSum = 0;
+    }
+    row.push(card);
+    ratioSum += ratio;
+  });
+
+  finish(row, ratioSum, false);
 }
 
 function photoMemoryText(memory) {
@@ -629,22 +651,28 @@ function photoMemoryText(memory) {
   ].map((value) => String(value || "").trim()).find(Boolean);
 }
 
-function createFactTile(item) {
+function noteMemoryText(memory) {
+  return String(memory.text || memory.summary || memory.caption || memory.extractedText || "Saved note").trim();
+}
+
+function createNoteTile(memory) {
   const card = document.createElement("figure");
   card.className = "photo-tile is-note-tile is-fact-tile";
+  card.title = noteMemoryText(memory);
 
   const note = document.createElement("figcaption");
   note.className = "photo-note";
 
   const text = document.createElement("p");
-  text.textContent = item.fact;
+  text.textContent = noteMemoryText(memory);
 
   const date = document.createElement("time");
-  date.dateTime = item.createdAt || "";
-  date.textContent = formatDate(item.createdAt);
+  date.dateTime = memory.createdAt || "";
+  date.textContent = formatDate(memory.createdAt || memory.updatedAt);
 
   note.append(text, date);
   card.appendChild(note);
+  appendDelete(card, memory);
   return card;
 }
 

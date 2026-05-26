@@ -478,10 +478,10 @@ noscript {
 }
 
 .picture-wall {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(2px, 2px));
-  grid-auto-rows: 2px;
-  grid-auto-flow: dense;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  align-content: flex-start;
   gap: 4px;
 }
 
@@ -526,10 +526,9 @@ noscript {
 }
 
 .photo-tile.is-image-tile {
-  grid-column: span var(--tile-col-span, 27);
-  grid-row: span var(--tile-row-span, 27);
-  width: auto;
-  height: auto;
+  flex: 0 0 var(--tile-width, 260px);
+  width: var(--tile-width, 260px);
+  height: var(--tile-height, 224px);
   min-height: 0;
   margin: 0;
   background: rgba(255, 253, 249, 0.32);
@@ -566,12 +565,17 @@ noscript {
   background: rgba(255, 253, 249, 0.5);
 }
 
+.photo-tile.is-note-tile .photo-note {
+  padding-right: 44px;
+}
+
 .photo-note p {
   margin: 0;
   color: var(--ink);
   font-size: 12px;
   font-weight: 800;
   line-height: 1.25;
+  white-space: pre-wrap;
 }
 
 .photo-note time {
@@ -679,6 +683,10 @@ noscript {
 
 .photo-tile:hover .delete-button,
 .photo-tile:focus-within .delete-button {
+  opacity: 1;
+}
+
+.photo-tile.is-note-tile .delete-button {
   opacity: 1;
 }
 
