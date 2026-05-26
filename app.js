@@ -115,7 +115,7 @@ function renderShell() {
               <div class="pin-icon" aria-hidden="true"><img src="/icon.svg?v=20260507-suite3" alt=""></div>
               <div>
                 <h3 id="pinTitle">lily</h3>
-                <p>Private memory room</p>
+                <p>Private memory</p>
               </div>
             </div>
             <label class="pin-label" for="pinInput">6-digit PIN</label>
