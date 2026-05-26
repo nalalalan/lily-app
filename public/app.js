@@ -107,24 +107,6 @@ function renderShell() {
                 </div>
               </form>
             </section>
-
-            <section class="notes-section" aria-labelledby="notesTitle">
-              <div class="section-head">
-                <h2 id="notesTitle">saved notes</h2>
-                <p id="factCount">No notes yet</p>
-              </div>
-              <div class="fact-table-wrap">
-                <table class="fact-table">
-                  <thead>
-                    <tr>
-                      <th scope="col">Fact</th>
-                      <th scope="col">Date</th>
-                    </tr>
-                  </thead>
-                  <tbody id="factTableBody"></tbody>
-                </table>
-              </div>
-            </section>
           </section>
         </main>
       </div>
@@ -137,7 +119,7 @@ function renderShell() {
               <span>lily.aolabs.io</span>
             </div>
             <h2 id="pinTitle">lily</h2>
-            <p>Private memory room.</p>
+            <p>Private memory room</p>
           </section>
           <form class="pin-window" id="pinForm" autocomplete="off">
             <div class="pin-window-head">
