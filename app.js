@@ -130,21 +130,6 @@ function renderShell() {
       </div>
 
       <div class="pin-overlay" id="pinOverlay" role="dialog" aria-modal="true" aria-labelledby="pinTitle">
-        <div class="lily-field" aria-hidden="true">
-          <span class="lily-bloom bloom-1"><img src="/icon.svg?v=20260507-suite3" alt=""></span>
-          <span class="lily-bloom bloom-2"><img src="/icon.svg?v=20260507-suite3" alt=""></span>
-          <span class="lily-bloom bloom-3"><img src="/icon.svg?v=20260507-suite3" alt=""></span>
-          <span class="lily-bloom bloom-4"><img src="/icon.svg?v=20260507-suite3" alt=""></span>
-          <span class="lily-bloom bloom-5"><img src="/icon.svg?v=20260507-suite3" alt=""></span>
-          <span class="lily-bloom bloom-6"><img src="/icon.svg?v=20260507-suite3" alt=""></span>
-          <span class="memory-leaf leaf-1"></span>
-          <span class="memory-leaf leaf-2"></span>
-          <span class="memory-leaf leaf-3"></span>
-          <span class="memory-leaf leaf-4"></span>
-          <span class="memory-card card-1"></span>
-          <span class="memory-card card-2"></span>
-          <span class="memory-card card-3"></span>
-        </div>
         <div class="pin-stage">
           <section class="pin-intro" aria-labelledby="pinTitle">
             <div class="pin-brand">
@@ -580,32 +565,55 @@ function createPhotoTile(memory) {
   const card = document.createElement("figure");
   card.className = "photo-tile";
   card.title = memory.summary || memory.caption || "saved image";
-  card.tabIndex = 0;
-  card.setAttribute("role", "button");
-  card.setAttribute("aria-label", "Open image");
-  card.addEventListener("click", (event) => {
-    if (event.target.closest(".delete-button")) return;
-    openImageViewer(memory);
-  });
-  card.addEventListener("keydown", (event) => {
-    if (event.target !== card || (event.key !== "Enter" && event.key !== " ")) return;
-    event.preventDefault();
-    openImageViewer(memory);
-  });
+  if (hasDisplayablePhoto(memory)) {
+    card.tabIndex = 0;
+    card.setAttribute("role", "button");
+    card.setAttribute("aria-label", "Open image");
+    card.addEventListener("click", (event) => {
+      if (event.target.closest(".delete-button")) return;
+      openImageViewer(memory);
+    });
+    card.addEventListener("keydown", (event) => {
+      if (event.target !== card || (event.key !== "Enter" && event.key !== " ")) return;
+      event.preventDefault();
+      openImageViewer(memory);
+    });
 
-  const image = document.createElement("img");
-  image.alt = memory.caption || "Saved Lily image";
-  image.loading = "lazy";
-  image.src = imageUrlForMemory(memory);
-  card.appendChild(image);
+    const image = document.createElement("img");
+    image.alt = memory.caption || "Saved Lily image";
+    image.loading = "lazy";
+    image.src = imageUrlForMemory(memory);
+    image.addEventListener("error", () => card.classList.add("is-image-missing"), { once: true });
+    card.appendChild(image);
 
-  const caption = document.createElement("figcaption");
-  caption.className = "photo-caption";
-  caption.textContent = memory.summary || memory.caption || "saved image";
-  card.appendChild(caption);
+    const caption = document.createElement("figcaption");
+    caption.className = "photo-caption";
+    caption.textContent = memory.summary || memory.caption || "saved image";
+    card.appendChild(caption);
+  } else {
+    card.classList.add("is-note-tile");
+    const note = document.createElement("figcaption");
+    note.className = "photo-note";
+
+    const text = document.createElement("p");
+    text.textContent = memory.summary || memory.caption || memory.file?.originalName || "Saved Lily image";
+
+    const date = document.createElement("time");
+    date.dateTime = memory.createdAt || "";
+    date.textContent = formatDate(memory.createdAt || memory.updatedAt);
+
+    note.append(text, date);
+    card.appendChild(note);
+  }
 
   appendDelete(card, memory);
   return card;
+}
+
+function hasDisplayablePhoto(memory) {
+  const mediaPath = memory.file && memory.file.url ? memory.file.url : "";
+  const fileSize = Number(memory.file && memory.file.size ? memory.file.size : 0);
+  return Boolean(mediaPath) && fileSize >= 512;
 }
 
 function imageUrlForMemory(memory) {

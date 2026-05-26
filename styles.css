@@ -17,6 +17,7 @@
   --shadow: rgba(57, 43, 46, 0.11);
   --shadow-soft: rgba(57, 43, 46, 0.06);
   --error: #a53644;
+  --lily-room: url("/assets/lily-memory-room-20260526.png");
 }
 
 * {
@@ -32,10 +33,9 @@ body {
   margin: 0;
   overflow-x: hidden;
   background:
-    radial-gradient(circle at 11% 18%, rgba(231, 164, 179, 0.34), transparent 22rem),
-    radial-gradient(circle at 88% 12%, rgba(127, 163, 122, 0.32), transparent 24rem),
-    radial-gradient(circle at 64% 86%, rgba(216, 190, 122, 0.2), transparent 22rem),
-    linear-gradient(135deg, var(--page) 0%, var(--page-cool) 54%, #f7ecee 100%);
+    linear-gradient(180deg, rgba(247, 242, 236, 0.72), rgba(239, 245, 239, 0.78)),
+    var(--lily-room) center / cover fixed no-repeat,
+    #f4f1ec;
   color: var(--ink);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   letter-spacing: 0;
@@ -84,29 +84,19 @@ noscript {
   overflow: hidden;
 }
 
-.app-surface::before,
-.app-surface::after {
+.app-surface::before {
   content: "";
   position: fixed;
   z-index: -1;
-  width: 420px;
-  height: 420px;
   pointer-events: none;
-  background: url("/icon.svg?v=20260507-suite3") center / contain no-repeat;
-  opacity: 0.13;
-  filter: saturate(1.05);
+  inset: 0;
+  background:
+    linear-gradient(90deg, rgba(255, 253, 249, 0.56), rgba(255, 253, 249, 0.2) 52%, rgba(255, 253, 249, 0.5)),
+    radial-gradient(circle at 50% 34%, rgba(255, 253, 249, 0.58), transparent 34rem);
 }
 
 .app-surface::before {
-  left: -96px;
-  top: 104px;
-  transform: rotate(-18deg);
-}
-
-.app-surface::after {
-  right: -112px;
-  bottom: -84px;
-  transform: rotate(16deg) scale(1.14);
+  opacity: 1;
 }
 
 .memory-app.is-locked .app-surface {
@@ -460,22 +450,19 @@ noscript {
   border: 1px solid rgba(34, 25, 29, 0.08);
   border-radius: 8px;
   background:
-    radial-gradient(circle at 82% 18%, rgba(231, 164, 179, 0.16), transparent 12rem),
-    radial-gradient(circle at 18% 84%, rgba(123, 157, 117, 0.16), transparent 14rem),
+    linear-gradient(180deg, rgba(255, 253, 249, 0.36), rgba(239, 232, 222, 0.68)),
+    var(--lily-room) center / cover no-repeat,
     #eee9e2;
 }
 
 .photo-wall::before {
   content: "";
   position: absolute;
-  inset: 8%;
+  inset: 0;
   pointer-events: none;
   background:
-    url("/icon.svg?v=20260507-suite3") 12% 18% / 130px 130px no-repeat,
-    url("/icon.svg?v=20260507-suite3") 88% 76% / 180px 180px no-repeat,
-    url("/icon.svg?v=20260507-suite3") 55% 48% / 110px 110px no-repeat;
-  opacity: 0.08;
-  filter: saturate(1.08);
+    radial-gradient(circle at 50% 42%, rgba(255, 253, 249, 0.58), transparent 22rem),
+    linear-gradient(90deg, rgba(255, 253, 249, 0.46), transparent 35%, transparent 65%, rgba(255, 253, 249, 0.38));
 }
 
 .photo-column {
@@ -503,6 +490,46 @@ noscript {
   height: auto;
   min-height: 86px;
   object-fit: cover;
+}
+
+.photo-tile.is-image-missing img {
+  opacity: 0;
+}
+
+.photo-tile.is-note-tile {
+  min-height: 178px;
+  display: flex;
+  align-items: flex-end;
+  padding: 10px;
+  cursor: default;
+  background:
+    linear-gradient(180deg, rgba(255, 253, 249, 0.08), rgba(96, 61, 67, 0.18)),
+    var(--lily-room) center / cover no-repeat;
+}
+
+.photo-note {
+  width: 100%;
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid rgba(34, 25, 29, 0.08);
+  border-radius: 7px;
+  background: rgba(255, 253, 249, 0.78);
+  backdrop-filter: blur(12px);
+}
+
+.photo-note p {
+  margin: 0;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.photo-note time {
+  color: var(--soft);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .photo-tile:focus-visible {
@@ -612,166 +639,14 @@ noscript {
   overflow: auto;
   padding: 28px;
   background:
-    radial-gradient(circle at 18% 24%, rgba(233, 158, 176, 0.42), transparent 19rem),
-    radial-gradient(circle at 83% 22%, rgba(102, 145, 104, 0.32), transparent 24rem),
-    radial-gradient(circle at 42% 82%, rgba(220, 187, 116, 0.21), transparent 22rem),
-    linear-gradient(135deg, #f8f2ee 0%, #eef5ef 50%, #f8e8ed 100%);
+    linear-gradient(90deg, rgba(251, 247, 241, 0.72) 0%, rgba(251, 247, 241, 0.38) 47%, rgba(251, 247, 241, 0.56) 100%),
+    radial-gradient(circle at 50% 45%, rgba(255, 253, 249, 0.4), transparent 31rem),
+    var(--lily-room) center / cover no-repeat,
+    #f5efe7;
 }
 
 .memory-app.is-locked .pin-overlay {
   display: grid;
-}
-
-.lily-field {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  pointer-events: none;
-}
-
-.lily-field::before {
-  content: "";
-  position: absolute;
-  inset: 5.5vh 5vw;
-  border: 1px solid rgba(84, 58, 64, 0.08);
-  border-radius: 42px;
-  background:
-    linear-gradient(90deg, rgba(255, 253, 249, 0.44), rgba(255, 253, 249, 0.12)),
-    radial-gradient(circle at 22% 16%, rgba(255, 255, 255, 0.7), transparent 14rem);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.54);
-}
-
-.lily-bloom,
-.memory-leaf,
-.memory-card {
-  position: absolute;
-  display: block;
-}
-
-.lily-bloom {
-  border-radius: 999px;
-  filter: drop-shadow(0 30px 42px rgba(45, 31, 35, 0.14));
-}
-
-.lily-bloom img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-
-.bloom-1 {
-  width: 260px;
-  height: 260px;
-  left: 5vw;
-  top: 8vh;
-  opacity: 0.38;
-  transform: rotate(-22deg);
-}
-
-.bloom-2 {
-  width: 460px;
-  height: 460px;
-  right: -90px;
-  top: 5vh;
-  opacity: 0.2;
-  transform: rotate(18deg);
-}
-
-.bloom-3 {
-  width: 340px;
-  height: 340px;
-  left: 11vw;
-  bottom: -70px;
-  opacity: 0.22;
-  transform: rotate(24deg);
-}
-
-.bloom-4 {
-  width: 140px;
-  height: 140px;
-  right: 19vw;
-  bottom: 12vh;
-  opacity: 0.28;
-  transform: rotate(-12deg);
-}
-
-.bloom-5 {
-  width: 94px;
-  height: 94px;
-  left: 47vw;
-  top: 17vh;
-  opacity: 0.36;
-  transform: rotate(8deg);
-}
-
-.bloom-6 {
-  width: 118px;
-  height: 118px;
-  left: 68vw;
-  bottom: 23vh;
-  opacity: 0.24;
-  transform: rotate(-28deg);
-}
-
-.memory-leaf {
-  width: 210px;
-  height: 92px;
-  border-radius: 100% 0 100% 0;
-  background: linear-gradient(135deg, rgba(88, 125, 80, 0.16), rgba(255, 253, 249, 0.24));
-  box-shadow: 0 24px 54px rgba(50, 65, 52, 0.09);
-}
-
-.leaf-1 {
-  left: -32px;
-  top: 42vh;
-  transform: rotate(22deg);
-}
-
-.leaf-2 {
-  right: 7vw;
-  bottom: 8vh;
-  transform: rotate(-16deg);
-}
-
-.leaf-3 {
-  left: 37vw;
-  bottom: 4vh;
-  transform: rotate(8deg) scale(0.84);
-}
-
-.leaf-4 {
-  right: -48px;
-  top: 48vh;
-  transform: rotate(-34deg) scale(0.96);
-}
-
-.memory-card {
-  width: 150px;
-  height: 108px;
-  border: 1px solid rgba(84, 58, 64, 0.08);
-  border-radius: 16px;
-  background:
-    linear-gradient(180deg, rgba(255, 253, 249, 0.72), rgba(255, 247, 242, 0.34)),
-    radial-gradient(circle at 72% 18%, rgba(229, 168, 182, 0.22), transparent 4rem);
-  box-shadow: 0 22px 44px rgba(44, 33, 36, 0.08);
-}
-
-.card-1 {
-  left: 18vw;
-  top: 22vh;
-  transform: rotate(-8deg);
-}
-
-.card-2 {
-  right: 10vw;
-  top: 62vh;
-  transform: rotate(7deg);
-}
-
-.card-3 {
-  left: 52vw;
-  bottom: 8vh;
-  transform: rotate(-4deg);
 }
 
 .pin-stage {
@@ -1070,46 +945,7 @@ noscript {
   .pin-overlay {
     align-items: start;
     padding: 20px 16px;
-  }
-
-  .lily-field::before {
-    inset: 3vh 12px;
-    border-radius: 28px;
-  }
-
-  .bloom-1 {
-    width: 148px;
-    height: 148px;
-    left: -22px;
-    top: 9vh;
-    opacity: 0.28;
-  }
-
-  .bloom-2 {
-    width: 230px;
-    height: 230px;
-    right: -74px;
-    top: 3vh;
-    opacity: 0.16;
-  }
-
-  .bloom-3 {
-    width: 190px;
-    height: 190px;
-    left: -42px;
-    bottom: -32px;
-    opacity: 0.16;
-  }
-
-  .bloom-4,
-  .bloom-5,
-  .bloom-6,
-  .memory-card {
-    display: none;
-  }
-
-  .memory-leaf {
-    opacity: 0.55;
+    background-position: center top;
   }
 
   .pin-stage {
