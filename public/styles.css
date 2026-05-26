@@ -478,8 +478,11 @@ noscript {
 }
 
 .picture-wall {
-  columns: 160px;
-  column-gap: 4px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(2px, 2px));
+  grid-auto-rows: 2px;
+  grid-auto-flow: dense;
+  gap: 4px;
 }
 
 .notes-wall {
@@ -523,12 +526,18 @@ noscript {
 }
 
 .photo-tile.is-image-tile {
-  display: inline-block;
-  width: 100%;
+  grid-column: span var(--tile-col-span, 27);
+  grid-row: span var(--tile-row-span, 27);
+  width: auto;
+  height: auto;
   min-height: 0;
-  margin: 0 0 4px;
-  break-inside: avoid;
+  margin: 0;
   background: rgba(255, 253, 249, 0.32);
+}
+
+.photo-tile.is-image-tile img {
+  height: 100%;
+  object-fit: contain;
 }
 
 .photo-tile.is-source-tile {

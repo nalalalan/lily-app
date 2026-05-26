@@ -560,6 +560,11 @@ function createPhotoTile(memory) {
     image.alt = memory.caption || memory.summary || "Saved Lily image";
     image.loading = "lazy";
     image.src = imageUrlForMemory(memory);
+    if (image.complete) {
+      sizePhotoTile(card, image);
+    } else {
+      image.addEventListener("load", () => sizePhotoTile(card, image), { once: true });
+    }
     image.addEventListener("error", () => card.classList.add("is-image-missing"), { once: true });
     card.appendChild(image);
 
@@ -585,6 +590,27 @@ function createPhotoTile(memory) {
 
   appendDelete(card, memory);
   return card;
+}
+
+function sizePhotoTile(card, image) {
+  const naturalWidth = Number(image.naturalWidth || 0);
+  const naturalHeight = Number(image.naturalHeight || 0);
+  if (!naturalWidth || !naturalHeight) return;
+
+  const ratio = Math.max(0.28, Math.min(3.6, naturalWidth / naturalHeight));
+  const compact = window.matchMedia("(max-width: 720px)").matches;
+  const targetArea = compact ? 16500 : 21800;
+  const minWidth = compact ? 74 : 84;
+  const maxWidth = compact ? 224 : 260;
+  const width = Math.round(Math.max(minWidth, Math.min(maxWidth, Math.sqrt(targetArea * ratio))));
+  const height = Math.round(width / ratio);
+  const track = 2;
+  const gap = 4;
+  const spanFor = (value) => Math.max(1, Math.round((value + gap) / (track + gap)));
+  card.style.setProperty("--tile-width", `${width}px`);
+  card.style.setProperty("--tile-height", `${height}px`);
+  card.style.setProperty("--tile-col-span", String(spanFor(width)));
+  card.style.setProperty("--tile-row-span", String(spanFor(height)));
 }
 
 function photoMemoryText(memory) {
