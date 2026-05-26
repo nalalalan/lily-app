@@ -445,11 +445,11 @@ function renderPhotoWall() {
   const photos = state.memories.filter((memory) => memory.kind === "photo");
   const facts = factRows();
   const roomItems = [
-    ...photos.map((memory) => ({ type: "photo", memory })),
-    ...facts.slice(0, 36).map((fact) => ({ type: "fact", fact }))
-  ];
+    ...facts.slice(0, 60).map((fact) => ({ type: "fact", fact, createdAt: fact.createdAt })),
+    ...photos.map((memory) => ({ type: "photo", memory, createdAt: memory.createdAt || memory.updatedAt }))
+  ].sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
   count.textContent = roomItems.length
-    ? `${photos.length} image${photos.length === 1 ? "" : "s"} · ${facts.length} note${facts.length === 1 ? "" : "s"}`
+    ? `${photos.length} image${photos.length === 1 ? "" : "s"} / ${facts.length} note${facts.length === 1 ? "" : "s"}`
     : "No memories yet";
   wall.innerHTML = "";
 
@@ -542,12 +542,12 @@ function splitFactText(text) {
 
 function createPhotoTile(memory) {
   const card = document.createElement("figure");
-  card.className = "photo-tile";
-  card.title = memory.summary || memory.caption || "saved image";
+  card.className = "photo-tile is-note-tile is-source-tile";
+  card.title = photoMemoryText(memory);
   if (hasDisplayablePhoto(memory)) {
     card.tabIndex = 0;
     card.setAttribute("role", "button");
-    card.setAttribute("aria-label", "Open image");
+    card.setAttribute("aria-label", "Open saved image");
     card.addEventListener("click", (event) => {
       if (event.target.closest(".delete-button")) return;
       openImageViewer(memory);
@@ -558,35 +558,38 @@ function createPhotoTile(memory) {
       openImageViewer(memory);
     });
 
-    const image = document.createElement("img");
-    image.alt = memory.caption || "Saved Lily image";
-    image.loading = "lazy";
-    image.src = imageUrlForMemory(memory);
-    image.addEventListener("error", () => card.classList.add("is-image-missing"), { once: true });
-    card.appendChild(image);
-
-    const caption = document.createElement("figcaption");
-    caption.className = "photo-caption";
-    caption.textContent = memory.summary || memory.caption || "saved image";
-    card.appendChild(caption);
-  } else {
-    card.classList.add("is-note-tile");
-    const note = document.createElement("figcaption");
-    note.className = "photo-note";
-
-    const text = document.createElement("p");
-    text.textContent = memory.summary || memory.caption || memory.file?.originalName || "Saved Lily image";
-
-    const date = document.createElement("time");
-    date.dateTime = memory.createdAt || "";
-    date.textContent = formatDate(memory.createdAt || memory.updatedAt);
-
-    note.append(text, date);
-    card.appendChild(note);
   }
 
+  const note = document.createElement("figcaption");
+  note.className = "photo-note";
+
+  const text = document.createElement("p");
+  text.textContent = photoMemoryText(memory);
+
+  const date = document.createElement("time");
+  date.dateTime = memory.createdAt || "";
+  date.textContent = formatDate(memory.createdAt || memory.updatedAt);
+
+  note.append(text, date);
+  card.appendChild(note);
   appendDelete(card, memory);
   return card;
+}
+
+function photoMemoryText(memory) {
+  const facts = Array.isArray(memory.facts) ? memory.facts.filter(Boolean) : [];
+  const extracted = String(memory.extractedText || "")
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .find(Boolean);
+  return [
+    memory.summary,
+    memory.caption,
+    facts[0],
+    extracted,
+    memory.file?.originalName,
+    "Saved image"
+  ].map((value) => String(value || "").trim()).find(Boolean);
 }
 
 function createFactTile(item) {
