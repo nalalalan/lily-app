@@ -63,10 +63,10 @@ function renderShell() {
         <main class="split-workspace">
           <section class="image-section" aria-labelledby="imageTitle">
             <div class="section-head">
-              <h2 id="imageTitle">image memory</h2>
+              <h2 id="imageTitle">lily room</h2>
               <p id="imageCount">No images yet</p>
             </div>
-            <div class="photo-wall" id="photoWall" aria-label="Saved Lily images"></div>
+            <div class="photo-wall" id="photoWall" aria-label="Saved Lily room"></div>
           </section>
 
           <section class="right-rail" aria-label="Lily tools">
@@ -136,13 +136,8 @@ function renderShell() {
               <img src="/icon.svg?v=20260507-suite3" alt="">
               <span>lily.aolabs.io</span>
             </div>
-            <h2 id="pinTitle">surrounded by lily</h2>
-            <p>Private memory for the notes, screenshots, photos, dates, and preferences that make Lily feel present.</p>
-            <div class="pin-capabilities" aria-label="Available after unlock">
-              <span>notes</span>
-              <span>images</span>
-              <span>chat</span>
-            </div>
+            <h2 id="pinTitle">lily</h2>
+            <p>Private memory room.</p>
           </section>
           <form class="pin-window" id="pinForm" autocomplete="off">
             <div class="pin-window-head">
@@ -474,19 +469,26 @@ function renderPhotoWall() {
   const count = document.getElementById("imageCount");
   if (!wall || !count) return;
   const photos = state.memories.filter((memory) => memory.kind === "photo");
-  count.textContent = photos.length ? `${photos.length} saved` : "No images yet";
+  const facts = factRows();
+  const roomItems = [
+    ...photos.map((memory) => ({ type: "photo", memory })),
+    ...facts.slice(0, 36).map((fact) => ({ type: "fact", fact }))
+  ];
+  count.textContent = roomItems.length
+    ? `${photos.length} image${photos.length === 1 ? "" : "s"} · ${facts.length} note${facts.length === 1 ? "" : "s"}`
+    : "No memories yet";
   wall.innerHTML = "";
 
-  if (!photos.length) {
+  if (!roomItems.length) {
     const empty = document.createElement("div");
     empty.className = "empty-state";
-    empty.textContent = "No images.";
+    empty.textContent = "Add notes or photos.";
     wall.appendChild(empty);
     return;
   }
 
   const width = wall.clientWidth || window.innerWidth || 320;
-  const columnCount = Math.max(2, Math.min(6, Math.floor(width / 185)));
+  const columnCount = Math.max(2, Math.min(6, Math.floor(width / 210)));
   wall.style.setProperty("--photo-columns", String(columnCount));
   const columns = Array.from({ length: columnCount }, () => {
     const column = document.createElement("div");
@@ -494,7 +496,10 @@ function renderPhotoWall() {
     wall.appendChild(column);
     return column;
   });
-  photos.forEach((memory, index) => columns[index % columnCount].appendChild(createPhotoTile(memory)));
+  roomItems.forEach((item, index) => {
+    const tile = item.type === "photo" ? createPhotoTile(item.memory) : createFactTile(item.fact);
+    columns[index % columnCount].appendChild(tile);
+  });
 }
 
 function renderFactTable() {
@@ -607,6 +612,25 @@ function createPhotoTile(memory) {
   }
 
   appendDelete(card, memory);
+  return card;
+}
+
+function createFactTile(item) {
+  const card = document.createElement("figure");
+  card.className = "photo-tile is-note-tile is-fact-tile";
+
+  const note = document.createElement("figcaption");
+  note.className = "photo-note";
+
+  const text = document.createElement("p");
+  text.textContent = item.fact;
+
+  const date = document.createElement("time");
+  date.dateTime = item.createdAt || "";
+  date.textContent = formatDate(item.createdAt);
+
+  note.append(text, date);
+  card.appendChild(note);
   return card;
 }
 
