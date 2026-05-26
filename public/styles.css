@@ -478,11 +478,8 @@ noscript {
 }
 
 .picture-wall {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  align-content: flex-start;
-  gap: 4px;
+  display: block;
+  height: var(--wall-height, auto);
 }
 
 .notes-wall {
@@ -526,7 +523,9 @@ noscript {
 }
 
 .photo-tile.is-image-tile {
-  flex: 0 0 var(--tile-width, 260px);
+  position: absolute;
+  top: 0;
+  left: 0;
   width: var(--tile-width, 260px);
   height: var(--tile-height, 224px);
   min-height: 0;
