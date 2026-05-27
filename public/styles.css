@@ -483,10 +483,11 @@ noscript {
 }
 
 .notes-wall {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(245px, 1fr));
-  gap: 5px;
-  padding-top: 4px;
+  width: min(70vw, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 8px;
 }
 
 .photo-tile {
@@ -512,14 +513,11 @@ noscript {
 }
 
 .photo-tile.is-note-tile {
-  min-height: 88px;
-  display: flex;
-  align-items: flex-end;
-  padding: 7px;
+  min-height: 0;
+  display: block;
+  padding: 0;
   cursor: default;
-  background:
-    linear-gradient(180deg, rgba(255, 253, 249, 0.94), rgba(252, 242, 239, 0.86)),
-    radial-gradient(circle at 100% 0%, rgba(231, 164, 179, 0.2), transparent 7rem);
+  background: rgba(255, 253, 249, 0.9);
 }
 
 .photo-tile.is-image-tile {
@@ -539,8 +537,8 @@ noscript {
 }
 
 .photo-tile.is-source-tile {
-  min-height: 96px;
-  cursor: zoom-in;
+  min-height: 0;
+  cursor: default;
 }
 
 .photo-tile.is-source-tile .photo-note {
@@ -552,35 +550,36 @@ noscript {
 }
 
 .photo-tile.is-fact-tile {
-  min-height: 76px;
+  min-height: 0;
 }
 
 .photo-note {
   width: 100%;
   display: grid;
-  gap: 8px;
-  padding: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  column-gap: 18px;
+  row-gap: 4px;
+  padding: 10px 48px 10px 12px;
   border-left: 2px solid rgba(135, 56, 82, 0.28);
-  background: rgba(255, 253, 249, 0.5);
-}
-
-.photo-tile.is-note-tile .photo-note {
-  padding-right: 44px;
+  background: rgba(255, 253, 249, 0.48);
 }
 
 .photo-note p {
   margin: 0;
   color: var(--ink);
-  font-size: 12px;
-  font-weight: 800;
-  line-height: 1.25;
+  font-size: 13px;
+  font-weight: 740;
+  line-height: 1.3;
   white-space: pre-wrap;
 }
 
 .photo-note time {
   color: var(--soft);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
+  text-align: right;
+  white-space: nowrap;
 }
 
 .photo-tile:focus-visible {
@@ -652,7 +651,7 @@ noscript {
 }
 
 .fact-table td:last-child {
-  width: 104px;
+  width: 128px;
   color: var(--soft);
   white-space: nowrap;
 }
@@ -987,6 +986,10 @@ noscript {
     overflow-y: visible;
   }
 
+  .notes-wall {
+    width: 100%;
+  }
+
   .messages {
     flex: none;
     min-height: 150px;
@@ -1036,6 +1039,15 @@ noscript {
 
   .pin-input {
     height: 50px;
+  }
+
+  .photo-note {
+    grid-template-columns: 1fr;
+    padding: 10px 48px 10px 12px;
+  }
+
+  .photo-note time {
+    text-align: left;
   }
 }
 

@@ -499,7 +499,7 @@ function renderFactTable() {
     const fact = document.createElement("td");
     const date = document.createElement("td");
     fact.textContent = noteMemoryText(item);
-    date.textContent = formatDate(item.createdAt);
+    date.textContent = formatDateTime(item.createdAt);
     row.append(fact, date);
     body.appendChild(row);
   });
@@ -566,8 +566,8 @@ function createPhotoTile(memory) {
     text.textContent = photoMemoryText(memory);
 
     const date = document.createElement("time");
-    date.dateTime = memory.createdAt || "";
-    date.textContent = formatDate(memory.createdAt || memory.updatedAt);
+    date.dateTime = memory.createdAt || memory.updatedAt || "";
+    date.textContent = formatDateTime(memory.createdAt || memory.updatedAt);
 
     note.append(text, date);
     card.appendChild(note);
@@ -669,8 +669,8 @@ function createNoteTile(memory) {
   text.textContent = noteMemoryText(memory);
 
   const date = document.createElement("time");
-  date.dateTime = memory.createdAt || "";
-  date.textContent = formatDate(memory.createdAt || memory.updatedAt);
+  date.dateTime = memory.createdAt || memory.updatedAt || "";
+  date.textContent = formatDateTime(memory.createdAt || memory.updatedAt);
 
   note.append(text, date);
   card.appendChild(note);
@@ -749,10 +749,15 @@ function labelForKind(kind) {
   }[kind] || "note";
 }
 
-function formatDate(value) {
+function formatDateTime(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "saved";
-  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date);
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(date);
 }
 
 function setBusy(isBusy) {
