@@ -41,7 +41,7 @@ async function ensureDataDir() {
   try {
     await fsp.access(storePath);
   } catch (error) {
-    await fsp.writeFile(storePath, JSON.stringify({ memories: [], chats: [] }, null, 2));
+    await fsp.writeFile(storePath, JSON.stringify({ memories: [], weights: [], chats: [] }, null, 2));
   }
 }
 
@@ -73,6 +73,7 @@ async function readStore() {
   const parsed = JSON.parse(raw || "{}");
   return {
     memories: Array.isArray(parsed.memories) ? parsed.memories : [],
+    weights: Array.isArray(parsed.weights) ? parsed.weights : [],
     chats: Array.isArray(parsed.chats) ? parsed.chats : []
   };
 }
@@ -272,6 +273,20 @@ function publicMemories(memories) {
   return memories.map(publicMemory);
 }
 
+function publicWeight(record) {
+  return {
+    id: record.id,
+    weight: record.weight,
+    unit: record.unit || "lb",
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt
+  };
+}
+
+function publicWeights(weights) {
+  return weights.map(publicWeight);
+}
+
 function searchableText(memory) {
   return [
     memory.text,
@@ -431,6 +446,33 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  if (pathname === "/api/weights" && req.method === "GET") {
+    const store = await readStore();
+    send(res, 200, { weights: publicWeights(store.weights).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))) });
+    return;
+  }
+
+  if (pathname === "/api/weights" && req.method === "POST") {
+    const body = await readJson(req);
+    const weight = Number(body.weight);
+    const unit = String(body.unit || "lb").trim().toLowerCase() === "kg" ? "kg" : "lb";
+    if (!Number.isFinite(weight) || weight <= 0 || weight > 1000) {
+      send(res, 400, { error: "Enter a valid weight." });
+      return;
+    }
+    const now = new Date().toISOString();
+    const created = {
+      id: createId("weight"),
+      weight: Math.round(weight * 100) / 100,
+      unit,
+      createdAt: now,
+      updatedAt: now
+    };
+    await writeStore((store) => ({ ...store, weights: [created, ...(Array.isArray(store.weights) ? store.weights : [])] }));
+    send(res, 201, { weight: publicWeight(created) });
+    return;
+  }
+
   if (pathname === "/api/memories" && req.method === "POST") {
     const body = await readJson(req);
     const text = String(body.text || "").trim();
@@ -486,6 +528,17 @@ async function handleApi(req, res, pathname) {
     if (deleted && deleted.file && deleted.file.filename) {
       fsp.unlink(path.join(mediaDir, deleted.file.filename)).catch(() => {});
     }
+    send(res, 200, { ok: true });
+    return;
+  }
+
+  const deleteWeightMatch = /^\/api\/weights\/([^/]+)$/.exec(pathname);
+  if (deleteWeightMatch && req.method === "DELETE") {
+    const id = decodeURIComponent(deleteWeightMatch[1]);
+    await writeStore((store) => ({
+      ...store,
+      weights: (Array.isArray(store.weights) ? store.weights : []).filter((record) => record.id !== id)
+    }));
     send(res, 200, { ok: true });
     return;
   }

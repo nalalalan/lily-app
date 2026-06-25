@@ -22,6 +22,9 @@ Set `public/config.js` to an empty API base for same-origin local API testing, o
 - `GET /api/memories` - list shared memories
 - `POST /api/memories` - save notes and image data
 - `DELETE /api/memories/:id` - delete a saved memory
+- `GET /api/weights` - list saved weight records
+- `POST /api/weights` - save a weight with the server timestamp
+- `DELETE /api/weights/:id` - delete a saved weight record
 - `POST /api/chat` - answer from saved Lily context
 
 Railway variables:
