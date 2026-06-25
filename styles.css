@@ -185,6 +185,7 @@ noscript {
 
 .chat-panel,
 .ingest-panel,
+.weight-panel,
 .image-section,
 .notes-section {
   min-width: 0;
@@ -192,6 +193,7 @@ noscript {
 
 .chat-panel,
 .ingest-panel,
+.weight-panel,
 .notes-section {
   border: 1px solid rgba(34, 25, 29, 0.12);
   border-radius: 8px;
@@ -202,12 +204,14 @@ noscript {
 
 .chat-panel,
 .ingest-panel,
+.weight-panel,
 .notes-section {
   padding: 12px;
 }
 
 .image-section,
 .chat-panel,
+.weight-panel,
 .notes-section {
   display: flex;
   flex-direction: column;
@@ -215,6 +219,7 @@ noscript {
 
 .chat-panel,
 .ingest-panel,
+.weight-panel,
 .notes-section {
   min-height: 0;
 }
@@ -337,6 +342,7 @@ noscript {
 
 .chat-form textarea,
 .memory-field,
+.weight-input,
 .pin-input {
   width: 100%;
   border: 1px solid var(--line-strong);
@@ -355,6 +361,7 @@ noscript {
 
 .chat-form textarea:focus,
 .memory-field:focus,
+.weight-input:focus,
 .pin-input:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(135, 56, 82, 0.13);
@@ -450,6 +457,158 @@ noscript {
 
 .secondary-button:hover {
   border-color: rgba(135, 56, 82, 0.28);
+}
+
+.weight-form {
+  margin: 0 0 10px;
+}
+
+.weight-field-label {
+  display: block;
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.weight-entry-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 78px;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.weight-input-wrap {
+  position: relative;
+  min-width: 0;
+}
+
+.weight-input {
+  height: 40px;
+  padding: 0 42px 0 11px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  font-weight: 720;
+  outline: none;
+}
+
+.weight-input-wrap span {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  color: var(--soft);
+  font-size: 12px;
+  font-weight: 760;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.weight-chart-wrap {
+  width: 100%;
+  min-height: 178px;
+  overflow: hidden;
+  border: 1px solid rgba(34, 25, 29, 0.1);
+  border-radius: 8px;
+  background: linear-gradient(180deg, #fffdf9 0%, #f7f1ec 100%);
+}
+
+.weight-chart-wrap svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  min-height: 178px;
+}
+
+.weight-chart-wrap text {
+  fill: var(--soft);
+  font-size: 10px;
+  font-weight: 740;
+  font-variant-numeric: tabular-nums;
+}
+
+.weight-grid line {
+  stroke: rgba(34, 25, 29, 0.08);
+  stroke-width: 1;
+}
+
+.weight-axis line {
+  stroke: rgba(34, 25, 29, 0.18);
+  stroke-width: 1.2;
+}
+
+.weight-trend {
+  fill: none;
+  stroke: var(--accent);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 3;
+}
+
+.weight-point {
+  fill: var(--surface);
+  stroke: var(--accent);
+  stroke-width: 2.5;
+}
+
+.weight-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.weight-row {
+  display: grid;
+  grid-template-columns: minmax(72px, auto) minmax(0, 1fr) 24px;
+  gap: 10px;
+  align-items: center;
+  min-height: 34px;
+  padding: 6px 8px;
+  border: 1px solid rgba(34, 25, 29, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 253, 249, 0.72);
+}
+
+.weight-row strong {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 780;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.weight-row time {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--soft);
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weight-delete {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 1px solid rgba(34, 25, 29, 0.1);
+  border-radius: 999px;
+  background: rgba(255, 253, 249, 0.86);
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 720;
+  line-height: 1;
+}
+
+.weight-delete:hover {
+  border-color: rgba(135, 56, 82, 0.34);
+  color: var(--accent);
+}
+
+.weight-empty {
+  min-height: 176px;
+  border: 0;
+  background: transparent;
 }
 
 .photo-wall {
@@ -975,6 +1134,7 @@ noscript {
 
   .chat-panel,
   .ingest-panel,
+  .weight-panel,
   .notes-section,
   .image-section {
     min-height: auto;
@@ -1091,6 +1251,7 @@ noscript {
 
   .chat-panel,
   .ingest-panel,
+  .weight-panel,
   .notes-section {
     padding: 10px;
   }
@@ -1100,6 +1261,10 @@ noscript {
   }
 
   .chat-form {
+    grid-template-columns: 1fr;
+  }
+
+  .weight-entry-row {
     grid-template-columns: 1fr;
   }
 

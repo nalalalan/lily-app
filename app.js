@@ -10,6 +10,7 @@ const PIN_LENGTH = 6;
 const state = {
   authenticated: false,
   memories: [],
+  weights: [],
   pendingFiles: [],
   chat: [
     {
@@ -31,7 +32,7 @@ function init() {
   bindEvents();
   if (hasStoredToken()) {
     setLocked(false);
-    loadMemories();
+    loadData();
   } else {
     setLocked(true);
   }
@@ -80,6 +81,27 @@ function renderShell() {
                 <textarea id="chatInput" rows="2" placeholder="Ask about Lily"></textarea>
                 <button class="primary-button" type="submit">Ask</button>
               </form>
+            </section>
+
+            <section class="weight-panel" aria-labelledby="weightTitle">
+              <div class="panel-head">
+                <div>
+                  <h2 id="weightTitle">weight</h2>
+                  <p id="weightLatest">No weights saved.</p>
+                </div>
+              </div>
+              <form class="weight-form" id="weightForm">
+                <label class="weight-field-label" for="weightInput">Weight</label>
+                <div class="weight-entry-row">
+                  <div class="weight-input-wrap">
+                    <input class="weight-input" id="weightInput" type="number" min="0" max="1000" step="0.1" inputmode="decimal" placeholder="0.0" aria-label="Lily weight in pounds">
+                    <span aria-hidden="true">lb</span>
+                  </div>
+                  <button class="primary-button" type="submit">Save</button>
+                </div>
+              </form>
+              <div class="weight-chart-wrap" id="weightChartWrap" aria-label="Lily weight over time"></div>
+              <div class="weight-list" id="weightList" aria-label="Saved Lily weights"></div>
             </section>
 
             <section class="ingest-panel" aria-labelledby="saveTitle">
@@ -144,6 +166,7 @@ function renderShell() {
   `;
   renderChat();
   renderWall();
+  renderWeights();
 }
 
 function bindEvents() {
@@ -163,8 +186,9 @@ function bindEvents() {
     setLocked(true);
   });
 
-  document.getElementById("refreshButton").addEventListener("click", loadMemories);
+  document.getElementById("refreshButton").addEventListener("click", loadData);
   document.getElementById("memoryForm").addEventListener("submit", saveMemory);
+  document.getElementById("weightForm").addEventListener("submit", saveWeight);
   document.getElementById("clearComposer").addEventListener("click", clearComposer);
   document.getElementById("memoryText").addEventListener("paste", handleMemoryPaste);
   document.getElementById("memoryText").addEventListener("keydown", submitFormOnEnter("memoryForm"));
@@ -279,7 +303,7 @@ async function verifyPin() {
     pinInput.value = "";
     setLocked(false);
     showToast("Unlocked");
-    await loadMemories();
+    await loadData();
     await migrateLegacyLocalMemories();
   } catch (error) {
     pinInput.value = "";
@@ -298,6 +322,21 @@ async function loadMemories() {
   } catch (error) {
     showToast(error.message);
   }
+}
+
+async function loadWeights() {
+  if (!hasStoredToken()) return;
+  try {
+    const result = await apiFetch("/api/weights");
+    state.weights = Array.isArray(result.weights) ? result.weights : [];
+    renderWeights();
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function loadData() {
+  await Promise.all([loadMemories(), loadWeights()]);
 }
 
 function addPendingFiles(files) {
@@ -371,6 +410,32 @@ async function saveMemory(event) {
   }
 }
 
+async function saveWeight(event) {
+  event.preventDefault();
+  const input = document.getElementById("weightInput");
+  const weight = Number(input.value);
+  if (!Number.isFinite(weight) || weight <= 0 || weight > 1000) {
+    showToast("Enter a valid weight.");
+    return;
+  }
+
+  setBusy(true);
+  try {
+    await apiFetch("/api/weights", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ weight, unit: "lb" })
+    });
+    input.value = "";
+    await loadWeights();
+    showToast("Weight saved");
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    setBusy(false);
+  }
+}
+
 async function askQuestion(event) {
   event.preventDefault();
   const input = document.getElementById("chatInput");
@@ -434,6 +499,185 @@ function renderChat() {
 function renderWall() {
   renderPhotoWall();
   renderFactTable();
+}
+
+function renderWeights() {
+  const latest = document.getElementById("weightLatest");
+  const chartWrap = document.getElementById("weightChartWrap");
+  const list = document.getElementById("weightList");
+  if (!latest || !chartWrap || !list) return;
+
+  const rows = weightRows();
+  const newest = rows[0];
+  latest.textContent = newest ? `${formatWeight(newest)} saved ${formatDateTime(newest.createdAt)}` : "No weights saved.";
+  chartWrap.innerHTML = "";
+  list.innerHTML = "";
+
+  if (!rows.length) {
+    const empty = document.createElement("div");
+    empty.className = "empty-state weight-empty";
+    empty.textContent = "No weights saved.";
+    chartWrap.appendChild(empty);
+    return;
+  }
+
+  chartWrap.appendChild(createWeightChart(rows.slice().reverse()));
+  rows.slice(0, 8).forEach((record) => list.appendChild(createWeightRow(record)));
+}
+
+function weightRows() {
+  return state.weights
+    .filter((record) => Number.isFinite(Number(record.weight)) && record.createdAt)
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+}
+
+function createWeightChart(records) {
+  const ns = "http://www.w3.org/2000/svg";
+  const width = 330;
+  const height = 178;
+  const pad = { top: 16, right: 16, bottom: 32, left: 42 };
+  const values = records.map((record) => Number(record.weight));
+  const times = records.map((record) => Date.parse(record.createdAt));
+  const validTimes = times.map((time) => (Number.isFinite(time) ? time : Date.now()));
+  let minTime = Math.min(...validTimes);
+  let maxTime = Math.max(...validTimes);
+  let minWeight = Math.min(...values);
+  let maxWeight = Math.max(...values);
+
+  if (minTime === maxTime) {
+    minTime -= 60 * 60 * 1000;
+    maxTime += 60 * 60 * 1000;
+  }
+
+  if (minWeight === maxWeight) {
+    minWeight -= 1;
+    maxWeight += 1;
+  } else {
+    const spread = maxWeight - minWeight;
+    minWeight -= Math.max(0.2, spread * 0.18);
+    maxWeight += Math.max(0.2, spread * 0.18);
+  }
+
+  const plotWidth = width - pad.left - pad.right;
+  const plotHeight = height - pad.top - pad.bottom;
+  const xFor = (time) => pad.left + ((time - minTime) / (maxTime - minTime)) * plotWidth;
+  const yFor = (weight) => pad.top + (1 - (weight - minWeight) / (maxWeight - minWeight)) * plotHeight;
+  const points = records.map((record, index) => ({
+    x: xFor(validTimes[index]),
+    y: yFor(Number(record.weight)),
+    record
+  }));
+  const sameChartDay = new Date(records[0].createdAt).toDateString() === new Date(records[records.length - 1].createdAt).toDateString();
+  const pathData = points
+    .map((point, index) => `${index ? "L" : "M"} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`)
+    .join(" ");
+
+  const svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", `Lily weight chart with ${records.length} saved ${records.length === 1 ? "entry" : "entries"}.`);
+
+  const grid = document.createElementNS(ns, "g");
+  grid.setAttribute("class", "weight-grid");
+  [0, 0.5, 1].forEach((ratio) => {
+    const y = pad.top + ratio * plotHeight;
+    const line = document.createElementNS(ns, "line");
+    line.setAttribute("x1", String(pad.left));
+    line.setAttribute("x2", String(width - pad.right));
+    line.setAttribute("y1", y.toFixed(1));
+    line.setAttribute("y2", y.toFixed(1));
+    grid.appendChild(line);
+  });
+  svg.appendChild(grid);
+
+  const axis = document.createElementNS(ns, "g");
+  axis.setAttribute("class", "weight-axis");
+  [
+    ["line", { x1: pad.left, x2: pad.left, y1: pad.top, y2: height - pad.bottom }],
+    ["line", { x1: pad.left, x2: width - pad.right, y1: height - pad.bottom, y2: height - pad.bottom }]
+  ].forEach(([tag, attrs]) => {
+    const line = document.createElementNS(ns, tag);
+    Object.entries(attrs).forEach(([key, value]) => line.setAttribute(key, String(value)));
+    axis.appendChild(line);
+  });
+  svg.appendChild(axis);
+
+  const yMax = document.createElementNS(ns, "text");
+  yMax.setAttribute("x", "8");
+  yMax.setAttribute("y", String(pad.top + 4));
+  yMax.textContent = `${trimWeight(maxWeight)} lb`;
+  svg.appendChild(yMax);
+
+  const yMin = document.createElementNS(ns, "text");
+  yMin.setAttribute("x", "8");
+  yMin.setAttribute("y", String(height - pad.bottom + 4));
+  yMin.textContent = `${trimWeight(minWeight)} lb`;
+  svg.appendChild(yMin);
+
+  const firstTime = document.createElementNS(ns, "text");
+  firstTime.setAttribute("x", String(pad.left));
+  firstTime.setAttribute("y", String(height - 8));
+  firstTime.textContent = formatShortDate(records[0].createdAt, sameChartDay);
+  svg.appendChild(firstTime);
+
+  const lastTime = document.createElementNS(ns, "text");
+  lastTime.setAttribute("x", String(width - pad.right));
+  lastTime.setAttribute("y", String(height - 8));
+  lastTime.setAttribute("text-anchor", "end");
+  lastTime.textContent = formatShortDate(records[records.length - 1].createdAt, sameChartDay);
+  svg.appendChild(lastTime);
+
+  if (points.length > 1) {
+    const trend = document.createElementNS(ns, "path");
+    trend.setAttribute("class", "weight-trend");
+    trend.setAttribute("d", pathData);
+    svg.appendChild(trend);
+  }
+
+  points.forEach((point) => {
+    const circle = document.createElementNS(ns, "circle");
+    circle.setAttribute("class", "weight-point");
+    circle.setAttribute("cx", point.x.toFixed(1));
+    circle.setAttribute("cy", point.y.toFixed(1));
+    circle.setAttribute("r", "4");
+    const title = document.createElementNS(ns, "title");
+    title.textContent = `${formatWeight(point.record)} saved ${formatDateTime(point.record.createdAt)}`;
+    circle.appendChild(title);
+    svg.appendChild(circle);
+  });
+
+  return svg;
+}
+
+function createWeightRow(record) {
+  const row = document.createElement("div");
+  row.className = "weight-row";
+
+  const value = document.createElement("strong");
+  value.textContent = formatWeight(record);
+
+  const time = document.createElement("time");
+  time.dateTime = record.createdAt || "";
+  time.textContent = formatDateTime(record.createdAt);
+
+  const deleteButton = document.createElement("button");
+  deleteButton.type = "button";
+  deleteButton.className = "weight-delete";
+  deleteButton.setAttribute("aria-label", `Delete ${formatWeight(record)} saved ${formatDateTime(record.createdAt)}`);
+  deleteButton.textContent = "x";
+  deleteButton.addEventListener("click", async () => {
+    if (!window.confirm("Delete this weight?")) return;
+    try {
+      await apiFetch(`/api/weights/${encodeURIComponent(record.id)}`, { method: "DELETE" });
+      await loadWeights();
+      showToast("Weight deleted");
+    } catch (error) {
+      showToast(error.message);
+    }
+  });
+
+  row.append(value, time, deleteButton);
+  return row;
 }
 
 function renderPhotoWall() {
@@ -758,6 +1002,24 @@ function formatDateTime(value) {
     hour: "numeric",
     minute: "2-digit"
   }).format(date);
+}
+
+function formatShortDate(value, includeTime = false) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat(undefined, includeTime
+    ? { hour: "numeric", minute: "2-digit" }
+    : { month: "short", day: "numeric" }).format(date);
+}
+
+function trimWeight(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return "";
+  return String(Math.round(numeric * 10) / 10).replace(/\.0$/, "");
+}
+
+function formatWeight(record) {
+  return `${trimWeight(record.weight)} ${record.unit || "lb"}`;
 }
 
 function setBusy(isBusy) {
