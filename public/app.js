@@ -8,6 +8,8 @@ const LEGACY_MIGRATED_KEY = "lily-legacy-migrated-v1";
 const PIN_LENGTH = 6;
 const WEIGHT_TARGET_LB = 120;
 const DAY_MS = 24 * 60 * 60 * 1000;
+const MIN_WEIGHT_TREND_GAP_DAYS = 1;
+const HIGH_CONFIDENCE_WEIGHT_SPAN_DAYS = 14;
 
 const state = {
   authenticated: false,
@@ -555,7 +557,8 @@ function createWeightEstimate(rows) {
   const spanDays = (points[points.length - 1].time - points[0].time) / DAY_MS;
   if (!Number.isFinite(spanDays) || spanDays <= 0) return `${targetLabel} ETA needs weights on different days. ${remainingText}.`;
 
-  const rate = robustDailyWeightRate(points);
+  const trend = robustDailyWeightTrend(points, Math.sign(deltaToTarget));
+  const rate = trend.rate;
   if (!Number.isFinite(rate) || rate === 0 || Math.sign(rate) !== Math.sign(deltaToTarget)) {
     return `No ${targetLabel} ETA at current trend. ${remainingText}.`;
   }
@@ -566,8 +569,12 @@ function createWeightEstimate(rows) {
   }
 
   const latestTime = Date.parse(newest.createdAt);
-  const projected = new Date((Number.isFinite(latestTime) ? latestTime : Date.now()) + daysToTarget * DAY_MS);
-  return `${targetLabel} estimate: ${formatProjectionDateTime(projected)} (${formatPreciseDuration(daysToTarget)}). ${formatSignedRate(rate)} lb/day from ${points.length} weights over ${formatPreciseDuration(spanDays)}.`;
+  const basisTime = Number.isFinite(latestTime) ? latestTime : Date.now();
+  const projected = new Date(basisTime + daysToTarget * DAY_MS);
+  const range = projectionRange(basisTime, deltaToTarget, trend.rangeSlopes);
+  const confidence = weightProjectionConfidence(points.length, spanDays, trend.rangeSlopes.length);
+  const rangeText = range ? ` Range ${formatProjectionDate(range.early)}-${formatProjectionDate(range.late)}.` : "";
+  return `${targetLabel} ETA: ${formatProjectionDateTime(projected)} (${formatPreciseDuration(daysToTarget)}). ${confidence}.${rangeText} ${formatSignedRate(rate)} lb/day from ${points.length} weights over ${formatPreciseDuration(spanDays)}.`;
 }
 
 function dailyWeightPoints(rows) {
@@ -592,15 +599,48 @@ function dailyWeightPoints(rows) {
     .sort((a, b) => a.time - b.time);
 }
 
-function robustDailyWeightRate(points) {
+function robustDailyWeightTrend(points, direction) {
   const slopes = [];
+  const longGapSlopes = [];
   for (let i = 0; i < points.length; i += 1) {
     for (let j = i + 1; j < points.length; j += 1) {
       const dayDelta = (points[j].time - points[i].time) / DAY_MS;
-      if (dayDelta > 0) slopes.push((points[j].weight - points[i].weight) / dayDelta);
+      if (dayDelta > 0) {
+        const slope = (points[j].weight - points[i].weight) / dayDelta;
+        slopes.push(slope);
+        if (dayDelta >= MIN_WEIGHT_TREND_GAP_DAYS) longGapSlopes.push(slope);
+      }
     }
   }
-  return median(slopes);
+  const basisSlopes = longGapSlopes.length ? longGapSlopes : slopes;
+  const alignedSlopes = basisSlopes.filter((slope) => (
+    Number.isFinite(slope) &&
+    slope !== 0 &&
+    (!direction || Math.sign(slope) === direction)
+  ));
+  const rangeSlopes = alignedSlopes.length ? alignedSlopes : basisSlopes.filter((slope) => Number.isFinite(slope) && slope !== 0);
+  return {
+    rate: median(rangeSlopes),
+    rangeSlopes
+  };
+}
+
+function projectionRange(latestTime, deltaToTarget, slopes) {
+  const dates = slopes
+    .map((rate) => deltaToTarget / rate)
+    .filter((days) => Number.isFinite(days) && days > 0)
+    .map((days) => latestTime + days * DAY_MS);
+  if (dates.length < 2) return null;
+  return {
+    early: new Date(Math.min(...dates)),
+    late: new Date(Math.max(...dates))
+  };
+}
+
+function weightProjectionConfidence(pointCount, spanDays, rangeSlopeCount) {
+  if (pointCount < 2 || rangeSlopeCount < 1) return "Needs more saved weights";
+  if (spanDays < HIGH_CONFIDENCE_WEIGHT_SPAN_DAYS || pointCount < 7) return "Early trend, not high-confidence yet";
+  return "Research-grade trend";
 }
 
 function weightInPounds(record) {
@@ -1113,6 +1153,15 @@ function formatProjectionDateTime(value) {
     year: "numeric",
     hour: "numeric",
     minute: "2-digit"
+  }).format(date);
+}
+
+function formatProjectionDate(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric"
   }).format(date);
 }
 

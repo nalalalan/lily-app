@@ -1133,8 +1133,25 @@ noscript {
   }
 
   .right-rail {
-    grid-template-rows: auto auto;
+    order: -1;
+    grid-template-rows: auto auto auto;
     gap: 10px;
+  }
+
+  .weight-panel {
+    order: 1;
+  }
+
+  .chat-panel {
+    order: 2;
+  }
+
+  .ingest-panel {
+    order: 3;
+  }
+
+  .image-section {
+    order: 1;
   }
 
   .chat-panel,
@@ -1274,7 +1291,18 @@ noscript {
   }
 
   .messages {
-    min-height: 132px;
+    min-height: 96px;
+    max-height: 132px;
+  }
+
+  .weight-chart-wrap,
+  .weight-chart-wrap svg {
+    min-height: 136px;
+  }
+
+  .weight-list {
+    max-height: 122px;
+    overflow: auto;
   }
 
   .photo-wall {
