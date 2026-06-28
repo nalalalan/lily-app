@@ -6,6 +6,8 @@ const TOKEN_EXP_KEY = "lily-api-token-exp-v1";
 const LEGACY_MEMORY_KEY = "lily-memories-v1";
 const LEGACY_MIGRATED_KEY = "lily-legacy-migrated-v1";
 const PIN_LENGTH = 6;
+const WEIGHT_TARGET_LB = 120;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 const state = {
   authenticated: false,
@@ -88,6 +90,7 @@ function renderShell() {
                 <div>
                   <h2 id="weightTitle">weight</h2>
                   <p id="weightLatest">No weights saved.</p>
+                  <p class="weight-estimate" id="weightEstimate">120 lb estimate needs saved weights.</p>
                 </div>
               </div>
               <form class="weight-form" id="weightForm">
@@ -503,6 +506,7 @@ function renderWall() {
 
 function renderWeights() {
   const latest = document.getElementById("weightLatest");
+  const estimate = document.getElementById("weightEstimate");
   const chartWrap = document.getElementById("weightChartWrap");
   const list = document.getElementById("weightList");
   if (!latest || !chartWrap || !list) return;
@@ -510,6 +514,7 @@ function renderWeights() {
   const rows = weightRows();
   const newest = rows[0];
   latest.textContent = newest ? `${formatWeight(newest)} saved ${formatDateTime(newest.createdAt)}` : "No weights saved.";
+  if (estimate) estimate.textContent = createWeightEstimate(rows);
   chartWrap.innerHTML = "";
   list.innerHTML = "";
 
@@ -529,6 +534,93 @@ function weightRows() {
   return state.weights
     .filter((record) => Number.isFinite(Number(record.weight)) && record.createdAt)
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+}
+
+function createWeightEstimate(rows) {
+  const targetLabel = `${trimWeight(WEIGHT_TARGET_LB)} lb`;
+  if (!rows.length) return `${targetLabel} estimate needs saved weights.`;
+
+  const newest = rows[0];
+  const latestWeight = weightInPounds(newest);
+  if (!Number.isFinite(latestWeight)) return `${targetLabel} estimate needs saved weights.`;
+
+  const deltaToTarget = WEIGHT_TARGET_LB - latestWeight;
+  const remaining = Math.abs(deltaToTarget);
+  if (remaining <= 0.05) return `${targetLabel} reached ${formatDateTime(newest.createdAt)}.`;
+
+  const points = dailyWeightPoints(rows);
+  const remainingText = `${trimWeight(remaining)} lb remaining`;
+  if (points.length < 2) return `${targetLabel} ETA needs weights on different days. ${remainingText}.`;
+
+  const spanDays = (points[points.length - 1].time - points[0].time) / DAY_MS;
+  if (!Number.isFinite(spanDays) || spanDays <= 0) return `${targetLabel} ETA needs weights on different days. ${remainingText}.`;
+
+  const rate = robustDailyWeightRate(points);
+  if (!Number.isFinite(rate) || rate === 0 || Math.sign(rate) !== Math.sign(deltaToTarget)) {
+    return `No ${targetLabel} ETA at current trend. ${remainingText}.`;
+  }
+
+  const daysToTarget = deltaToTarget / rate;
+  if (!Number.isFinite(daysToTarget) || daysToTarget <= 0) {
+    return `No ${targetLabel} ETA at current trend. ${remainingText}.`;
+  }
+
+  const latestTime = Date.parse(newest.createdAt);
+  const projected = new Date((Number.isFinite(latestTime) ? latestTime : Date.now()) + daysToTarget * DAY_MS);
+  return `${targetLabel} estimate: ${formatProjectionDateTime(projected)} (${formatPreciseDuration(daysToTarget)}). ${formatSignedRate(rate)} lb/day from ${points.length} weights over ${formatPreciseDuration(spanDays)}.`;
+}
+
+function dailyWeightPoints(rows) {
+  const groups = new Map();
+  rows.slice().reverse().forEach((record) => {
+    const time = Date.parse(record.createdAt);
+    const weight = weightInPounds(record);
+    if (!Number.isFinite(time) || !Number.isFinite(weight)) return;
+    const key = localDateKey(time);
+    const group = groups.get(key) || { times: [], weights: [] };
+    group.times.push(time);
+    group.weights.push(weight);
+    groups.set(key, group);
+  });
+
+  return Array.from(groups.values())
+    .map((group) => ({
+      time: median(group.times),
+      weight: median(group.weights)
+    }))
+    .filter((point) => Number.isFinite(point.time) && Number.isFinite(point.weight))
+    .sort((a, b) => a.time - b.time);
+}
+
+function robustDailyWeightRate(points) {
+  const slopes = [];
+  for (let i = 0; i < points.length; i += 1) {
+    for (let j = i + 1; j < points.length; j += 1) {
+      const dayDelta = (points[j].time - points[i].time) / DAY_MS;
+      if (dayDelta > 0) slopes.push((points[j].weight - points[i].weight) / dayDelta);
+    }
+  }
+  return median(slopes);
+}
+
+function weightInPounds(record) {
+  const value = Number(record && record.weight);
+  if (!Number.isFinite(value)) return NaN;
+  return String(record.unit || "lb").trim().toLowerCase() === "kg" ? value * 2.2046226218 : value;
+}
+
+function localDateKey(time) {
+  const date = new Date(time);
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+function median(values) {
+  const sorted = values.filter((value) => Number.isFinite(value)).sort((a, b) => a - b);
+  if (!sorted.length) return NaN;
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
 function createWeightChart(records) {
@@ -1010,6 +1102,45 @@ function formatShortDate(value, includeTime = false) {
   return new Intl.DateTimeFormat(undefined, includeTime
     ? { hour: "numeric", minute: "2-digit" }
     : { month: "short", day: "numeric" }).format(date);
+}
+
+function formatProjectionDateTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(date);
+}
+
+function formatDuration(days) {
+  if (!Number.isFinite(days) || days < 0) return "";
+  if (days < 1) {
+    const hours = Math.max(1, Math.round(days * 24));
+    return `${hours} hr`;
+  }
+  const rounded = Math.max(1, Math.round(days));
+  return `${rounded} day${rounded === 1 ? "" : "s"}`;
+}
+
+function formatPreciseDuration(days) {
+  if (!Number.isFinite(days) || days < 0) return "";
+  const totalHours = Math.max(1, Math.round(days * 24));
+  const wholeDays = Math.floor(totalHours / 24);
+  const hours = totalHours % 24;
+  if (!wholeDays) return `${hours} hr`;
+  if (!hours) return `${wholeDays} day${wholeDays === 1 ? "" : "s"}`;
+  return `${wholeDays} day${wholeDays === 1 ? "" : "s"} ${hours} hr`;
+}
+
+function formatSignedRate(rate) {
+  if (!Number.isFinite(rate)) return "";
+  const rounded = Math.round(Math.abs(rate) * 1000) / 1000;
+  const text = rounded.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
+  return `${rate >= 0 ? "+" : "-"}${text || "0"}`;
 }
 
 function trimWeight(value) {

@@ -267,6 +267,11 @@ noscript {
   font-weight: 560;
 }
 
+.panel-head p.weight-estimate {
+  color: var(--accent-strong);
+  font-weight: 720;
+}
+
 .messages {
   flex: none;
   min-height: 168px;
