@@ -1271,6 +1271,10 @@ noscript {
     gap: 10px;
   }
 
+  .right-rail {
+    gap: 4px;
+  }
+
   .chat-panel,
   .ingest-panel,
   .weight-panel,
@@ -1291,18 +1295,24 @@ noscript {
   }
 
   .messages {
-    min-height: 96px;
-    max-height: 132px;
+    min-height: 56px;
+    max-height: 72px;
+    padding: 8px;
   }
 
   .weight-chart-wrap,
   .weight-chart-wrap svg {
-    min-height: 136px;
+    min-height: 90px;
   }
 
   .weight-list {
-    max-height: 122px;
+    max-height: 40px;
     overflow: auto;
+  }
+
+  .chat-form textarea {
+    min-height: 46px;
+    max-height: 76px;
   }
 
   .photo-wall {
