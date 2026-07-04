@@ -91,7 +91,7 @@ function renderShell() {
                 <div>
                   <h2 id="weightTitle">weight</h2>
                   <p id="weightLatest">No weights saved.</p>
-                  <p class="weight-estimate" id="weightEstimate">1-month estimate needs saved weights.</p>
+                  <p class="weight-estimate" id="weightEstimate">1-week, 1-month, 1-year estimates need saved weights.</p>
                 </div>
               </div>
               <form class="weight-form" id="weightForm">
@@ -538,7 +538,7 @@ function weightRows() {
 }
 
 function createWeightEstimate(rows) {
-  const estimateLabel = "1-month estimate";
+  const estimateLabel = "1-week, 1-month, 1-year estimates";
   if (!rows.length) return `${estimateLabel} needs saved weights.`;
 
   const newest = rows[0];
@@ -558,11 +558,14 @@ function createWeightEstimate(rows) {
     return `${estimateLabel} needs a stable trend. Latest ${trimWeight(latestWeight)} lb.`;
   }
 
-  const projectedDate = addCalendarMonths(new Date(latestTime), 1);
-  const projectionDays = (projectedDate.getTime() - latestTime) / DAY_MS;
-  const projectedWeight = latestWeight + rate * projectionDays;
+  const latestDate = new Date(latestTime);
+  const projections = [
+    createWeightProjection("1 week", latestWeight, latestTime, rate, addCalendarDays(latestDate, 7)),
+    createWeightProjection("1 month", latestWeight, latestTime, rate, addCalendarMonths(latestDate, 1)),
+    createWeightProjection("1 year", latestWeight, latestTime, rate, addCalendarMonths(latestDate, 12), true)
+  ].join("; ");
   const confidence = weightProjectionConfidence(points.length, spanDays, trend.rangeSlopes.length);
-  return `${formatProjectionDate(projectedDate)} estimate: ${trimWeight(projectedWeight)} lb. ${confidence}. ${formatSignedRate(rate)} lb/day from ${points.length} weights over ${formatPreciseDuration(spanDays)}.`;
+  return `${projections}. ${confidence}; ${formatSignedRate(rate)} lb/day median trend from ${points.length} weights over ${formatPreciseDuration(spanDays)}.`;
 }
 
 function dailyWeightPoints(rows) {
@@ -611,6 +614,18 @@ function robustDailyWeightTrend(points, direction) {
     rate: median(rangeSlopes),
     rangeSlopes
   };
+}
+
+function createWeightProjection(label, latestWeight, latestTime, rate, projectedDate, includeYear = false) {
+  const projectionDays = (projectedDate.getTime() - latestTime) / DAY_MS;
+  const projectedWeight = latestWeight + rate * projectionDays;
+  return `${label} ${formatProjectionDate(projectedDate, includeYear)}: ${trimWeight(projectedWeight)} lb`;
+}
+
+function addCalendarDays(date, days) {
+  const next = new Date(date.getTime());
+  next.setDate(next.getDate() + days);
+  return next;
 }
 
 function addCalendarMonths(date, months) {
@@ -1142,13 +1157,15 @@ function formatProjectionDateTime(value) {
   }).format(date);
 }
 
-function formatProjectionDate(value) {
+function formatProjectionDate(value, includeYear = false) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  return new Intl.DateTimeFormat(undefined, {
+  const options = {
     month: "short",
     day: "numeric"
-  }).format(date);
+  };
+  if (includeYear) options.year = "numeric";
+  return new Intl.DateTimeFormat(undefined, options).format(date);
 }
 
 function formatDuration(days) {
