@@ -6,7 +6,6 @@ const TOKEN_EXP_KEY = "lily-api-token-exp-v1";
 const LEGACY_MEMORY_KEY = "lily-memories-v1";
 const LEGACY_MIGRATED_KEY = "lily-legacy-migrated-v1";
 const PIN_LENGTH = 6;
-const WEIGHT_TARGET_LB = 120;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MIN_WEIGHT_TREND_GAP_DAYS = 1;
 const HIGH_CONFIDENCE_WEIGHT_SPAN_DAYS = 14;
@@ -92,7 +91,7 @@ function renderShell() {
                 <div>
                   <h2 id="weightTitle">weight</h2>
                   <p id="weightLatest">No weights saved.</p>
-                  <p class="weight-estimate" id="weightEstimate">120 lb estimate needs saved weights.</p>
+                  <p class="weight-estimate" id="weightEstimate">1-month estimate needs saved weights.</p>
                 </div>
               </div>
               <form class="weight-form" id="weightForm">
@@ -539,42 +538,31 @@ function weightRows() {
 }
 
 function createWeightEstimate(rows) {
-  const targetLabel = `${trimWeight(WEIGHT_TARGET_LB)} lb`;
-  if (!rows.length) return `${targetLabel} estimate needs saved weights.`;
+  const estimateLabel = "1-month estimate";
+  if (!rows.length) return `${estimateLabel} needs saved weights.`;
 
   const newest = rows[0];
   const latestWeight = weightInPounds(newest);
-  if (!Number.isFinite(latestWeight)) return `${targetLabel} estimate needs saved weights.`;
-
-  const deltaToTarget = WEIGHT_TARGET_LB - latestWeight;
-  const remaining = Math.abs(deltaToTarget);
-  if (remaining <= 0.05) return `${targetLabel} reached ${formatDateTime(newest.createdAt)}.`;
+  const latestTime = Date.parse(newest.createdAt);
+  if (!Number.isFinite(latestWeight) || !Number.isFinite(latestTime)) return `${estimateLabel} needs saved weights.`;
 
   const points = dailyWeightPoints(rows);
-  const remainingText = `${trimWeight(remaining)} lb remaining`;
-  if (points.length < 2) return `${targetLabel} ETA needs weights on different days. ${remainingText}.`;
+  if (points.length < 2) return `${estimateLabel} needs weights on different days. Latest ${trimWeight(latestWeight)} lb.`;
 
   const spanDays = (points[points.length - 1].time - points[0].time) / DAY_MS;
-  if (!Number.isFinite(spanDays) || spanDays <= 0) return `${targetLabel} ETA needs weights on different days. ${remainingText}.`;
+  if (!Number.isFinite(spanDays) || spanDays <= 0) return `${estimateLabel} needs weights on different days. Latest ${trimWeight(latestWeight)} lb.`;
 
-  const trend = robustDailyWeightTrend(points, Math.sign(deltaToTarget));
+  const trend = robustDailyWeightTrend(points);
   const rate = trend.rate;
-  if (!Number.isFinite(rate) || rate === 0 || Math.sign(rate) !== Math.sign(deltaToTarget)) {
-    return `No ${targetLabel} ETA at current trend. ${remainingText}.`;
+  if (!Number.isFinite(rate)) {
+    return `${estimateLabel} needs a stable trend. Latest ${trimWeight(latestWeight)} lb.`;
   }
 
-  const daysToTarget = deltaToTarget / rate;
-  if (!Number.isFinite(daysToTarget) || daysToTarget <= 0) {
-    return `No ${targetLabel} ETA at current trend. ${remainingText}.`;
-  }
-
-  const latestTime = Date.parse(newest.createdAt);
-  const basisTime = Number.isFinite(latestTime) ? latestTime : Date.now();
-  const projected = new Date(basisTime + daysToTarget * DAY_MS);
-  const range = projectionRange(basisTime, deltaToTarget, trend.rangeSlopes);
+  const projectedDate = addCalendarMonths(new Date(latestTime), 1);
+  const projectionDays = (projectedDate.getTime() - latestTime) / DAY_MS;
+  const projectedWeight = latestWeight + rate * projectionDays;
   const confidence = weightProjectionConfidence(points.length, spanDays, trend.rangeSlopes.length);
-  const rangeText = range ? ` Range ${formatProjectionDate(range.early)}-${formatProjectionDate(range.late)}.` : "";
-  return `${targetLabel} ETA: ${formatProjectionDateTime(projected)} (${formatPreciseDuration(daysToTarget)}). ${confidence}.${rangeText} ${formatSignedRate(rate)} lb/day from ${points.length} weights over ${formatPreciseDuration(spanDays)}.`;
+  return `${formatProjectionDate(projectedDate)} estimate: ${trimWeight(projectedWeight)} lb. ${confidence}. ${formatSignedRate(rate)} lb/day from ${points.length} weights over ${formatPreciseDuration(spanDays)}.`;
 }
 
 function dailyWeightPoints(rows) {
@@ -613,28 +601,26 @@ function robustDailyWeightTrend(points, direction) {
     }
   }
   const basisSlopes = longGapSlopes.length ? longGapSlopes : slopes;
-  const alignedSlopes = basisSlopes.filter((slope) => (
-    Number.isFinite(slope) &&
+  const finiteSlopes = basisSlopes.filter((slope) => Number.isFinite(slope));
+  const alignedSlopes = finiteSlopes.filter((slope) => (
     slope !== 0 &&
     (!direction || Math.sign(slope) === direction)
   ));
-  const rangeSlopes = alignedSlopes.length ? alignedSlopes : basisSlopes.filter((slope) => Number.isFinite(slope) && slope !== 0);
+  const rangeSlopes = direction && alignedSlopes.length ? alignedSlopes : finiteSlopes;
   return {
     rate: median(rangeSlopes),
     rangeSlopes
   };
 }
 
-function projectionRange(latestTime, deltaToTarget, slopes) {
-  const dates = slopes
-    .map((rate) => deltaToTarget / rate)
-    .filter((days) => Number.isFinite(days) && days > 0)
-    .map((days) => latestTime + days * DAY_MS);
-  if (dates.length < 2) return null;
-  return {
-    early: new Date(Math.min(...dates)),
-    late: new Date(Math.max(...dates))
-  };
+function addCalendarMonths(date, months) {
+  const next = new Date(date.getTime());
+  const originalDay = next.getDate();
+  next.setDate(1);
+  next.setMonth(next.getMonth() + months);
+  const daysInMonth = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
+  next.setDate(Math.min(originalDay, daysInMonth));
+  return next;
 }
 
 function weightProjectionConfidence(pointCount, spanDays, rangeSlopeCount) {
