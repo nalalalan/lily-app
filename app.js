@@ -584,13 +584,13 @@ function renderTracker() {
   if (!conflict || !period || !detail) return;
 
   const tracker = state.tracker || {};
-  const conflictDays = Number(tracker.daysSinceLastConflict);
-  const periodDays = Number(tracker.daysUntilNextPeriod);
+  const conflictDays = numberOrNull(tracker.daysSinceLastConflict);
+  const periodDays = numberOrNull(tracker.daysUntilNextPeriod);
 
-  conflict.textContent = Number.isFinite(conflictDays)
+  conflict.textContent = conflictDays !== null
     ? `${Math.max(0, Math.round(conflictDays))} DAYS SINCE LAST CONFLICT`
     : "NO CONFLICTS SAVED";
-  period.textContent = Number.isFinite(periodDays)
+  period.textContent = periodDays !== null
     ? `${Math.max(0, Math.round(periodDays))} DAYS UNTIL NEXT PERIOD`
     : "PERIOD START NEEDED";
 
@@ -1251,6 +1251,12 @@ function formatDateKey(value) {
     month: "short",
     day: "numeric"
   }).format(date);
+}
+
+function numberOrNull(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
 }
 
 function formatDuration(days) {
