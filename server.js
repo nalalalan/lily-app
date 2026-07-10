@@ -15,6 +15,8 @@ const sessionSecret = process.env.SESSION_SECRET || "local-dev-lily-session-secr
 const openaiApiKey = process.env.OPENAI_API_KEY || "";
 const chatModel = process.env.OPENAI_CHAT_MODEL || "gpt-4o-mini";
 const visionModel = process.env.OPENAI_VISION_MODEL || "gpt-4o-mini";
+const trackerTimeZone = process.env.LILY_TRACKER_TIME_ZONE || "America/New_York";
+const defaultPeriodCycleDays = 28;
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || "http://localhost:3000,http://127.0.0.1:3000,https://lily.aolabs.io")
   .split(",")
   .map((origin) => origin.trim())
@@ -41,7 +43,7 @@ async function ensureDataDir() {
   try {
     await fsp.access(storePath);
   } catch (error) {
-    await fsp.writeFile(storePath, JSON.stringify({ memories: [], weights: [], chats: [] }, null, 2));
+    await fsp.writeFile(storePath, JSON.stringify({ memories: [], weights: [], chats: [], trackerEvents: [] }, null, 2));
   }
 }
 
@@ -70,11 +72,13 @@ function setCors(req, res) {
 async function readStore() {
   await ensureDataDir();
   const raw = await fsp.readFile(storePath, "utf8");
-  const parsed = JSON.parse(raw || "{}");
+  const parsed = JSON.parse(raw.replace(/^\uFEFF/, "") || "{}");
   return {
+    ...parsed,
     memories: Array.isArray(parsed.memories) ? parsed.memories : [],
     weights: Array.isArray(parsed.weights) ? parsed.weights : [],
-    chats: Array.isArray(parsed.chats) ? parsed.chats : []
+    chats: Array.isArray(parsed.chats) ? parsed.chats : [],
+    trackerEvents: Array.isArray(parsed.trackerEvents) ? parsed.trackerEvents : []
   };
 }
 
@@ -287,6 +291,134 @@ function publicWeights(weights) {
   return weights.map(publicWeight);
 }
 
+function trackerDateKey(value = Date.now()) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: trackerTimeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(date);
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  const day = parts.find((part) => part.type === "day")?.value;
+  return year && month && day ? `${year}-${month}-${day}` : "";
+}
+
+function dateKeyUtcNoon(key) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(key || ""));
+  if (!match) return NaN;
+  return Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12);
+}
+
+function daysBetweenDateKeys(fromKey, toKey) {
+  const from = dateKeyUtcNoon(fromKey);
+  const to = dateKeyUtcNoon(toKey);
+  if (!Number.isFinite(from) || !Number.isFinite(to)) return NaN;
+  return Math.round((to - from) / (24 * 60 * 60 * 1000));
+}
+
+function addDaysToDateKey(key, days) {
+  const start = dateKeyUtcNoon(key);
+  if (!Number.isFinite(start) || !Number.isFinite(days)) return "";
+  const next = new Date(start);
+  next.setUTCDate(next.getUTCDate() + Math.round(days));
+  const year = next.getUTCFullYear();
+  const month = String(next.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(next.getUTCDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function median(values) {
+  const sorted = values.filter((value) => Number.isFinite(value)).sort((a, b) => a - b);
+  if (!sorted.length) return NaN;
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+function publicTrackerEvent(event) {
+  const createdAt = event.createdAt || event.updatedAt || "";
+  return {
+    id: event.id,
+    type: event.type,
+    dateKey: event.dateKey || trackerDateKey(createdAt),
+    createdAt,
+    updatedAt: event.updatedAt || createdAt
+  };
+}
+
+function trackerEventTime(event) {
+  const time = Date.parse(event.createdAt || event.updatedAt || "");
+  return Number.isFinite(time) ? time : dateKeyUtcNoon(event.dateKey || "");
+}
+
+function trackerEvents(events) {
+  return (Array.isArray(events) ? events : [])
+    .map(publicTrackerEvent)
+    .filter((event) => (event.type === "conflict" || event.type === "period") && event.dateKey)
+    .sort((a, b) => trackerEventTime(b) - trackerEventTime(a));
+}
+
+function estimatePeriodCycle(periodEvents) {
+  const keys = Array.from(new Set(periodEvents.map((event) => event.dateKey)))
+    .filter(Boolean)
+    .sort();
+  const intervals = [];
+  for (let index = 1; index < keys.length; index += 1) {
+    const days = daysBetweenDateKeys(keys[index - 1], keys[index]);
+    if (Number.isFinite(days) && days >= 15 && days <= 60) intervals.push(days);
+  }
+  const medianInterval = median(intervals);
+  if (Number.isFinite(medianInterval)) {
+    return {
+      days: Math.round(medianInterval),
+      basis: `${keys.length} period starts, median interval`,
+      sampleCount: keys.length,
+      intervalCount: intervals.length
+    };
+  }
+  return {
+    days: defaultPeriodCycleDays,
+    basis: keys.length ? "28-day starter estimate until another period start is saved" : "period start needed",
+    sampleCount: keys.length,
+    intervalCount: 0
+  };
+}
+
+function publicTrackerSummary(events, now = Date.now()) {
+  const rows = trackerEvents(events);
+  const todayKey = trackerDateKey(now);
+  const conflicts = rows.filter((event) => event.type === "conflict");
+  const periods = rows.filter((event) => event.type === "period");
+  const latestConflict = conflicts[0] || null;
+  const latestPeriod = periods[0] || null;
+  const daysSinceLastConflict = latestConflict ? Math.max(0, daysBetweenDateKeys(latestConflict.dateKey, todayKey)) : null;
+  const cycle = estimatePeriodCycle(periods);
+  const nextPeriodDateKey = latestPeriod ? addDaysToDateKey(latestPeriod.dateKey, cycle.days) : "";
+  const rawDaysUntilNextPeriod = nextPeriodDateKey ? daysBetweenDateKeys(todayKey, nextPeriodDateKey) : null;
+  const periodOverdueDays = Number.isFinite(rawDaysUntilNextPeriod) && rawDaysUntilNextPeriod < 0 ? Math.abs(rawDaysUntilNextPeriod) : 0;
+
+  return {
+    timeZone: trackerTimeZone,
+    todayDateKey: todayKey,
+    conflictCount: conflicts.length,
+    periodCount: periods.length,
+    latestConflictAt: latestConflict ? latestConflict.createdAt : "",
+    latestConflictDateKey: latestConflict ? latestConflict.dateKey : "",
+    daysSinceLastConflict: Number.isFinite(daysSinceLastConflict) ? daysSinceLastConflict : null,
+    latestPeriodAt: latestPeriod ? latestPeriod.createdAt : "",
+    latestPeriodDateKey: latestPeriod ? latestPeriod.dateKey : "",
+    periodCycleDays: cycle.days,
+    periodCycleBasis: cycle.basis,
+    periodCycleSampleCount: cycle.sampleCount,
+    nextPeriodDateKey,
+    daysUntilNextPeriod: Number.isFinite(rawDaysUntilNextPeriod) ? Math.max(0, rawDaysUntilNextPeriod) : null,
+    periodOverdueDays,
+    events: rows.slice(0, 100)
+  };
+}
+
 function searchableText(memory) {
   return [
     memory.text,
@@ -449,6 +581,42 @@ async function handleApi(req, res, pathname) {
   if (pathname === "/api/weights" && req.method === "GET") {
     const store = await readStore();
     send(res, 200, { weights: publicWeights(store.weights).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))) });
+    return;
+  }
+
+  if (pathname === "/api/tracker" && req.method === "GET") {
+    const store = await readStore();
+    send(res, 200, { tracker: publicTrackerSummary(store.trackerEvents) });
+    return;
+  }
+
+  const trackerCreateMatch = /^\/api\/tracker\/(conflict|period)$/.exec(pathname);
+  if (trackerCreateMatch && req.method === "POST") {
+    const type = trackerCreateMatch[1];
+    const now = new Date();
+    const dateKey = trackerDateKey(now);
+    const nowIso = now.toISOString();
+    const created = {
+      id: createId(`tracker_${type}`),
+      type,
+      dateKey,
+      createdAt: nowIso,
+      updatedAt: nowIso
+    };
+    let saved = created;
+    await writeStore((store) => {
+      const existingEvents = Array.isArray(store.trackerEvents) ? store.trackerEvents : [];
+      const sameDayPeriod = type === "period"
+        ? existingEvents.find((event) => event.type === "period" && (event.dateKey || trackerDateKey(event.createdAt)) === dateKey)
+        : null;
+      if (sameDayPeriod) {
+        saved = sameDayPeriod;
+        return store;
+      }
+      return { ...store, trackerEvents: [created, ...existingEvents] };
+    });
+    const nextStore = await readStore();
+    send(res, saved === created ? 201 : 200, { event: publicTrackerEvent(saved), tracker: publicTrackerSummary(nextStore.trackerEvents) });
     return;
   }
 

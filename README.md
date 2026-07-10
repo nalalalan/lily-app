@@ -25,6 +25,9 @@ Set `public/config.js` to an empty API base for same-origin local API testing, o
 - `GET /api/weights` - list saved weight records
 - `POST /api/weights` - save a weight with the server timestamp
 - `DELETE /api/weights/:id` - delete a saved weight record
+- `GET /api/tracker` - read conflict and period tracker counts
+- `POST /api/tracker/conflict` - save a conflict event with the server timestamp
+- `POST /api/tracker/period` - save a period start with the server timestamp
 - `POST /api/chat` - answer from saved Lily context
 
 Railway variables:

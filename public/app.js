@@ -14,6 +14,7 @@ const state = {
   authenticated: false,
   memories: [],
   weights: [],
+  tracker: null,
   pendingFiles: [],
   chat: [
     {
@@ -72,6 +73,18 @@ function renderShell() {
           </section>
 
           <section class="right-rail" aria-label="Lily tools">
+            <section class="tracker-panel" aria-label="Lily conflict and period tracker">
+              <div class="tracker-announcements" aria-live="polite">
+                <p class="tracker-announcement" id="conflictAnnouncement">NO CONFLICTS SAVED</p>
+                <p class="tracker-announcement" id="periodAnnouncement">PERIOD START NEEDED</p>
+              </div>
+              <div class="tracker-actions">
+                <button class="secondary-button tracker-button" type="button" id="conflictButton">conflict</button>
+                <button class="secondary-button tracker-button" type="button" id="periodButton">period</button>
+              </div>
+              <p class="tracker-detail" id="trackerDetail">No tracker events saved.</p>
+            </section>
+
             <section class="chat-panel" aria-labelledby="chatTitle">
               <div class="panel-head">
                 <div>
@@ -171,6 +184,7 @@ function renderShell() {
   renderChat();
   renderWall();
   renderWeights();
+  renderTracker();
 }
 
 function bindEvents() {
@@ -193,6 +207,8 @@ function bindEvents() {
   document.getElementById("refreshButton").addEventListener("click", loadData);
   document.getElementById("memoryForm").addEventListener("submit", saveMemory);
   document.getElementById("weightForm").addEventListener("submit", saveWeight);
+  document.getElementById("conflictButton").addEventListener("click", () => saveTrackerEvent("conflict"));
+  document.getElementById("periodButton").addEventListener("click", () => saveTrackerEvent("period"));
   document.getElementById("clearComposer").addEventListener("click", clearComposer);
   document.getElementById("memoryText").addEventListener("paste", handleMemoryPaste);
   document.getElementById("memoryText").addEventListener("keydown", submitFormOnEnter("memoryForm"));
@@ -339,8 +355,19 @@ async function loadWeights() {
   }
 }
 
+async function loadTracker() {
+  if (!hasStoredToken()) return;
+  try {
+    const result = await apiFetch("/api/tracker");
+    state.tracker = result.tracker || null;
+    renderTracker();
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
 async function loadData() {
-  await Promise.all([loadMemories(), loadWeights()]);
+  await Promise.all([loadMemories(), loadWeights(), loadTracker()]);
 }
 
 function addPendingFiles(files) {
@@ -440,6 +467,25 @@ async function saveWeight(event) {
   }
 }
 
+async function saveTrackerEvent(type) {
+  if (state.loading) return;
+  setBusy(true);
+  try {
+    const result = await apiFetch(`/api/tracker/${type}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}"
+    });
+    state.tracker = result.tracker || null;
+    renderTracker();
+    showToast(type === "conflict" ? "Conflict saved" : "Period start saved");
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    setBusy(false);
+  }
+}
+
 async function askQuestion(event) {
   event.preventDefault();
   const input = document.getElementById("chatInput");
@@ -529,6 +575,35 @@ function renderWeights() {
 
   chartWrap.appendChild(createWeightChart(rows.slice().reverse()));
   rows.slice(0, 8).forEach((record) => list.appendChild(createWeightRow(record)));
+}
+
+function renderTracker() {
+  const conflict = document.getElementById("conflictAnnouncement");
+  const period = document.getElementById("periodAnnouncement");
+  const detail = document.getElementById("trackerDetail");
+  if (!conflict || !period || !detail) return;
+
+  const tracker = state.tracker || {};
+  const conflictDays = Number(tracker.daysSinceLastConflict);
+  const periodDays = Number(tracker.daysUntilNextPeriod);
+
+  conflict.textContent = Number.isFinite(conflictDays)
+    ? `${Math.max(0, Math.round(conflictDays))} DAYS SINCE LAST CONFLICT`
+    : "NO CONFLICTS SAVED";
+  period.textContent = Number.isFinite(periodDays)
+    ? `${Math.max(0, Math.round(periodDays))} DAYS UNTIL NEXT PERIOD`
+    : "PERIOD START NEEDED";
+
+  const parts = [];
+  if (tracker.latestConflictDateKey) parts.push(`conflict ${formatDateKey(tracker.latestConflictDateKey)}`);
+  if (tracker.latestPeriodDateKey) parts.push(`period ${formatDateKey(tracker.latestPeriodDateKey)}`);
+  if (tracker.latestPeriodDateKey && Number.isFinite(Number(tracker.periodCycleDays))) {
+    parts.push(`${Math.round(Number(tracker.periodCycleDays))}-day estimate`);
+  }
+  if (Number(tracker.periodOverdueDays) > 0) {
+    parts.push(`${Math.round(Number(tracker.periodOverdueDays))} days past estimate`);
+  }
+  detail.textContent = parts.length ? parts.join(" / ") : "No tracker events saved.";
 }
 
 function weightRows() {
@@ -1168,6 +1243,16 @@ function formatProjectionDate(value, includeYear = false) {
   return new Intl.DateTimeFormat(undefined, options).format(date);
 }
 
+function formatDateKey(value) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ""));
+  if (!match) return "";
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12));
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric"
+  }).format(date);
+}
+
 function formatDuration(days) {
   if (!Number.isFinite(days) || days < 0) return "";
   if (days < 1) {
@@ -1207,7 +1292,7 @@ function formatWeight(record) {
 
 function setBusy(isBusy) {
   state.loading = isBusy;
-  document.querySelectorAll(".primary-button").forEach((button) => {
+  document.querySelectorAll(".primary-button, .tracker-button").forEach((button) => {
     button.disabled = isBusy;
   });
 }
