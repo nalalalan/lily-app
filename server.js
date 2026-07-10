@@ -386,6 +386,23 @@ function estimatePeriodCycle(periodEvents) {
   };
 }
 
+function longestConflictStreak(conflictEvents, todayKey) {
+  const keys = Array.from(new Set(conflictEvents.map((event) => event.dateKey)))
+    .filter(Boolean)
+    .sort();
+  if (!keys.length) return null;
+
+  const streaks = [];
+  for (let index = 1; index < keys.length; index += 1) {
+    const days = daysBetweenDateKeys(keys[index - 1], keys[index]);
+    if (Number.isFinite(days)) streaks.push(Math.max(0, days));
+  }
+
+  const currentStreak = daysBetweenDateKeys(keys[keys.length - 1], todayKey);
+  if (Number.isFinite(currentStreak)) streaks.push(Math.max(0, currentStreak));
+  return streaks.length ? Math.max(...streaks) : null;
+}
+
 function publicTrackerSummary(events, now = Date.now()) {
   const rows = trackerEvents(events);
   const todayKey = trackerDateKey(now);
@@ -394,6 +411,7 @@ function publicTrackerSummary(events, now = Date.now()) {
   const latestConflict = conflicts[0] || null;
   const latestPeriod = periods[0] || null;
   const daysSinceLastConflict = latestConflict ? Math.max(0, daysBetweenDateKeys(latestConflict.dateKey, todayKey)) : null;
+  const longestConflictStreakDays = longestConflictStreak(conflicts, todayKey);
   const cycle = estimatePeriodCycle(periods);
   const nextPeriodDateKey = latestPeriod ? addDaysToDateKey(latestPeriod.dateKey, cycle.days) : "";
   const rawDaysUntilNextPeriod = nextPeriodDateKey ? daysBetweenDateKeys(todayKey, nextPeriodDateKey) : null;
@@ -407,6 +425,7 @@ function publicTrackerSummary(events, now = Date.now()) {
     latestConflictAt: latestConflict ? latestConflict.createdAt : "",
     latestConflictDateKey: latestConflict ? latestConflict.dateKey : "",
     daysSinceLastConflict: Number.isFinite(daysSinceLastConflict) ? daysSinceLastConflict : null,
+    longestConflictStreakDays: Number.isFinite(longestConflictStreakDays) ? longestConflictStreakDays : null,
     latestPeriodAt: latestPeriod ? latestPeriod.createdAt : "",
     latestPeriodDateKey: latestPeriod ? latestPeriod.dateKey : "",
     periodCycleDays: cycle.days,

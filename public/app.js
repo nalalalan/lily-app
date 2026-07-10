@@ -585,10 +585,11 @@ function renderTracker() {
 
   const tracker = state.tracker || {};
   const conflictDays = numberOrNull(tracker.daysSinceLastConflict);
+  const longestConflictStreak = numberOrNull(tracker.longestConflictStreakDays);
   const periodDays = numberOrNull(tracker.daysUntilNextPeriod);
 
   conflict.textContent = conflictDays !== null
-    ? `${Math.max(0, Math.round(conflictDays))} DAYS SINCE LAST CONFLICT`
+    ? `${Math.max(0, Math.round(conflictDays))} DAYS SINCE LAST CONFLICT. LONGEST STREAK: ${Math.max(0, Math.round(longestConflictStreak ?? conflictDays))} DAYS`
     : "NO CONFLICTS SAVED";
   period.textContent = periodDays !== null
     ? `${Math.max(0, Math.round(periodDays))} DAYS UNTIL NEXT PERIOD`
