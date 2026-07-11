@@ -9,7 +9,7 @@ const publicDir = path.join(__dirname, "public");
 const dataDir = process.env.DATA_DIR || path.join(__dirname, ".data");
 const mediaDir = path.join(dataDir, "media");
 const storePath = path.join(dataDir, "store.json");
-const maxBodyBytes = Number(process.env.MAX_BODY_BYTES || 26 * 1024 * 1024);
+const maxBodyBytes = Number(process.env.MAX_BODY_BYTES || 110 * 1024 * 1024);
 const pin = process.env.LILY_PIN || "local-dev-pin-required";
 const sessionSecret = process.env.SESSION_SECRET || "local-dev-lily-session-secret";
 const openaiApiKey = process.env.OPENAI_API_KEY || "";
@@ -33,8 +33,15 @@ const mimeTypes = {
   ".webp": "image/webp",
   ".png": "image/png",
   ".gif": "image/gif",
-  ".ico": "image/x-icon"
+  ".ico": "image/x-icon",
+  ".mp4": "video/mp4",
+  ".m4v": "video/mp4",
+  ".mov": "video/quicktime",
+  ".webm": "video/webm"
 };
+
+const imageExtensions = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif"]);
+const videoExtensions = new Set([".mp4", ".m4v", ".mov", ".webm"]);
 
 let writeQueue = Promise.resolve();
 
@@ -171,9 +178,15 @@ function classifyText(text) {
   return "note";
 }
 
-function sanitizeFileName(name) {
+function isSupportedMediaType(type) {
+  return String(type || "").startsWith("image/") || String(type || "").startsWith("video/");
+}
+
+function sanitizeFileName(name, type = "") {
   const ext = path.extname(name || "").toLowerCase().replace(/[^a-z0-9.]/g, "");
-  const safeExt = [".jpg", ".jpeg", ".png", ".webp", ".gif"].includes(ext) ? ext : ".jpg";
+  const isVideo = String(type).startsWith("video/");
+  const allowed = isVideo ? videoExtensions : imageExtensions;
+  const safeExt = allowed.has(ext) ? ext : (isVideo ? ".mp4" : ".jpg");
   return `${createId("media")}${safeExt}`;
 }
 
@@ -198,8 +211,8 @@ function responseText(json) {
 
 async function saveFile(file) {
   const { type, buffer } = parseDataUrl(file.dataUrl);
-  if (!type.startsWith("image/")) throw Object.assign(new Error("Only images are supported"), { status: 400 });
-  const filename = sanitizeFileName(file.name || "upload.jpg");
+  if (!isSupportedMediaType(type)) throw Object.assign(new Error("Only images and videos are supported"), { status: 400 });
+  const filename = sanitizeFileName(file.name || "upload", type);
   await fsp.writeFile(path.join(mediaDir, filename), buffer);
   return {
     filename,
@@ -679,11 +692,12 @@ async function handleApi(req, res, pathname) {
 
     for (const file of files) {
       const saved = await saveFile(file);
-      const analysis = await analyzeImage(file.dataUrl, text);
+      const isVideo = saved.type.startsWith("video/");
+      const analysis = isVideo ? { summary: "", extractedText: "", facts: [] } : await analyzeImage(file.dataUrl, text);
       created.push({
-        id: createId("photo"),
-        kind: "photo",
-        caption: text || file.name || "saved image",
+        id: createId(isVideo ? "video" : "photo"),
+        kind: isVideo ? "video" : "photo",
+        caption: text || file.name || (isVideo ? "saved video" : "saved image"),
         file: saved,
         summary: analysis.summary || "",
         extractedText: analysis.extractedText || "",
@@ -695,7 +709,7 @@ async function handleApi(req, res, pathname) {
     }
 
     if (!created.length) {
-      send(res, 400, { error: "Add a note or image first." });
+      send(res, 400, { error: "Add a note, image, or video first." });
       return;
     }
 
@@ -753,17 +767,57 @@ async function handleApi(req, res, pathname) {
   send(res, 404, { error: "Not found" });
 }
 
-function sendFile(res, filePath) {
-  fs.readFile(filePath, (error, data) => {
-    if (error) {
+function sendFile(req, res, filePath) {
+  fs.stat(filePath, (statError, stat) => {
+    if (statError || !stat.isFile()) {
       send(res, 404, "Not found");
       return;
     }
+
+    const contentType = mimeTypes[path.extname(filePath)] || "application/octet-stream";
+    const range = req.headers.range;
+    if (range) {
+      const match = /^bytes=(\d*)-(\d*)$/.exec(range);
+      if (!match) {
+        res.writeHead(416, {
+          "Content-Range": `bytes */${stat.size}`,
+          "Cache-Control": "no-store"
+        });
+        res.end();
+        return;
+      }
+
+      const suffixLength = !match[1] && match[2] ? Number(match[2]) : NaN;
+      const start = Number.isFinite(suffixLength) ? Math.max(stat.size - suffixLength, 0) : (match[1] ? Number(match[1]) : 0);
+      const end = Number.isFinite(suffixLength) ? stat.size - 1 : (match[2] ? Number(match[2]) : stat.size - 1);
+      if (!Number.isFinite(start) || !Number.isFinite(end) || start > end || start >= stat.size) {
+        res.writeHead(416, {
+          "Content-Range": `bytes */${stat.size}`,
+          "Cache-Control": "no-store"
+        });
+        res.end();
+        return;
+      }
+
+      const safeEnd = Math.min(end, stat.size - 1);
+      res.writeHead(206, {
+        "Content-Type": contentType,
+        "Content-Length": safeEnd - start + 1,
+        "Content-Range": `bytes ${start}-${safeEnd}/${stat.size}`,
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "no-store"
+      });
+      fs.createReadStream(filePath, { start, end: safeEnd }).pipe(res);
+      return;
+    }
+
     res.writeHead(200, {
-      "Content-Type": mimeTypes[path.extname(filePath)] || "application/octet-stream",
+      "Content-Type": contentType,
+      "Content-Length": stat.size,
+      "Accept-Ranges": "bytes",
       "Cache-Control": "no-store"
     });
-    res.end(data);
+    fs.createReadStream(filePath).pipe(res);
   });
 }
 
@@ -785,7 +839,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       const filename = path.basename(pathname);
-      sendFile(res, path.join(mediaDir, filename));
+      sendFile(req, res, path.join(mediaDir, filename));
       return;
     }
 
@@ -798,7 +852,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    sendFile(res, filePath);
+    sendFile(req, res, filePath);
   } catch (error) {
     send(res, error.status || 500, { error: error.message || "Server error" });
   }

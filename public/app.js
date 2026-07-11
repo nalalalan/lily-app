@@ -68,7 +68,7 @@ function renderShell() {
 
         <main class="split-workspace">
           <section class="image-section" aria-label="Saved Lily pictures and notes">
-            <p class="memory-count" id="imageCount" aria-live="polite">No images yet</p>
+            <p class="memory-count" id="imageCount" aria-live="polite">No media yet</p>
             <div class="photo-wall" id="photoWall" aria-label="Saved Lily pictures and notes"></div>
           </section>
 
@@ -125,17 +125,17 @@ function renderShell() {
               <div class="panel-head">
                 <div>
                   <h2 id="saveTitle">save memory</h2>
-                  <p>Notes, screenshots, photos.</p>
+                  <p>Notes, screenshots, photos, videos.</p>
                 </div>
               </div>
               <form id="memoryForm">
                 <label class="drop-zone" id="dropZone" tabindex="0" for="photoInput">
                   <span>
-                    <strong>Add images</strong>
+                    <strong>Add media</strong>
                     <span>Choose, drop, or paste</span>
                   </span>
                 </label>
-                <input class="file-input" id="photoInput" type="file" accept="image/*" multiple>
+                <input class="file-input" id="photoInput" type="file" accept="image/*,video/*" multiple>
                 <div class="file-count" id="fileCount" aria-live="polite"></div>
                 <textarea class="memory-field" id="memoryText" placeholder="${memoryTextPlaceholder}"></textarea>
                 <div class="composer-actions">
@@ -173,10 +173,11 @@ function renderShell() {
       <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
       <div class="image-viewer" id="imageViewer" aria-hidden="true">
-        <button class="viewer-backdrop" id="viewerBackdrop" type="button" aria-label="Close image"></button>
-        <div class="viewer-frame" role="dialog" aria-modal="true" aria-label="Image preview">
-          <button class="viewer-close" id="viewerClose" type="button" aria-label="Close image">x</button>
+        <button class="viewer-backdrop" id="viewerBackdrop" type="button" aria-label="Close media"></button>
+        <div class="viewer-frame" role="dialog" aria-modal="true" aria-label="Media preview">
+          <button class="viewer-close" id="viewerClose" type="button" aria-label="Close media">x</button>
           <img id="viewerImage" alt="">
+          <video id="viewerVideo" controls playsinline preload="metadata" hidden></video>
         </div>
       </div>
     </section>
@@ -371,17 +372,21 @@ async function loadData() {
 }
 
 function addPendingFiles(files) {
-  const images = files.filter((file) => file.type.startsWith("image/"));
-  state.pendingFiles.push(...images);
+  const media = files.filter((file) => isSupportedUpload(file));
+  state.pendingFiles.push(...media);
   updateFileCount();
-  if (images.length) {
-    showToast(`${images.length} image${images.length === 1 ? "" : "s"} added`);
+  if (media.length) {
+    showToast(`${media.length} media file${media.length === 1 ? "" : "s"} added`);
   }
 }
 
 function updateFileCount() {
   const count = state.pendingFiles.length;
-  document.getElementById("fileCount").textContent = count ? `${count} image${count === 1 ? "" : "s"} ready` : "";
+  document.getElementById("fileCount").textContent = count ? `${count} media file${count === 1 ? "" : "s"} ready` : "";
+}
+
+function isSupportedUpload(file) {
+  return Boolean(file && (file.type.startsWith("image/") || file.type.startsWith("video/")));
 }
 
 function clearComposer() {
@@ -416,7 +421,7 @@ async function saveMemory(event) {
   const text = document.getElementById("memoryText").value.trim();
   const files = state.pendingFiles.slice();
   if (!text && !files.length) {
-    showToast("Add a note or image first.");
+    showToast("Add a note, image, or video first.");
     return;
   }
 
@@ -894,20 +899,20 @@ function renderPhotoWall() {
   const count = document.getElementById("imageCount");
   if (!wall || !count) return;
   const photoMemories = state.memories
-    .filter((memory) => memory.kind === "photo")
+    .filter((memory) => memory.kind === "photo" || memory.kind === "video")
     .sort((a, b) => String(b.createdAt || b.updatedAt || "").localeCompare(String(a.createdAt || a.updatedAt || "")));
   const displayPhotos = photoMemories.filter(hasDisplayablePhoto);
   const sourcePhotoNotes = photoMemories.filter((memory) => !hasDisplayablePhoto(memory));
   const notes = noteRows().slice(0, 60);
   count.textContent = displayPhotos.length || sourcePhotoNotes.length || notes.length
-    ? `${displayPhotos.length} image${displayPhotos.length === 1 ? "" : "s"} / ${sourcePhotoNotes.length + notes.length} note${sourcePhotoNotes.length + notes.length === 1 ? "" : "s"}`
+    ? `${displayPhotos.length} media / ${sourcePhotoNotes.length + notes.length} note${sourcePhotoNotes.length + notes.length === 1 ? "" : "s"}`
     : "No memories yet";
   wall.innerHTML = "";
 
   if (!displayPhotos.length && !sourcePhotoNotes.length && !notes.length) {
     const empty = document.createElement("div");
     empty.className = "empty-state";
-    empty.textContent = "Add notes or photos.";
+    empty.textContent = "Add notes, photos, or videos.";
     wall.appendChild(empty);
     return;
   }
@@ -968,7 +973,7 @@ function factRows() {
 
 function noteRows() {
   return state.memories
-    .filter((memory) => memory.kind !== "photo")
+    .filter((memory) => memory.kind !== "photo" && memory.kind !== "video")
     .sort((a, b) => String(b.createdAt || b.updatedAt || "").localeCompare(String(a.createdAt || a.updatedAt || "")));
 }
 
@@ -976,11 +981,13 @@ function createPhotoTile(memory) {
   const card = document.createElement("figure");
   card.className = "photo-tile";
   card.title = photoMemoryText(memory);
+  const isVideo = isVideoMemory(memory);
   if (hasDisplayablePhoto(memory)) {
     card.classList.add("is-image-tile");
+    if (isVideo) card.classList.add("is-video-tile");
     card.tabIndex = 0;
     card.setAttribute("role", "button");
-    card.setAttribute("aria-label", "Open saved image");
+    card.setAttribute("aria-label", isVideo ? "Open saved video" : "Open saved image");
     card.addEventListener("click", (event) => {
       if (event.target.closest(".delete-button")) return;
       openImageViewer(memory);
@@ -991,20 +998,27 @@ function createPhotoTile(memory) {
       openImageViewer(memory);
     });
 
-    const image = document.createElement("img");
-    image.alt = memory.caption || memory.summary || "Saved Lily image";
-    image.loading = "lazy";
-    image.src = imageUrlForMemory(memory);
-    if (image.complete && image.naturalWidth && image.naturalHeight) {
-      setPhotoTileRatio(card, image);
+    const media = isVideo ? document.createElement("video") : document.createElement("img");
+    if (isVideo) {
+      media.muted = true;
+      media.playsInline = true;
+      media.preload = "metadata";
+      media.setAttribute("aria-label", memory.caption || memory.summary || "Saved Lily video");
     } else {
-      image.addEventListener("load", () => {
-        setPhotoTileRatio(card, image);
+      media.alt = memory.caption || memory.summary || "Saved Lily image";
+      media.loading = "lazy";
+    }
+    media.src = imageUrlForMemory(memory);
+    if (!isVideo && media.complete && media.naturalWidth && media.naturalHeight) {
+      setPhotoTileRatio(card, media);
+    } else {
+      media.addEventListener(isVideo ? "loadedmetadata" : "load", () => {
+        setPhotoTileRatio(card, media);
         queuePictureWallLayout();
       }, { once: true });
     }
-    image.addEventListener("error", () => card.classList.add("is-image-missing"), { once: true });
-    card.appendChild(image);
+    media.addEventListener("error", () => card.classList.add("is-image-missing"), { once: true });
+    card.appendChild(media);
 
     const caption = document.createElement("figcaption");
     caption.className = "photo-caption";
@@ -1031,8 +1045,8 @@ function createPhotoTile(memory) {
 }
 
 function setPhotoTileRatio(card, image) {
-  const naturalWidth = Number(image.naturalWidth || 0);
-  const naturalHeight = Number(image.naturalHeight || 0);
+  const naturalWidth = Number(image.naturalWidth || image.videoWidth || 0);
+  const naturalHeight = Number(image.naturalHeight || image.videoHeight || 0);
   if (!naturalWidth || !naturalHeight) return;
   card.dataset.ratio = String(naturalWidth / naturalHeight);
 }
@@ -1102,7 +1116,7 @@ function photoMemoryText(memory) {
     facts[0],
     extracted,
     memory.file?.originalName,
-    "Saved image"
+    isVideoMemory(memory) ? "Saved video" : "Saved image"
   ].map((value) => String(value || "").trim()).find(Boolean);
 }
 
@@ -1137,6 +1151,10 @@ function hasDisplayablePhoto(memory) {
   return Boolean(mediaPath) && fileSize >= 512;
 }
 
+function isVideoMemory(memory) {
+  return memory.kind === "video" || String(memory.file?.type || "").startsWith("video/");
+}
+
 function imageUrlForMemory(memory) {
   const mediaPath = memory.file && memory.file.url ? memory.file.url : "";
   return apiUrl(`${mediaPath}?token=${encodeURIComponent(storedToken())}`);
@@ -1145,11 +1163,26 @@ function imageUrlForMemory(memory) {
 function openImageViewer(memory) {
   const viewer = document.getElementById("imageViewer");
   const image = document.getElementById("viewerImage");
+  const video = document.getElementById("viewerVideo");
   const close = document.getElementById("viewerClose");
-  if (!viewer || !image || !memory) return;
+  if (!viewer || !image || !video || !memory) return;
 
-  image.src = imageUrlForMemory(memory);
-  image.alt = memory.caption || memory.summary || "Saved Lily image";
+  if (isVideoMemory(memory)) {
+    image.hidden = true;
+    image.removeAttribute("src");
+    image.alt = "";
+    video.hidden = false;
+    video.src = imageUrlForMemory(memory);
+    video.setAttribute("aria-label", memory.caption || memory.summary || "Saved Lily video");
+  } else {
+    video.hidden = true;
+    video.pause();
+    video.removeAttribute("src");
+    video.removeAttribute("aria-label");
+    image.hidden = false;
+    image.src = imageUrlForMemory(memory);
+    image.alt = memory.caption || memory.summary || "Saved Lily image";
+  }
   viewer.classList.add("is-open");
   viewer.setAttribute("aria-hidden", "false");
   document.body.classList.add("viewer-open");
@@ -1159,6 +1192,7 @@ function openImageViewer(memory) {
 function closeImageViewer() {
   const viewer = document.getElementById("imageViewer");
   const image = document.getElementById("viewerImage");
+  const video = document.getElementById("viewerVideo");
   if (!viewer || !viewer.classList.contains("is-open")) return;
 
   viewer.classList.remove("is-open");
@@ -1167,6 +1201,13 @@ function closeImageViewer() {
   if (image) {
     image.removeAttribute("src");
     image.alt = "";
+    image.hidden = false;
+  }
+  if (video) {
+    video.pause();
+    video.removeAttribute("src");
+    video.removeAttribute("aria-label");
+    video.hidden = true;
   }
 }
 

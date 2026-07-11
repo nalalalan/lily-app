@@ -2,7 +2,7 @@
 
 Synced memory bank for `lily.aolabs.io`.
 
-The public front end is served by GitHub Pages. Shared notes, screenshots, photos, extracted image text, and chat answers are handled by the Railway API service.
+The public front end is served by GitHub Pages. Shared notes, screenshots, photos, videos, extracted image text, and chat answers are handled by the Railway API service.
 
 User-added data is stored on the Railway `lily-api` service in its persistent `/data` volume. The PIN is checked by the API before memory or media can be read or changed.
 
@@ -20,7 +20,7 @@ Set `public/config.js` to an empty API base for same-origin local API testing, o
 
 - `POST /api/auth` - verify the configured PIN and return an API token
 - `GET /api/memories` - list shared memories
-- `POST /api/memories` - save notes and image data
+- `POST /api/memories` - save notes, image data, and video data
 - `DELETE /api/memories/:id` - delete a saved memory
 - `GET /api/weights` - list saved weight records
 - `POST /api/weights` - save a weight with the server timestamp
