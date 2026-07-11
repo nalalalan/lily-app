@@ -742,9 +742,14 @@ noscript {
   background: rgba(255, 253, 249, 0.32);
 }
 
-.photo-tile.is-image-tile img {
+.photo-tile.is-image-tile img,
+.photo-tile.is-image-tile video {
   height: 100%;
   object-fit: contain;
+}
+
+.photo-tile.is-video-tile video {
+  background: #1e1717;
 }
 
 .photo-tile.is-source-tile {
@@ -1133,7 +1138,8 @@ noscript {
   place-items: center;
 }
 
-.viewer-frame img {
+.viewer-frame img,
+.viewer-frame video {
   max-width: 100%;
   max-height: 90vh;
   border: 1px solid rgba(255, 253, 249, 0.44);
