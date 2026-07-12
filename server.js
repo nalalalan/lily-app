@@ -71,7 +71,7 @@ function setCors(req, res) {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Vary", "Origin");
   }
-  res.setHeader("Access-Control-Allow-Methods", "GET,POST,DELETE,OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization");
   res.setHeader("Access-Control-Max-Age", "86400");
 }
@@ -363,9 +363,41 @@ function publicTrackerEvent(event) {
     id: event.id,
     type: event.type,
     dateKey: event.dateKey || trackerDateKey(createdAt),
+    periodEndDateKey: validTrackerDateKey(event.periodEndDateKey),
+    reportedHighDesireDateKey: validTrackerDateKey(event.reportedHighDesireDateKey),
+    reportedPossibleOvulationStartDateKey: validTrackerDateKey(event.reportedPossibleOvulationStartDateKey),
+    reportedPossibleOvulationEndDateKey: validTrackerDateKey(event.reportedPossibleOvulationEndDateKey),
     createdAt,
     updatedAt: event.updatedAt || createdAt
   };
+}
+
+function normalizePeriodDetails(details, periodStartDateKey) {
+  const fields = [
+    "periodEndDateKey",
+    "reportedHighDesireDateKey",
+    "reportedPossibleOvulationStartDateKey",
+    "reportedPossibleOvulationEndDateKey"
+  ];
+  const normalized = {};
+  for (const field of fields) {
+    const value = String(details[field] || "").trim();
+    if (value && !validTrackerDateKey(value)) {
+      return { error: "Enter valid calendar dates for the period record." };
+    }
+    normalized[field] = value;
+  }
+  if (normalized.periodEndDateKey && normalized.periodEndDateKey < periodStartDateKey) {
+    return { error: "The period end cannot be before the period start." };
+  }
+  if (
+    normalized.reportedPossibleOvulationStartDateKey
+    && normalized.reportedPossibleOvulationEndDateKey
+    && normalized.reportedPossibleOvulationEndDateKey < normalized.reportedPossibleOvulationStartDateKey
+  ) {
+    return { error: "The possible ovulation window ends before it starts." };
+  }
+  return { details: normalized };
 }
 
 function trackerEvents(events) {
@@ -418,6 +450,18 @@ function longestConflictStreak(conflictEvents, todayKey) {
   return streaks.length ? Math.max(...streaks) : null;
 }
 
+function nextPredictedHighDesireDateKey(periodStartDateKey, reportedHighDesireDateKey, cycleDays, todayKey) {
+  const offsetDays = daysBetweenDateKeys(periodStartDateKey, reportedHighDesireDateKey);
+  if (!Number.isFinite(offsetDays) || offsetDays < 0 || !Number.isFinite(cycleDays) || cycleDays < 1) {
+    return "";
+  }
+  let predictedDateKey = addDaysToDateKey(periodStartDateKey, offsetDays);
+  while (predictedDateKey && daysBetweenDateKeys(predictedDateKey, todayKey) > 0) {
+    predictedDateKey = addDaysToDateKey(predictedDateKey, cycleDays);
+  }
+  return predictedDateKey;
+}
+
 function publicTrackerSummary(events, now = Date.now()) {
   const rows = trackerEvents(events);
   const todayKey = trackerDateKey(now);
@@ -431,6 +475,15 @@ function publicTrackerSummary(events, now = Date.now()) {
   const nextPeriodDateKey = latestPeriod ? addDaysToDateKey(latestPeriod.dateKey, cycle.days) : "";
   const rawDaysUntilNextPeriod = nextPeriodDateKey ? daysBetweenDateKeys(todayKey, nextPeriodDateKey) : null;
   const periodOverdueDays = Number.isFinite(rawDaysUntilNextPeriod) && rawDaysUntilNextPeriod < 0 ? Math.abs(rawDaysUntilNextPeriod) : 0;
+  const highDesireOffsetDays = latestPeriod && latestPeriod.reportedHighDesireDateKey
+    ? daysBetweenDateKeys(latestPeriod.dateKey, latestPeriod.reportedHighDesireDateKey)
+    : null;
+  const nextHighDesireDateKey = latestPeriod
+    ? nextPredictedHighDesireDateKey(latestPeriod.dateKey, latestPeriod.reportedHighDesireDateKey, cycle.days, todayKey)
+    : "";
+  const rawDaysUntilNextHighDesire = nextHighDesireDateKey
+    ? daysBetweenDateKeys(todayKey, nextHighDesireDateKey)
+    : null;
 
   return {
     timeZone: trackerTimeZone,
@@ -443,6 +496,13 @@ function publicTrackerSummary(events, now = Date.now()) {
     longestConflictStreakDays: Number.isFinite(longestConflictStreakDays) ? longestConflictStreakDays : null,
     latestPeriodAt: latestPeriod ? latestPeriod.createdAt : "",
     latestPeriodDateKey: latestPeriod ? latestPeriod.dateKey : "",
+    latestPeriodEndDateKey: latestPeriod ? latestPeriod.periodEndDateKey : "",
+    reportedHighDesireDateKey: latestPeriod ? latestPeriod.reportedHighDesireDateKey : "",
+    highDesireOffsetDays: Number.isFinite(highDesireOffsetDays) && highDesireOffsetDays >= 0 ? highDesireOffsetDays : null,
+    nextHighDesireDateKey,
+    daysUntilNextHighDesire: Number.isFinite(rawDaysUntilNextHighDesire) ? Math.max(0, rawDaysUntilNextHighDesire) : null,
+    reportedPossibleOvulationStartDateKey: latestPeriod ? latestPeriod.reportedPossibleOvulationStartDateKey : "",
+    reportedPossibleOvulationEndDateKey: latestPeriod ? latestPeriod.reportedPossibleOvulationEndDateKey : "",
     periodCycleDays: cycle.days,
     periodCycleBasis: cycle.basis,
     periodCycleSampleCount: cycle.sampleCount,
@@ -662,6 +722,59 @@ async function handleApi(req, res, pathname) {
     });
     const nextStore = await readStore();
     send(res, saved === created ? 201 : 200, { event: publicTrackerEvent(saved), tracker: publicTrackerSummary(nextStore.trackerEvents) });
+    return;
+  }
+
+  const updateTrackerEventMatch = /^\/api\/tracker\/([^/]+)$/.exec(pathname);
+  if (updateTrackerEventMatch && req.method === "PATCH") {
+    const id = decodeURIComponent(updateTrackerEventMatch[1]);
+    const body = await readJson(req);
+    const detailFields = [
+      "periodEndDateKey",
+      "reportedHighDesireDateKey",
+      "reportedPossibleOvulationStartDateKey",
+      "reportedPossibleOvulationEndDateKey"
+    ];
+    if (!detailFields.some((field) => Object.prototype.hasOwnProperty.call(body, field))) {
+      send(res, 400, { error: "Add a period detail to update." });
+      return;
+    }
+    let updated = null;
+    let validationError = "";
+    await writeStore((store) => {
+      const events = Array.isArray(store.trackerEvents) ? store.trackerEvents : [];
+      return {
+        ...store,
+        trackerEvents: events.map((event) => {
+          if (event.id !== id) return event;
+          if (event.type !== "period") {
+            validationError = "Only a period entry can carry period details.";
+            return event;
+          }
+          const nextDetails = { ...event };
+          detailFields.forEach((field) => {
+            if (Object.prototype.hasOwnProperty.call(body, field)) nextDetails[field] = body[field];
+          });
+          const normalized = normalizePeriodDetails(nextDetails, event.dateKey || trackerDateKey(event.createdAt));
+          if (normalized.error) {
+            validationError = normalized.error;
+            return event;
+          }
+          updated = { ...event, ...normalized.details, updatedAt: new Date().toISOString() };
+          return updated;
+        })
+      };
+    });
+    if (validationError) {
+      send(res, 400, { error: validationError });
+      return;
+    }
+    if (!updated) {
+      send(res, 404, { error: "Period entry not found." });
+      return;
+    }
+    const nextStore = await readStore();
+    send(res, 200, { event: publicTrackerEvent(updated), tracker: publicTrackerSummary(nextStore.trackerEvents) });
     return;
   }
 
