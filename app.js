@@ -606,13 +606,15 @@ function renderTracker() {
   const conflictDays = numberOrNull(tracker.daysSinceLastConflict);
   const longestConflictStreak = numberOrNull(tracker.longestConflictStreakDays);
   const periodDays = numberOrNull(tracker.daysUntilNextPeriod);
+  const highDesireDays = numberOrNull(tracker.daysUntilNextHighDesire);
 
   conflict.textContent = conflictDays !== null
     ? `${Math.max(0, Math.round(conflictDays))} DAYS SINCE LAST CONFLICT. LONGEST STREAK: ${Math.max(0, Math.round(longestConflictStreak ?? conflictDays))} DAYS`
     : "NO CONFLICTS SAVED";
-  period.textContent = periodDays !== null
-    ? `${Math.max(0, Math.round(periodDays))} DAYS UNTIL NEXT PERIOD`
-    : "PERIOD START NEEDED";
+  const periodParts = [];
+  if (periodDays !== null) periodParts.push(`${Math.max(0, Math.round(periodDays))} DAYS UNTIL NEXT PERIOD`);
+  if (highDesireDays !== null) periodParts.push(`${Math.max(0, Math.round(highDesireDays))} DAYS UNTIL MOST HORNY`);
+  period.textContent = periodParts.length ? periodParts.join(". ") : "PERIOD START NEEDED";
 
   const parts = [];
   if (tracker.latestConflictDateKey) parts.push(`conflict ${formatDateKey(tracker.latestConflictDateKey)}`);
@@ -940,7 +942,9 @@ function createTrackerRow(event) {
 
   const date = document.createElement("time");
   date.dateTime = event.dateKey;
-  date.textContent = formatDateKey(event.dateKey);
+  date.textContent = event.periodEndDateKey
+    ? `${formatDateKey(event.dateKey)}–${formatDateKey(event.periodEndDateKey)}`
+    : formatDateKey(event.dateKey);
 
   const deleteButton = document.createElement("button");
   deleteButton.type = "button";
