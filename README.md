@@ -26,8 +26,9 @@ Set `public/config.js` to an empty API base for same-origin local API testing, o
 - `POST /api/weights` - save a weight with the server timestamp
 - `DELETE /api/weights/:id` - delete a saved weight record
 - `GET /api/tracker` - read conflict, longest streak, and period tracker counts
-- `POST /api/tracker/conflict` - save a conflict event with the server timestamp
-- `POST /api/tracker/period` - save a period start with the server timestamp
+- `POST /api/tracker/conflict` - save a conflict event; an authenticated backfill may include a past `dateKey`
+- `POST /api/tracker/period` - save a period start; an authenticated backfill may include a past `dateKey`
+- `DELETE /api/tracker/:id` - delete a saved conflict or period entry
 - `POST /api/chat` - answer from saved Lily context
 
 Railway variables:

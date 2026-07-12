@@ -325,6 +325,13 @@ function dateKeyUtcNoon(key) {
   return Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12);
 }
 
+function validTrackerDateKey(value) {
+  const key = String(value || "").trim();
+  const timestamp = dateKeyUtcNoon(key);
+  if (!Number.isFinite(timestamp)) return "";
+  return new Date(timestamp).toISOString().slice(0, 10) === key ? key : "";
+}
+
 function daysBetweenDateKeys(fromKey, toKey) {
   const from = dateKeyUtcNoon(fromKey);
   const to = dateKeyUtcNoon(toKey);
@@ -361,16 +368,11 @@ function publicTrackerEvent(event) {
   };
 }
 
-function trackerEventTime(event) {
-  const time = Date.parse(event.createdAt || event.updatedAt || "");
-  return Number.isFinite(time) ? time : dateKeyUtcNoon(event.dateKey || "");
-}
-
 function trackerEvents(events) {
   return (Array.isArray(events) ? events : [])
     .map(publicTrackerEvent)
     .filter((event) => (event.type === "conflict" || event.type === "period") && event.dateKey)
-    .sort((a, b) => trackerEventTime(b) - trackerEventTime(a));
+    .sort((a, b) => String(b.dateKey).localeCompare(String(a.dateKey)) || String(b.createdAt).localeCompare(String(a.createdAt)));
 }
 
 function estimatePeriodCycle(periodEvents) {
@@ -625,8 +627,19 @@ async function handleApi(req, res, pathname) {
   const trackerCreateMatch = /^\/api\/tracker\/(conflict|period)$/.exec(pathname);
   if (trackerCreateMatch && req.method === "POST") {
     const type = trackerCreateMatch[1];
+    const body = await readJson(req);
     const now = new Date();
-    const dateKey = trackerDateKey(now);
+    const todayDateKey = trackerDateKey(now);
+    const requestedDateKey = validTrackerDateKey(body.dateKey);
+    if (body.dateKey && !requestedDateKey) {
+      send(res, 400, { error: "Enter a valid tracker date." });
+      return;
+    }
+    if (requestedDateKey && requestedDateKey > todayDateKey) {
+      send(res, 400, { error: "Tracker entries cannot be dated in the future." });
+      return;
+    }
+    const dateKey = requestedDateKey || todayDateKey;
     const nowIso = now.toISOString();
     const created = {
       id: createId(`tracker_${type}`),
@@ -740,6 +753,23 @@ async function handleApi(req, res, pathname) {
       ...store,
       weights: (Array.isArray(store.weights) ? store.weights : []).filter((record) => record.id !== id)
     }));
+    send(res, 200, { ok: true });
+    return;
+  }
+
+  const deleteTrackerEventMatch = /^\/api\/tracker\/([^/]+)$/.exec(pathname);
+  if (deleteTrackerEventMatch && req.method === "DELETE") {
+    const id = decodeURIComponent(deleteTrackerEventMatch[1]);
+    let deleted = null;
+    await writeStore((store) => {
+      const events = Array.isArray(store.trackerEvents) ? store.trackerEvents : [];
+      deleted = events.find((event) => event.id === id) || null;
+      return { ...store, trackerEvents: events.filter((event) => event.id !== id) };
+    });
+    if (!deleted) {
+      send(res, 404, { error: "Tracker entry not found." });
+      return;
+    }
     send(res, 200, { ok: true });
     return;
   }

@@ -118,7 +118,6 @@ function renderShell() {
                 </div>
               </form>
               <div class="weight-chart-wrap" id="weightChartWrap" aria-label="Lily weight over time"></div>
-              <div class="weight-list" id="weightList" aria-label="Saved Lily weights"></div>
             </section>
 
             <section class="ingest-panel" aria-labelledby="saveTitle">
@@ -146,6 +145,17 @@ function renderShell() {
             </section>
           </section>
         </main>
+
+        <section class="records-section" aria-label="Saved Lily weights and tracker entries">
+          <section class="records-panel" aria-labelledby="weightHistoryTitle">
+            <h2 id="weightHistoryTitle">weight entries</h2>
+            <div class="weight-list" id="weightList" aria-label="Saved Lily weights"></div>
+          </section>
+          <section class="records-panel" aria-labelledby="trackerHistoryTitle">
+            <h2 id="trackerHistoryTitle">conflict / period entries</h2>
+            <div class="tracker-list" id="trackerList" aria-label="Saved Lily conflict and period entries"></div>
+          </section>
+        </section>
       </div>
 
       <div class="pin-overlay" id="pinOverlay" role="dialog" aria-modal="true" aria-labelledby="pinTitle">
@@ -575,11 +585,15 @@ function renderWeights() {
     empty.className = "empty-state weight-empty";
     empty.textContent = "No weights saved.";
     chartWrap.appendChild(empty);
+    const listEmpty = document.createElement("div");
+    listEmpty.className = "record-empty";
+    listEmpty.textContent = "No weights saved.";
+    list.appendChild(listEmpty);
     return;
   }
 
   chartWrap.appendChild(createWeightChart(rows.slice().reverse()));
-  rows.slice(0, 8).forEach((record) => list.appendChild(createWeightRow(record)));
+  rows.forEach((record) => list.appendChild(createWeightRow(record)));
 }
 
 function renderTracker() {
@@ -610,6 +624,29 @@ function renderTracker() {
     parts.push(`${Math.round(Number(tracker.periodOverdueDays))} days past estimate`);
   }
   detail.textContent = parts.length ? parts.join(" / ") : "No tracker events saved.";
+  renderTrackerEntries();
+}
+
+function renderTrackerEntries() {
+  const list = document.getElementById("trackerList");
+  if (!list) return;
+
+  const rows = Array.isArray(state.tracker?.events)
+    ? state.tracker.events
+      .filter((event) => (event.type === "conflict" || event.type === "period") && event.id && event.dateKey)
+      .sort((a, b) => String(b.dateKey).localeCompare(String(a.dateKey)) || String(b.createdAt || "").localeCompare(String(a.createdAt || "")))
+    : [];
+  list.innerHTML = "";
+
+  if (!rows.length) {
+    const empty = document.createElement("div");
+    empty.className = "record-empty";
+    empty.textContent = "No conflict or period entries.";
+    list.appendChild(empty);
+    return;
+  }
+
+  rows.forEach((event) => list.appendChild(createTrackerRow(event)));
 }
 
 function weightRows() {
@@ -891,6 +928,37 @@ function createWeightRow(record) {
   });
 
   row.append(value, time, deleteButton);
+  return row;
+}
+
+function createTrackerRow(event) {
+  const row = document.createElement("div");
+  row.className = "tracker-row";
+
+  const type = document.createElement("strong");
+  type.textContent = event.type;
+
+  const date = document.createElement("time");
+  date.dateTime = event.dateKey;
+  date.textContent = formatDateKey(event.dateKey);
+
+  const deleteButton = document.createElement("button");
+  deleteButton.type = "button";
+  deleteButton.className = "tracker-delete";
+  deleteButton.setAttribute("aria-label", `Delete ${event.type} from ${formatDateKey(event.dateKey)}`);
+  deleteButton.textContent = "x";
+  deleteButton.addEventListener("click", async () => {
+    if (!window.confirm(`Delete this ${event.type} entry?`)) return;
+    try {
+      await apiFetch(`/api/tracker/${encodeURIComponent(event.id)}`, { method: "DELETE" });
+      await loadTracker();
+      showToast(`${event.type === "conflict" ? "Conflict" : "Period"} deleted`);
+    } catch (error) {
+      showToast(error.message);
+    }
+  });
+
+  row.append(type, date, deleteButton);
   return row;
 }
 
