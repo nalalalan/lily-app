@@ -605,10 +605,10 @@ noscript {
 .weight-list {
   display: grid;
   gap: 6px;
-  margin-top: 8px;
 }
 
-.weight-row {
+.weight-row,
+.tracker-row {
   display: grid;
   grid-template-columns: minmax(72px, auto) minmax(0, 1fr) 24px;
   gap: 10px;
@@ -620,7 +620,8 @@ noscript {
   background: rgba(255, 253, 249, 0.72);
 }
 
-.weight-row strong {
+.weight-row strong,
+.tracker-row strong {
   color: var(--ink);
   font-size: 13px;
   font-weight: 780;
@@ -628,7 +629,8 @@ noscript {
   white-space: nowrap;
 }
 
-.weight-row time {
+.weight-row time,
+.tracker-row time {
   min-width: 0;
   overflow: hidden;
   color: var(--soft);
@@ -638,7 +640,8 @@ noscript {
   white-space: nowrap;
 }
 
-.weight-delete {
+.weight-delete,
+.tracker-delete {
   display: grid;
   width: 24px;
   height: 24px;
@@ -652,7 +655,8 @@ noscript {
   line-height: 1;
 }
 
-.weight-delete:hover {
+.weight-delete:hover,
+.tracker-delete:hover {
   border-color: rgba(135, 56, 82, 0.34);
   color: var(--accent);
 }
@@ -661,6 +665,50 @@ noscript {
   min-height: 176px;
   border: 0;
   background: transparent;
+}
+
+.records-section {
+  display: grid;
+  width: min(calc(100% - 28px), 1520px);
+  margin: 12px auto 20px;
+}
+
+.records-section {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.records-panel {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(34, 25, 29, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 253, 249, 0.88);
+  box-shadow: 0 18px 46px rgba(20, 16, 15, 0.12);
+}
+
+.records-panel h2 {
+  margin: 0 0 10px;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.2;
+  font-weight: 760;
+}
+
+.tracker-list {
+  display: grid;
+  gap: 6px;
+}
+
+.record-empty {
+  min-height: 34px;
+  padding: 8px;
+  border: 1px solid rgba(34, 25, 29, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 253, 249, 0.72);
+  color: var(--soft);
+  font-size: 12px;
+  font-weight: 650;
 }
 
 .photo-wall {
@@ -1191,6 +1239,11 @@ noscript {
     gap: 10px;
   }
 
+  .records-section {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
   .tracker-panel {
     order: 0;
   }
@@ -1362,11 +1415,6 @@ noscript {
   .weight-chart-wrap,
   .weight-chart-wrap svg {
     min-height: 90px;
-  }
-
-  .weight-list {
-    max-height: 40px;
-    overflow: auto;
   }
 
   .chat-form textarea {
