@@ -588,12 +588,29 @@ noscript {
   stroke-width: 1.2;
 }
 
-.weight-trend {
+.weight-history-line {
   fill: none;
   stroke: var(--accent);
+  opacity: 0.58;
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 3;
+}
+
+.weight-trend-line {
+  fill: none;
+  stroke: var(--ink);
+  opacity: 0.68;
+  stroke-dasharray: 6 5;
+  stroke-linecap: round;
+  stroke-width: 2.25;
+}
+
+.weight-chart-wrap .weight-trend-label {
+  fill: var(--muted);
+  font-size: 9px;
+  font-weight: 820;
+  letter-spacing: 0.09em;
 }
 
 .weight-point {
