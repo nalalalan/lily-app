@@ -784,16 +784,44 @@ function median(values) {
   return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
+function fitDailyWeightTrend(points) {
+  if (points.length < 2) return null;
+  const trend = robustDailyWeightTrend(points);
+  if (!Number.isFinite(trend.rate)) return null;
+
+  const referenceTime = points[0].time;
+  const intercept = median(points.map((point) => (
+    point.weight - trend.rate * ((point.time - referenceTime) / DAY_MS)
+  )));
+  if (!Number.isFinite(intercept)) return null;
+
+  return {
+    rate: trend.rate,
+    weightAt(time) {
+      return intercept + trend.rate * ((time - referenceTime) / DAY_MS);
+    }
+  };
+}
+
 function createWeightChart(records) {
   const ns = "http://www.w3.org/2000/svg";
   const width = 330;
   const height = 178;
   const pad = { top: 16, right: 16, bottom: 32, left: 42 };
-  const values = records.map((record) => Number(record.weight));
-  const times = records.map((record) => Date.parse(record.createdAt));
-  const validTimes = times.map((time) => (Number.isFinite(time) ? time : Date.now()));
-  let minTime = Math.min(...validTimes);
-  let maxTime = Math.max(...validTimes);
+  const chartRecords = records
+    .map((record) => ({
+      record,
+      time: Date.parse(record.createdAt),
+      weight: weightInPounds(record)
+    }))
+    .filter((point) => Number.isFinite(point.time) && Number.isFinite(point.weight));
+  const dailyPoints = dailyWeightPoints(records);
+  const trend = fitDailyWeightTrend(dailyPoints);
+  const times = chartRecords.map((point) => point.time);
+  const values = chartRecords.map((point) => point.weight);
+  let minTime = Math.min(...times);
+  let maxTime = Math.max(...times);
+  if (trend) values.push(trend.weightAt(minTime), trend.weightAt(maxTime));
   let minWeight = Math.min(...values);
   let maxWeight = Math.max(...values);
 
@@ -815,20 +843,24 @@ function createWeightChart(records) {
   const plotHeight = height - pad.top - pad.bottom;
   const xFor = (time) => pad.left + ((time - minTime) / (maxTime - minTime)) * plotWidth;
   const yFor = (weight) => pad.top + (1 - (weight - minWeight) / (maxWeight - minWeight)) * plotHeight;
-  const points = records.map((record, index) => ({
-    x: xFor(validTimes[index]),
-    y: yFor(Number(record.weight)),
-    record
+  const points = chartRecords.map((point) => ({
+    x: xFor(point.time),
+    y: yFor(point.weight),
+    record: point.record
   }));
-  const sameChartDay = new Date(records[0].createdAt).toDateString() === new Date(records[records.length - 1].createdAt).toDateString();
+  const sameChartDay = new Date(chartRecords[0].record.createdAt).toDateString() === new Date(chartRecords[chartRecords.length - 1].record.createdAt).toDateString();
   const pathData = points
     .map((point, index) => `${index ? "L" : "M"} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`)
     .join(" ");
+  const trendPoints = trend ? [
+    { x: xFor(minTime), y: yFor(trend.weightAt(minTime)) },
+    { x: xFor(maxTime), y: yFor(trend.weightAt(maxTime)) }
+  ] : null;
 
   const svg = document.createElementNS(ns, "svg");
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
   svg.setAttribute("role", "img");
-  svg.setAttribute("aria-label", `Lily weight chart with ${records.length} saved ${records.length === 1 ? "entry" : "entries"}.`);
+  svg.setAttribute("aria-label", `Lily weight chart with ${chartRecords.length} saved ${chartRecords.length === 1 ? "entry" : "entries"}${trend ? ` and a dashed ${formatSignedRate(trend.rate)} lb/day median trend line` : ""}.`);
 
   const grid = document.createElementNS(ns, "g");
   grid.setAttribute("class", "weight-grid");
@@ -870,21 +902,40 @@ function createWeightChart(records) {
   const firstTime = document.createElementNS(ns, "text");
   firstTime.setAttribute("x", String(pad.left));
   firstTime.setAttribute("y", String(height - 8));
-  firstTime.textContent = formatShortDate(records[0].createdAt, sameChartDay);
+  firstTime.textContent = formatShortDate(chartRecords[0].record.createdAt, sameChartDay);
   svg.appendChild(firstTime);
 
   const lastTime = document.createElementNS(ns, "text");
   lastTime.setAttribute("x", String(width - pad.right));
   lastTime.setAttribute("y", String(height - 8));
   lastTime.setAttribute("text-anchor", "end");
-  lastTime.textContent = formatShortDate(records[records.length - 1].createdAt, sameChartDay);
+  lastTime.textContent = formatShortDate(chartRecords[chartRecords.length - 1].record.createdAt, sameChartDay);
   svg.appendChild(lastTime);
 
   if (points.length > 1) {
-    const trend = document.createElementNS(ns, "path");
-    trend.setAttribute("class", "weight-trend");
-    trend.setAttribute("d", pathData);
-    svg.appendChild(trend);
+    const history = document.createElementNS(ns, "path");
+    history.setAttribute("class", "weight-history-line");
+    history.setAttribute("d", pathData);
+    svg.appendChild(history);
+  }
+
+  if (trendPoints) {
+    const trendLine = document.createElementNS(ns, "path");
+    trendLine.setAttribute("class", "weight-trend-line");
+    trendLine.setAttribute("d", `M ${trendPoints[0].x.toFixed(1)} ${trendPoints[0].y.toFixed(1)} L ${trendPoints[1].x.toFixed(1)} ${trendPoints[1].y.toFixed(1)}`);
+    trendLine.setAttribute("data-trend-rate", trend.rate.toFixed(6));
+    const title = document.createElementNS(ns, "title");
+    title.textContent = `Median daily trend: ${formatSignedRate(trend.rate)} lb/day`;
+    trendLine.appendChild(title);
+    svg.appendChild(trendLine);
+
+    const trendLabel = document.createElementNS(ns, "text");
+    trendLabel.setAttribute("class", "weight-trend-label");
+    trendLabel.setAttribute("x", String(width - pad.right - 2));
+    trendLabel.setAttribute("y", String(pad.top + 10));
+    trendLabel.setAttribute("text-anchor", "end");
+    trendLabel.textContent = "TREND";
+    svg.appendChild(trendLabel);
   }
 
   points.forEach((point) => {
