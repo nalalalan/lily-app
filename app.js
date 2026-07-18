@@ -116,7 +116,7 @@ function renderShell() {
                   <button class="primary-button" type="submit">Save</button>
                 </div>
               </form>
-              <div class="weight-chart-wrap" id="weightChartWrap" aria-label="Lily weight and one-year prediction over time"></div>
+              <div class="weight-chart-wrap" id="weightChartWrap" aria-label="Lily weight and one-year endpoint baseline history"></div>
             </section>
 
             <section class="ingest-panel" aria-labelledby="saveTitle">
@@ -712,17 +712,23 @@ function createWeightEstimate(forecast) {
   const projections = [
     createWeightProjection("1 week", forecast.oneWeekDay, forecast.oneWeekWeight),
     createWeightProjection("1 month", forecast.oneMonthDay, forecast.oneMonthWeight),
-    createWeightProjection("1 year", forecast.oneYearDay, forecast.oneYearWeight, true)
+    createWeightProjection("1-year baseline", forecast.oneYearDay, forecast.oneYearWeight, true)
   ].join("; ");
-  const modelName = forecast.method === "damped" ? "Robust damped trend" : "Recent-weight baseline";
-  const selection = forecast.selection === "rolling-backtest" ? " selected by rolling backtest" : "";
   const history = forecast.pointCount === 1
     ? "1 daily weight"
     : `${forecast.pointCount} daily weights / ${formatPreciseDuration(forecast.spanDays)}`;
-  const confidence = forecast.spanDays < 365
-    ? "a full year of outcomes is needed to measure 1-year accuracy"
-    : "a full year of outcomes is available for ongoing validation";
-  return `${projections}. ${modelName}${selection} from ${history}; ${confidence}.`;
+  const delta = forecast.oneYearWeight - forecast.latestWeight;
+  const deltaText = `${delta >= 0 ? "+" : ""}${trimWeight(delta)} lb from latest`;
+  if (!forecast.annualCalibrationReady) {
+    const horizonText = forecast.validationHorizons.length
+      ? `${forecast.validationHorizons.join("/")}-day walk-forward checks`
+      : "short-history checks";
+    return `${projections} (${deltaText}). Not a reliable 1-year prediction yet—${history}, ${horizonText}, and ${forecast.annualValidationCount} completed 1-year outcomes. A near-current baseline means these weigh-ins do not establish a stable long-term direction—not that her weight will stay constant. This estimates one future date, not her weight throughout the year.`;
+  }
+  const errorText = Number.isFinite(forecast.annualMedianAbsoluteError)
+    ? `historical 1-year median absolute error ${trimWeight(forecast.annualMedianAbsoluteError)} lb`
+    : "annual error still being measured";
+  return `${projections} (${deltaText}). Historically evaluated across ${forecast.annualValidationCount} completed 1-year checks; ${errorText}. This remains an estimate of one future date, not a guarantee or her weight throughout the year.`;
 }
 
 function dailyWeightPoints(rows) {
@@ -870,7 +876,7 @@ function createWeightChart(records, dailyPoints, currentForecast) {
   const svg = document.createElementNS(ns, "svg");
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
   svg.setAttribute("role", "img");
-  svg.setAttribute("aria-label", `Lily weight chart with ${chartRecords.length} saved ${chartRecords.length === 1 ? "entry" : "entries"}${trend ? `, a dashed ${formatSignedRate(trend.rate)} lb/day median trend line` : ""}, and a connected ${predictionPoints.length}-point one-year prediction overlay.`);
+  svg.setAttribute("aria-label", `Lily weight chart with ${chartRecords.length} saved ${chartRecords.length === 1 ? "entry" : "entries"}${trend ? `, a dashed ${formatSignedRate(trend.rate)} lb/day median trend line` : ""}, and a connected ${predictionPoints.length}-point one-year baseline endpoint history overlay. Each green point is an endpoint estimate made on that weigh-in date, not a daily future weight path.`);
 
   const grid = document.createElementNS(ns, "g");
   grid.setAttribute("class", "weight-grid");
@@ -968,32 +974,18 @@ function createWeightChart(records, dailyPoints, currentForecast) {
     predictionLabel.setAttribute("class", "weight-prediction-label");
     predictionLabel.setAttribute("x", String(pad.left + 19));
     predictionLabel.setAttribute("y", "16");
-    predictionLabel.textContent = "1-YR PREDICTION";
+    predictionLabel.textContent = "1-YR BASELINE";
     svg.appendChild(predictionLabel);
   }
 
   if (predictionPoints.length > 1) {
     const predictionLine = document.createElementNS(ns, "path");
-    predictionLine.setAttribute("class", "weight-prediction-line");
+    predictionLine.setAttribute("class", `weight-prediction-line${currentForecast.annualCalibrationReady ? "" : " is-unvalidated"}`);
     predictionLine.setAttribute("d", predictionPathData);
     predictionLine.setAttribute("data-prediction-count", String(predictionPoints.length));
     predictionLine.setAttribute("data-current-one-year-weight", String(currentForecast.oneYearWeight));
     svg.appendChild(predictionLine);
   }
-
-  predictionPoints.forEach((point) => {
-    const circle = document.createElementNS(ns, "circle");
-    circle.setAttribute("class", `weight-prediction-point${point.isCurrent ? " is-current" : ""}`);
-    circle.setAttribute("cx", point.x.toFixed(1));
-    circle.setAttribute("cy", point.y.toFixed(1));
-    circle.setAttribute("r", point.isCurrent ? "4" : "3");
-    circle.setAttribute("data-predicted-weight", String(point.weight));
-    circle.setAttribute("data-calculated-day", String(point.day));
-    const title = document.createElementNS(ns, "title");
-    title.textContent = `1-year prediction calculated ${formatShortDate(point.time)}: ${trimWeight(point.weight)} lb for ${formatProjectionDate(dateFromCalendarDay(point.projectedDay), true)}`;
-    circle.appendChild(title);
-    svg.appendChild(circle);
-  });
 
   points.forEach((point) => {
     const circle = document.createElementNS(ns, "circle");
@@ -1003,6 +995,23 @@ function createWeightChart(records, dailyPoints, currentForecast) {
     circle.setAttribute("r", "4");
     const title = document.createElementNS(ns, "title");
     title.textContent = `${formatWeight(point.record)} saved ${formatDateTime(point.record.createdAt)}`;
+    circle.appendChild(title);
+    svg.appendChild(circle);
+  });
+
+  predictionPoints.forEach((point) => {
+    const circle = document.createElementNS(ns, "circle");
+    circle.setAttribute("class", `weight-prediction-point${point.isCurrent ? " is-current" : ""}${point.annualCalibrated ? "" : " is-unvalidated"}`);
+    circle.setAttribute("cx", point.x.toFixed(1));
+    circle.setAttribute("cy", point.y.toFixed(1));
+    circle.setAttribute("r", point.isCurrent ? "4" : "3");
+    circle.setAttribute("data-predicted-weight", String(point.weight));
+    circle.setAttribute("data-calculated-day", String(point.day));
+    circle.setAttribute("data-target-day", String(point.projectedDay));
+    circle.setAttribute("data-annual-calibrated", String(Boolean(point.annualCalibrated)));
+    const title = document.createElementNS(ns, "title");
+    const evaluation = point.annualCalibrated ? "historically evaluated baseline" : "uncalibrated baseline";
+    title.textContent = `Calculated ${formatShortDate(point.time)}: estimated ${formatProjectionDate(dateFromCalendarDay(point.projectedDay), true)} endpoint ${trimWeight(point.weight)} lb (${evaluation})`;
     circle.appendChild(title);
     svg.appendChild(circle);
   });

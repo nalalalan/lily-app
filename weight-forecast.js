@@ -8,8 +8,16 @@
   const DAY_MS = 24 * 60 * 60 * 1000;
   const MIN_DAMPED_MODEL_POINTS = 7;
   const MIN_DAMPED_MODEL_SPAN_DAYS = 14;
-  const DAMPED_MODEL_IMPROVEMENT = 0.9;
+  const MIN_WALK_FORWARD_POINTS = 4;
+  const MAX_WALK_FORWARD_ORIGINS = 24;
+  const VALIDATION_HORIZONS = [7, 14, 28];
+  const VALIDATION_TARGET_TOLERANCE_DAYS = 3;
+  const ANNUAL_HORIZON_DAYS = 365;
+  const ANNUAL_TARGET_TOLERANCE_DAYS = 7;
+  const MIN_ANNUAL_ORIGIN_SPACING_DAYS = 28;
+  const MIN_ANNUAL_CALIBRATION_POINTS = 20;
   const HUBER_LIMIT = 2.5;
+  const ROBUST_SCALE_WINDOW = 30;
   const PARAMETER_GRID = [
     [0.2, 0.02, 0.9], [0.2, 0.02, 0.95], [0.2, 0.02, 0.98],
     [0.2, 0.08, 0.9], [0.2, 0.08, 0.95], [0.2, 0.08, 0.98],
@@ -85,21 +93,25 @@
   }
 
   function clipInnovation(error, priorErrors) {
-    const limit = HUBER_LIMIT * robustScale(priorErrors);
+    const limit = HUBER_LIMIT * robustScale(priorErrors.slice(-ROBUST_SCALE_WINDOW));
     return Math.max(-limit, Math.min(limit, error));
   }
 
-  function scoredMedian(errors) {
-    if (!errors.length) return NaN;
-    const warmup = Math.min(2, Math.max(0, errors.length - 1));
-    return median(errors.slice(warmup).map(Math.abs));
-  }
-
-  function fitDampedModel(points, parameters) {
+  function fitDampedSequence(points, parameters) {
     let level = points[0].weight;
     let trend = 0;
     let previousDay = points[0].day;
     const errors = [];
+    const models = [{
+      method: "damped",
+      level,
+      trend,
+      day: previousDay,
+      alpha: parameters.alpha,
+      beta: parameters.beta,
+      phi: parameters.phi,
+      backtestMae: NaN
+    }];
 
     for (let index = 1; index < points.length; index += 1) {
       const point = points[index];
@@ -112,64 +124,197 @@
       trend = predictedTrend + parameters.beta * (innovation / gap);
       errors.push(error);
       previousDay = point.day;
+      models.push({
+        method: "damped",
+        level,
+        trend,
+        day: point.day,
+        alpha: parameters.alpha,
+        beta: parameters.beta,
+        phi: parameters.phi,
+        backtestMae: NaN
+      });
+    }
+    return models;
+  }
+
+  function fitPersistenceSequence(points) {
+    return points.map((point, index) => {
+      return {
+        method: "persistence",
+        level: median(points.slice(Math.max(0, index - 2), index + 1).map((row) => row.weight)),
+        trend: 0,
+        day: point.day,
+        phi: 0,
+        backtestMae: NaN
+      };
+    });
+  }
+
+  function candidateDefinitions() {
+    return [
+      { id: "persistence", method: "persistence" },
+      ...PARAMETER_GRID.map((parameters) => ({
+        id: `damped-${parameters.alpha}-${parameters.beta}-${parameters.phi}`,
+        method: "damped",
+        parameters
+      }))
+    ];
+  }
+
+  function fitCandidateSequence(points, definition) {
+    return definition.method === "damped"
+      ? fitDampedSequence(points, definition.parameters)
+      : fitPersistenceSequence(points);
+  }
+
+  function findValidationTarget(points, originIndex, horizonDays, lastIndex) {
+    const requestedDay = points[originIndex].day + horizonDays;
+    const finalIndex = Number.isInteger(lastIndex) ? Math.min(lastIndex, points.length - 1) : points.length - 1;
+    for (let index = originIndex + 1; index <= finalIndex; index += 1) {
+      if (points[index].day < requestedDay) continue;
+      if (points[index].day > requestedDay + VALIDATION_TARGET_TOLERANCE_DAYS) return null;
+      return { index, requestedDay, point: points[index] };
+    }
+    return null;
+  }
+
+  function evaluateCandidateWalkForwardAt(points, originModels, endIndex) {
+    const evaluations = [];
+    const maxHorizon = Math.max(...VALIDATION_HORIZONS);
+    const pointCount = endIndex + 1;
+    const originStart = Math.max(
+      MIN_WALK_FORWARD_POINTS - 1,
+      pointCount - MAX_WALK_FORWARD_ORIGINS - maxHorizon - VALIDATION_TARGET_TOLERANCE_DAYS
+    );
+
+    for (let originIndex = originStart; originIndex < endIndex; originIndex += 1) {
+      if (originIndex + 1 < MIN_WALK_FORWARD_POINTS) continue;
+      const model = originModels[originIndex];
+      const usedTargets = new Set();
+      VALIDATION_HORIZONS.forEach((horizonDays) => {
+        const target = findValidationTarget(points, originIndex, horizonDays, endIndex);
+        if (!target || usedTargets.has(target.index)) return;
+        usedTargets.add(target.index);
+        const predicted = projectModel(model, target.point.day);
+        if (!Number.isFinite(predicted)) return;
+        evaluations.push({
+          originDay: points[originIndex].day,
+          trainingLastDay: points[originIndex].day,
+          targetDay: target.point.day,
+          requestedHorizonDays: horizonDays,
+          actualHorizonDays: target.point.day - points[originIndex].day,
+          predicted,
+          actual: target.point.weight,
+          error: target.point.weight - predicted
+        });
+      });
     }
 
+    const limited = evaluations.slice(-MAX_WALK_FORWARD_ORIGINS * VALIDATION_HORIZONS.length);
     return {
-      method: "damped",
-      level,
-      trend,
-      day: points[points.length - 1].day,
-      alpha: parameters.alpha,
-      beta: parameters.beta,
-      phi: parameters.phi,
-      backtestMae: scoredMedian(errors)
+      evaluations: limited,
+      score: median(limited.map((row) => Math.abs(row.error))),
+      horizons: Array.from(new Set(limited.map((row) => row.requestedHorizonDays))).sort((a, b) => a - b)
     };
   }
 
-  function fitPersistenceModel(points) {
-    const errors = [];
-    for (let index = 1; index < points.length; index += 1) {
-      const priorWeights = points
-        .slice(Math.max(0, index - 3), index)
-        .map((point) => point.weight);
-      errors.push(points[index].weight - median(priorWeights));
+  function prepareCandidateSequences(points) {
+    return candidateDefinitions().map((definition) => ({
+      definition,
+      models: fitCandidateSequence(points, definition)
+    }));
+  }
+
+  function selectModelAt(points, prepared, endIndex) {
+    const persistenceEntry = prepared.find((entry) => entry.definition.method === "persistence");
+    const persistence = persistenceEntry.models[endIndex];
+    const spanDays = points[endIndex].day - points[0].day;
+    if (endIndex + 1 < MIN_DAMPED_MODEL_POINTS || spanDays < MIN_DAMPED_MODEL_SPAN_DAYS) {
+      return {
+        ...persistence,
+        selection: "short-history",
+        validationCount: 0,
+        validationHorizons: []
+      };
     }
+
+    const evaluated = prepared
+      .map((entry) => {
+        const validation = evaluateCandidateWalkForwardAt(points, entry.models, endIndex);
+        return { ...entry, validation };
+      })
+      .filter((candidate) => Number.isFinite(candidate.validation.score))
+      .sort((a, b) => a.validation.score - b.validation.score || a.definition.id.localeCompare(b.definition.id));
+    if (!evaluated.length) {
+      return {
+        ...persistence,
+        selection: "short-history",
+        validationCount: 0,
+        validationHorizons: []
+      };
+    }
+
+    const bestScore = evaluated[0].validation.score;
+    const competitiveLimit = bestScore + Math.max(0.25, bestScore * 0.75);
+    const competitive = evaluated.filter((candidate) => candidate.validation.score <= competitiveLimit);
+    const members = competitive.map((candidate) => {
+      const rawWeight = 1 / Math.pow(Math.max(0.1, candidate.validation.score), 2);
+      return {
+        id: candidate.definition.id,
+        model: candidate.models[endIndex],
+        score: candidate.validation.score,
+        rawWeight,
+        weight: 0
+      };
+    });
+    const totalWeight = members.reduce((sum, member) => sum + member.rawWeight, 0);
+    members.forEach((member) => {
+      member.weight = totalWeight > 0 ? member.rawWeight / totalWeight : 1 / members.length;
+      delete member.rawWeight;
+    });
+    const evaluationById = new Map(evaluated.map((candidate) => [candidate.definition.id, candidate.validation.evaluations]));
+    const validationRows = evaluated[0].validation.evaluations.map((base, rowIndex) => {
+      const predicted = members.reduce((sum, member) => {
+        const row = evaluationById.get(member.id)[rowIndex];
+        return sum + member.weight * row.predicted;
+      }, 0);
+      return {
+        ...base,
+        predicted,
+        error: base.actual - predicted
+      };
+    });
+
     return {
-      method: "persistence",
-      level: median(points.slice(-3).map((point) => point.weight)),
-      trend: 0,
-      day: points[points.length - 1].day,
-      phi: 0,
-      backtestMae: scoredMedian(errors)
+      method: "ensemble",
+      day: points[endIndex].day,
+      members,
+      selection: "walk-forward-ensemble",
+      backtestMae: median(validationRows.map((row) => Math.abs(row.error))),
+      validationCount: validationRows.length,
+      validationHorizons: Array.from(new Set(validationRows.map((row) => row.requestedHorizonDays))).sort((a, b) => a - b),
+      validationRows
     };
   }
 
-  function selectModel(points) {
-    const persistence = fitPersistenceModel(points);
-    const spanDays = points[points.length - 1].day - points[0].day;
-    if (points.length < MIN_DAMPED_MODEL_POINTS || spanDays < MIN_DAMPED_MODEL_SPAN_DAYS) {
-      return { ...persistence, selection: "short-history" };
-    }
-
-    const candidates = PARAMETER_GRID
-      .map((parameters) => fitDampedModel(points, parameters))
-      .filter((model) => Number.isFinite(model.backtestMae))
-      .sort((a, b) => a.backtestMae - b.backtestMae || a.phi - b.phi || a.alpha - b.alpha || a.beta - b.beta);
-    const best = candidates[0];
-    const persistenceMae = persistence.backtestMae;
-    if (
-      best &&
-      Number.isFinite(persistenceMae) &&
-      persistenceMae > 0 &&
-      best.backtestMae <= persistenceMae * DAMPED_MODEL_IMPROVEMENT
-    ) {
-      return { ...best, selection: "rolling-backtest" };
-    }
-    return { ...persistence, selection: "rolling-backtest" };
+  function selectModel(points, prepared) {
+    const candidates = prepared || prepareCandidateSequences(points);
+    return selectModelAt(points, candidates, points.length - 1);
   }
 
   function projectModel(model, targetDay) {
-    if (!model || !Number.isFinite(model.level) || !Number.isFinite(targetDay)) return NaN;
+    if (!model || !Number.isFinite(targetDay)) return NaN;
+    if (model.method === "ensemble") {
+      const projected = model.members
+        .map((member) => ({ weight: member.weight, value: projectModel(member.model, targetDay) }))
+        .filter((row) => Number.isFinite(row.weight) && Number.isFinite(row.value));
+      const totalWeight = projected.reduce((sum, row) => sum + row.weight, 0);
+      if (!(totalWeight > 0)) return NaN;
+      const combined = projected.reduce((sum, row) => sum + row.value * row.weight, 0) / totalWeight;
+      return Math.max(0.1, Number(combined.toFixed(12)));
+    }
+    if (!Number.isFinite(model.level)) return NaN;
     const horizonDays = Math.max(0, targetDay - model.day);
     const raw = model.method === "damped"
       ? model.level + model.trend * dampedSteps(model.phi, horizonDays)
@@ -177,10 +322,54 @@
     return Number.isFinite(raw) ? Math.max(0.1, raw) : NaN;
   }
 
+  function quantile(values, probability) {
+    const sorted = values.filter(Number.isFinite).slice().sort((a, b) => a - b);
+    if (!sorted.length) return NaN;
+    const position = Math.max(0, Math.min(1, probability)) * (sorted.length - 1);
+    const lower = Math.floor(position);
+    const upper = Math.ceil(position);
+    if (lower === upper) return sorted[lower];
+    return sorted[lower] + (sorted[upper] - sorted[lower]) * (position - lower);
+  }
+
+  function annualWalkForwardErrors(points, prepared) {
+    if (points.length < MIN_WALK_FORWARD_POINTS + 1) return [];
+    if (points[points.length - 1].day - points[0].day < ANNUAL_HORIZON_DAYS) return [];
+    const completed = [];
+    let lastAcceptedOriginDay = -Infinity;
+    for (let originIndex = MIN_WALK_FORWARD_POINTS - 1; originIndex < points.length - 1; originIndex += 1) {
+      if (points[originIndex].day - lastAcceptedOriginDay < MIN_ANNUAL_ORIGIN_SPACING_DAYS) continue;
+      const requestedDay = points[originIndex].day + ANNUAL_HORIZON_DAYS;
+      let target = null;
+      for (let index = originIndex + 1; index < points.length; index += 1) {
+        if (points[index].day < requestedDay) continue;
+        if (points[index].day <= requestedDay + ANNUAL_TARGET_TOLERANCE_DAYS) {
+          target = points[index];
+        }
+        break;
+      }
+      if (!target) continue;
+      const originModel = selectModelAt(points, prepared, originIndex);
+      const predicted = projectModel(originModel, target.day);
+      if (!Number.isFinite(predicted)) continue;
+      completed.push({
+        originDay: points[originIndex].day,
+        trainingLastDay: points[originIndex].day,
+        targetDay: target.day,
+        predicted,
+        actual: target.weight,
+        error: target.weight - predicted
+      });
+      lastAcceptedOriginDay = points[originIndex].day;
+    }
+    return completed.slice(-MAX_WALK_FORWARD_ORIGINS);
+  }
+
   function calculateForecast(inputPoints, options) {
     const points = normalizePoints(inputPoints);
     if (!points.length) return null;
-    const model = selectModel(points);
+    const prepared = prepareCandidateSequences(points);
+    const model = selectModel(points, prepared);
     const requestedDay = Number(options && options.asOfDay);
     const anchorDay = Number.isFinite(requestedDay)
       ? Math.max(points[points.length - 1].day, Math.round(requestedDay))
@@ -189,6 +378,29 @@
     const oneMonthDay = addCalendarMonths(anchorDay, 1);
     const oneYearDay = addCalendarMonths(anchorDay, 12);
     const spanDays = points[points.length - 1].day - points[0].day;
+    const oneWeekWeight = projectModel(model, oneWeekDay);
+    const oneMonthWeight = projectModel(model, oneMonthDay);
+    const oneYearWeight = projectModel(model, oneYearDay);
+    const skipAnnualEvaluation = Boolean(options && options.skipAnnualEvaluation);
+    const annualErrors = skipAnnualEvaluation ? [] : annualWalkForwardErrors(points, prepared);
+    const annualValidationCount = annualErrors.length;
+    const annualCalibrationReady = annualValidationCount >= MIN_ANNUAL_CALIBRATION_POINTS;
+    const annualAbsoluteError = annualCalibrationReady
+      ? quantile(annualErrors.map((row) => Math.abs(row.error)), 0.9)
+      : NaN;
+    const oneYearErrorBand = Number.isFinite(annualAbsoluteError)
+      ? {
+        lower: Math.max(0.1, oneYearWeight - annualAbsoluteError),
+        upper: oneYearWeight + annualAbsoluteError,
+        nominalCoverage: 0.9,
+        method: "empirical-annual-errors"
+      }
+      : null;
+    const confidence = spanDays < 90
+      ? "learning"
+      : annualCalibrationReady
+        ? "historically-evaluated"
+        : "provisional";
 
     return {
       pointCount: points.length,
@@ -200,30 +412,45 @@
       method: model.method,
       selection: model.selection,
       backtestMae: model.backtestMae,
+      validationCount: model.validationCount || 0,
+      validationHorizons: model.validationHorizons || [],
       model,
+      confidence,
+      annualValidationCount,
+      annualMedianAbsoluteError: median(annualErrors.map((row) => Math.abs(row.error))),
+      annualValidationRows: annualErrors,
+      annualCalibrationReady,
+      oneYearErrorBand,
       oneWeekDay,
-      oneWeekWeight: projectModel(model, oneWeekDay),
+      oneWeekWeight,
       oneMonthDay,
-      oneMonthWeight: projectModel(model, oneMonthDay),
+      oneMonthWeight,
       oneYearDay,
-      oneYearWeight: projectModel(model, oneYearDay)
+      oneYearWeight
     };
   }
 
   function buildOneYearHistory(inputPoints, currentForecast, currentTime) {
     const points = normalizePoints(inputPoints);
     if (!points.length) return [];
+    const prepared = prepareCandidateSequences(points);
     const history = points.map((point, index) => {
       const isFinalMeasuredPoint = index === points.length - 1 && currentForecast && currentForecast.anchorDay === point.day;
-      const forecast = isFinalMeasuredPoint
-        ? currentForecast
-        : calculateForecast(points.slice(0, index + 1));
+      const model = selectModelAt(points, prepared, index);
+      const oneYearDay = addCalendarMonths(point.day, 12);
+      const forecast = isFinalMeasuredPoint ? currentForecast : {
+        oneYearDay,
+        oneYearWeight: projectModel(model, oneYearDay),
+        method: model.method,
+        annualCalibrationReady: false
+      };
       return {
         time: point.time,
         day: point.day,
         weight: forecast.oneYearWeight,
         projectedDay: forecast.oneYearDay,
         method: forecast.method,
+        annualCalibrated: forecast.annualCalibrationReady,
         isCurrent: isFinalMeasuredPoint
       };
     });
@@ -237,12 +464,14 @@
         weight: currentForecast.oneYearWeight,
         projectedDay: currentForecast.oneYearDay,
         method: currentForecast.method,
+        annualCalibrated: currentForecast.annualCalibrationReady,
         isCurrent: true
       });
     } else if (currentForecast && history.length) {
       history[history.length - 1].weight = currentForecast.oneYearWeight;
       history[history.length - 1].projectedDay = currentForecast.oneYearDay;
       history[history.length - 1].method = currentForecast.method;
+      history[history.length - 1].annualCalibrated = currentForecast.annualCalibrationReady;
       history[history.length - 1].isCurrent = true;
     }
     return history;
