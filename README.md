@@ -38,6 +38,8 @@ The chart calculates one one-year endpoint baseline for every saved daily weigh-
 
 Until real measurements exist for at least 20 completed 365-day forecast origins spaced at least 28 days apart, the UI calls the result an uncalibrated `1-year baseline`, provides no made-up error band, and explicitly says it estimates one future date rather than every day of the year. Once that minimum exists, the result may show an empirical historical-error band but is still not called validated or guaranteed. A biological body-weight forecast would also require inputs such as diet, activity, metabolism, and body composition, and Lily does not currently collect those inputs.
 
+The visible summary stays to one compact values line plus two plain caveats. Walk-forward and annual-calibration details remain in the chart semantics and verification output rather than crowding the primary weight readout.
+
 Method references: [damped-trend forecasting](https://doi.org/10.1287/mnsc.31.10.1237), [robust Holt-Winters filtering](https://doi.org/10.1002/for.1125), [rolling-origin forecast evaluation](https://doi.org/10.1016/S0169-2070(00)00065-0), and the [NIDDK body-weight model research](https://www.niddk.nih.gov/research-funding/at-niddk/labs-branches/laboratory-biological-modeling/integrative-physiology-section/research/body-weight-planner).
 
 Railway variables:

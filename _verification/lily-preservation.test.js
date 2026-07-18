@@ -49,13 +49,15 @@ assert.ok(
 );
 
 assert.ok(
-  app.includes("Not a reliable 1-year prediction yet"),
+  app.includes("Not a reliable 1-year prediction"),
   "sub-year weight history must not be presented as a reliable annual prediction"
 );
 assert.ok(
-  app.includes("not that her weight will stay constant"),
+  app.includes("it does not mean her weight will stay constant"),
   "a near-current endpoint must not imply constant weight throughout the year"
 );
+assert.ok(app.includes('].join(" · ")'), "the visible forecast values must stay compact and scannable");
+assert.ok(!app.includes("completed 1-year outcomes"), "validation plumbing must not crowd the visible weight summary");
 assert.ok(
   !app.includes("selected by rolling backtest"),
   "short sequential errors must not be mislabeled as annual rolling-backtest evidence"
