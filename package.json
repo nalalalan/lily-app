@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "check": "node --check server.js && node --check public/app.js"
+    "check": "node --check server.js && node --check public/weight-forecast.js && node --check public/app.js && node _verification/weight-forecast.test.js",
+    "verify:live-weights": "node _verification/inspect-live-weights.js"
   },
   "engines": {
     "node": ">=20"

@@ -1,6 +1,7 @@
 const app = document.getElementById("app");
 
 const API_BASE = String(window.LILY_API_BASE || "").replace(/\/$/, "");
+const WEIGHT_FORECAST = window.LilyWeightForecast;
 const TOKEN_KEY = "lily-api-token-v1";
 const TOKEN_EXP_KEY = "lily-api-token-exp-v1";
 const LEGACY_MEMORY_KEY = "lily-memories-v1";
@@ -8,7 +9,6 @@ const LEGACY_MIGRATED_KEY = "lily-legacy-migrated-v1";
 const PIN_LENGTH = 6;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MIN_WEIGHT_TREND_GAP_DAYS = 1;
-const HIGH_CONFIDENCE_WEIGHT_SPAN_DAYS = 14;
 
 const state = {
   authenticated: false,
@@ -117,7 +117,7 @@ function renderShell() {
                   <button class="primary-button" type="submit">Save</button>
                 </div>
               </form>
-              <div class="weight-chart-wrap" id="weightChartWrap" aria-label="Lily weight over time"></div>
+              <div class="weight-chart-wrap" id="weightChartWrap" aria-label="Lily weight and one-year prediction over time"></div>
             </section>
 
             <section class="ingest-panel" aria-labelledby="saveTitle">
@@ -574,9 +574,15 @@ function renderWeights() {
   if (!latest || !chartWrap || !list) return;
 
   const rows = weightRows();
+  const dailyPoints = dailyWeightPoints(rows);
+  const currentForecast = WEIGHT_FORECAST && dailyPoints.length
+    ? WEIGHT_FORECAST.calculateForecast(dailyPoints, {
+      asOfDay: WEIGHT_FORECAST.calendarDay(Date.now())
+    })
+    : null;
   const newest = rows[0];
   latest.textContent = newest ? `${formatWeight(newest)} saved ${formatDateTime(newest.createdAt)}` : "No weights saved.";
-  if (estimate) estimate.textContent = createWeightEstimate(rows);
+  if (estimate) estimate.textContent = createWeightEstimate(currentForecast);
   chartWrap.innerHTML = "";
   list.innerHTML = "";
 
@@ -592,7 +598,7 @@ function renderWeights() {
     return;
   }
 
-  chartWrap.appendChild(createWeightChart(rows.slice().reverse()));
+  chartWrap.appendChild(createWeightChart(rows.slice().reverse(), dailyPoints, currentForecast));
   rows.forEach((record) => list.appendChild(createWeightRow(record)));
 }
 
@@ -657,57 +663,31 @@ function weightRows() {
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
 }
 
-function createWeightEstimate(rows) {
+function createWeightEstimate(forecast) {
   const estimateLabel = "1-week, 1-month, 1-year estimates";
-  if (!rows.length) return `${estimateLabel} needs saved weights.`;
-
-  const newest = rows[0];
-  const latestWeight = weightInPounds(newest);
-  const latestTime = Date.parse(newest.createdAt);
-  if (!Number.isFinite(latestWeight) || !Number.isFinite(latestTime)) return `${estimateLabel} needs saved weights.`;
-
-  const points = dailyWeightPoints(rows);
-  if (points.length < 2) return `${estimateLabel} needs weights on different days. Latest ${trimWeight(latestWeight)} lb.`;
-
-  const spanDays = (points[points.length - 1].time - points[0].time) / DAY_MS;
-  if (!Number.isFinite(spanDays) || spanDays <= 0) return `${estimateLabel} needs weights on different days. Latest ${trimWeight(latestWeight)} lb.`;
-
-  const trend = robustDailyWeightTrend(points);
-  const rate = trend.rate;
-  if (!Number.isFinite(rate)) {
-    return `${estimateLabel} needs a stable trend. Latest ${trimWeight(latestWeight)} lb.`;
-  }
-
-  const latestDate = new Date(latestTime);
+  if (!forecast) return `${estimateLabel} needs saved weights.`;
   const projections = [
-    createWeightProjection("1 week", latestWeight, latestTime, rate, addCalendarDays(latestDate, 7)),
-    createWeightProjection("1 month", latestWeight, latestTime, rate, addCalendarMonths(latestDate, 1)),
-    createWeightProjection("1 year", latestWeight, latestTime, rate, addCalendarMonths(latestDate, 12), true)
+    createWeightProjection("1 week", forecast.oneWeekDay, forecast.oneWeekWeight),
+    createWeightProjection("1 month", forecast.oneMonthDay, forecast.oneMonthWeight),
+    createWeightProjection("1 year", forecast.oneYearDay, forecast.oneYearWeight, true)
   ].join("; ");
-  const confidence = weightProjectionConfidence(points.length, spanDays, trend.rangeSlopes.length);
-  return `${projections}. ${confidence}; ${formatSignedRate(rate)} lb/day median trend from ${points.length} weights over ${formatPreciseDuration(spanDays)}.`;
+  const modelName = forecast.method === "damped" ? "Robust damped trend" : "Recent-weight baseline";
+  const selection = forecast.selection === "rolling-backtest" ? " selected by rolling backtest" : "";
+  const history = forecast.pointCount === 1
+    ? "1 daily weight"
+    : `${forecast.pointCount} daily weights / ${formatPreciseDuration(forecast.spanDays)}`;
+  const confidence = forecast.spanDays < 365
+    ? "a full year of outcomes is needed to measure 1-year accuracy"
+    : "a full year of outcomes is available for ongoing validation";
+  return `${projections}. ${modelName}${selection} from ${history}; ${confidence}.`;
 }
 
 function dailyWeightPoints(rows) {
-  const groups = new Map();
-  rows.slice().reverse().forEach((record) => {
-    const time = Date.parse(record.createdAt);
-    const weight = weightInPounds(record);
-    if (!Number.isFinite(time) || !Number.isFinite(weight)) return;
-    const key = localDateKey(time);
-    const group = groups.get(key) || { times: [], weights: [] };
-    group.times.push(time);
-    group.weights.push(weight);
-    groups.set(key, group);
-  });
-
-  return Array.from(groups.values())
-    .map((group) => ({
-      time: median(group.times),
-      weight: median(group.weights)
-    }))
-    .filter((point) => Number.isFinite(point.time) && Number.isFinite(point.weight))
-    .sort((a, b) => a.time - b.time);
+  if (!WEIGHT_FORECAST) return [];
+  return WEIGHT_FORECAST.normalizePoints(rows.map((record) => ({
+    time: Date.parse(record.createdAt),
+    weight: weightInPounds(record)
+  })));
 }
 
 function robustDailyWeightTrend(points, direction) {
@@ -715,7 +695,9 @@ function robustDailyWeightTrend(points, direction) {
   const longGapSlopes = [];
   for (let i = 0; i < points.length; i += 1) {
     for (let j = i + 1; j < points.length; j += 1) {
-      const dayDelta = (points[j].time - points[i].time) / DAY_MS;
+      const dayDelta = Number.isFinite(points[j].day) && Number.isFinite(points[i].day)
+        ? points[j].day - points[i].day
+        : (points[j].time - points[i].time) / DAY_MS;
       if (dayDelta > 0) {
         const slope = (points[j].weight - points[i].weight) / dayDelta;
         slopes.push(slope);
@@ -736,45 +718,19 @@ function robustDailyWeightTrend(points, direction) {
   };
 }
 
-function createWeightProjection(label, latestWeight, latestTime, rate, projectedDate, includeYear = false) {
-  const projectionDays = (projectedDate.getTime() - latestTime) / DAY_MS;
-  const projectedWeight = latestWeight + rate * projectionDays;
-  return `${label} ${formatProjectionDate(projectedDate, includeYear)}: ${trimWeight(projectedWeight)} lb`;
+function createWeightProjection(label, projectedDay, projectedWeight, includeYear = false) {
+  return `${label} ${formatProjectionDate(dateFromCalendarDay(projectedDay), includeYear)}: ${trimWeight(projectedWeight)} lb`;
 }
 
-function addCalendarDays(date, days) {
-  const next = new Date(date.getTime());
-  next.setDate(next.getDate() + days);
-  return next;
-}
-
-function addCalendarMonths(date, months) {
-  const next = new Date(date.getTime());
-  const originalDay = next.getDate();
-  next.setDate(1);
-  next.setMonth(next.getMonth() + months);
-  const daysInMonth = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
-  next.setDate(Math.min(originalDay, daysInMonth));
-  return next;
-}
-
-function weightProjectionConfidence(pointCount, spanDays, rangeSlopeCount) {
-  if (pointCount < 2 || rangeSlopeCount < 1) return "Needs more saved weights";
-  if (spanDays < HIGH_CONFIDENCE_WEIGHT_SPAN_DAYS || pointCount < 7) return "Early trend, not high-confidence yet";
-  return "Research-grade trend";
+function dateFromCalendarDay(day) {
+  const utc = new Date(day * DAY_MS);
+  return new Date(utc.getUTCFullYear(), utc.getUTCMonth(), utc.getUTCDate(), 12);
 }
 
 function weightInPounds(record) {
   const value = Number(record && record.weight);
   if (!Number.isFinite(value)) return NaN;
   return String(record.unit || "lb").trim().toLowerCase() === "kg" ? value * 2.2046226218 : value;
-}
-
-function localDateKey(time) {
-  const date = new Date(time);
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${date.getFullYear()}-${month}-${day}`;
 }
 
 function median(values) {
@@ -803,11 +759,11 @@ function fitDailyWeightTrend(points) {
   };
 }
 
-function createWeightChart(records) {
+function createWeightChart(records, dailyPoints, currentForecast) {
   const ns = "http://www.w3.org/2000/svg";
   const width = 330;
-  const height = 178;
-  const pad = { top: 16, right: 16, bottom: 32, left: 42 };
+  const height = 190;
+  const pad = { top: 28, right: 16, bottom: 32, left: 42 };
   const chartRecords = records
     .map((record) => ({
       record,
@@ -815,13 +771,16 @@ function createWeightChart(records) {
       weight: weightInPounds(record)
     }))
     .filter((point) => Number.isFinite(point.time) && Number.isFinite(point.weight));
-  const dailyPoints = dailyWeightPoints(records);
   const trend = fitDailyWeightTrend(dailyPoints);
-  const times = chartRecords.map((point) => point.time);
+  const predictionHistory = WEIGHT_FORECAST
+    ? WEIGHT_FORECAST.buildOneYearHistory(dailyPoints, currentForecast, Date.now())
+    : [];
+  const times = chartRecords.map((point) => point.time).concat(predictionHistory.map((point) => point.time));
   const values = chartRecords.map((point) => point.weight);
   let minTime = Math.min(...times);
   let maxTime = Math.max(...times);
   if (trend) values.push(trend.weightAt(minTime), trend.weightAt(maxTime));
+  values.push(...predictionHistory.map((point) => point.weight));
   let minWeight = Math.min(...values);
   let maxWeight = Math.max(...values);
 
@@ -848,7 +807,7 @@ function createWeightChart(records) {
     y: yFor(point.weight),
     record: point.record
   }));
-  const sameChartDay = new Date(chartRecords[0].record.createdAt).toDateString() === new Date(chartRecords[chartRecords.length - 1].record.createdAt).toDateString();
+  const sameChartDay = new Date(minTime).toDateString() === new Date(maxTime).toDateString();
   const pathData = points
     .map((point, index) => `${index ? "L" : "M"} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`)
     .join(" ");
@@ -856,11 +815,19 @@ function createWeightChart(records) {
     { x: xFor(minTime), y: yFor(trend.weightAt(minTime)) },
     { x: xFor(maxTime), y: yFor(trend.weightAt(maxTime)) }
   ] : null;
+  const predictionPoints = predictionHistory.map((point) => ({
+    ...point,
+    x: xFor(point.time),
+    y: yFor(point.weight)
+  }));
+  const predictionPathData = predictionPoints
+    .map((point, index) => `${index ? "L" : "M"} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`)
+    .join(" ");
 
   const svg = document.createElementNS(ns, "svg");
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
   svg.setAttribute("role", "img");
-  svg.setAttribute("aria-label", `Lily weight chart with ${chartRecords.length} saved ${chartRecords.length === 1 ? "entry" : "entries"}${trend ? ` and a dashed ${formatSignedRate(trend.rate)} lb/day median trend line` : ""}.`);
+  svg.setAttribute("aria-label", `Lily weight chart with ${chartRecords.length} saved ${chartRecords.length === 1 ? "entry" : "entries"}${trend ? `, a dashed ${formatSignedRate(trend.rate)} lb/day median trend line` : ""}, and a connected ${predictionPoints.length}-point one-year prediction overlay.`);
 
   const grid = document.createElementNS(ns, "g");
   grid.setAttribute("class", "weight-grid");
@@ -902,14 +869,14 @@ function createWeightChart(records) {
   const firstTime = document.createElementNS(ns, "text");
   firstTime.setAttribute("x", String(pad.left));
   firstTime.setAttribute("y", String(height - 8));
-  firstTime.textContent = formatShortDate(chartRecords[0].record.createdAt, sameChartDay);
+  firstTime.textContent = formatShortDate(minTime, sameChartDay);
   svg.appendChild(firstTime);
 
   const lastTime = document.createElementNS(ns, "text");
   lastTime.setAttribute("x", String(width - pad.right));
   lastTime.setAttribute("y", String(height - 8));
   lastTime.setAttribute("text-anchor", "end");
-  lastTime.textContent = formatShortDate(chartRecords[chartRecords.length - 1].record.createdAt, sameChartDay);
+  lastTime.textContent = formatShortDate(maxTime, sameChartDay);
   svg.appendChild(lastTime);
 
   if (points.length > 1) {
@@ -929,14 +896,61 @@ function createWeightChart(records) {
     trendLine.appendChild(title);
     svg.appendChild(trendLine);
 
+    const trendKey = document.createElementNS(ns, "line");
+    trendKey.setAttribute("class", "weight-trend-line");
+    trendKey.setAttribute("x1", String(width - pad.right - 72));
+    trendKey.setAttribute("x2", String(width - pad.right - 58));
+    trendKey.setAttribute("y1", "13");
+    trendKey.setAttribute("y2", "13");
+    svg.appendChild(trendKey);
+
     const trendLabel = document.createElementNS(ns, "text");
     trendLabel.setAttribute("class", "weight-trend-label");
-    trendLabel.setAttribute("x", String(width - pad.right - 2));
-    trendLabel.setAttribute("y", String(pad.top + 10));
-    trendLabel.setAttribute("text-anchor", "end");
+    trendLabel.setAttribute("x", String(width - pad.right - 53));
+    trendLabel.setAttribute("y", "16");
     trendLabel.textContent = "TREND";
     svg.appendChild(trendLabel);
   }
+
+  if (predictionPoints.length) {
+    const predictionKey = document.createElementNS(ns, "line");
+    predictionKey.setAttribute("class", "weight-prediction-line");
+    predictionKey.setAttribute("x1", String(pad.left));
+    predictionKey.setAttribute("x2", String(pad.left + 14));
+    predictionKey.setAttribute("y1", "13");
+    predictionKey.setAttribute("y2", "13");
+    svg.appendChild(predictionKey);
+
+    const predictionLabel = document.createElementNS(ns, "text");
+    predictionLabel.setAttribute("class", "weight-prediction-label");
+    predictionLabel.setAttribute("x", String(pad.left + 19));
+    predictionLabel.setAttribute("y", "16");
+    predictionLabel.textContent = "1-YR PREDICTION";
+    svg.appendChild(predictionLabel);
+  }
+
+  if (predictionPoints.length > 1) {
+    const predictionLine = document.createElementNS(ns, "path");
+    predictionLine.setAttribute("class", "weight-prediction-line");
+    predictionLine.setAttribute("d", predictionPathData);
+    predictionLine.setAttribute("data-prediction-count", String(predictionPoints.length));
+    predictionLine.setAttribute("data-current-one-year-weight", String(currentForecast.oneYearWeight));
+    svg.appendChild(predictionLine);
+  }
+
+  predictionPoints.forEach((point) => {
+    const circle = document.createElementNS(ns, "circle");
+    circle.setAttribute("class", `weight-prediction-point${point.isCurrent ? " is-current" : ""}`);
+    circle.setAttribute("cx", point.x.toFixed(1));
+    circle.setAttribute("cy", point.y.toFixed(1));
+    circle.setAttribute("r", point.isCurrent ? "4" : "3");
+    circle.setAttribute("data-predicted-weight", String(point.weight));
+    circle.setAttribute("data-calculated-day", String(point.day));
+    const title = document.createElementNS(ns, "title");
+    title.textContent = `1-year prediction calculated ${formatShortDate(point.time)}: ${trimWeight(point.weight)} lb for ${formatProjectionDate(dateFromCalendarDay(point.projectedDay), true)}`;
+    circle.appendChild(title);
+    svg.appendChild(circle);
+  });
 
   points.forEach((point) => {
     const circle = document.createElementNS(ns, "circle");

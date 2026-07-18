@@ -32,6 +32,14 @@ Set `public/config.js` to an empty API base for same-origin local API testing, o
 - `DELETE /api/tracker/:id` - delete a saved conflict or period entry
 - `POST /api/chat` - answer from saved Lily context
 
+## Weight forecast
+
+The chart calculates one one-year forecast for every saved daily weigh-in, using only that date and the dates before it. Multiple entries on one local date are reduced to their median. A robust damped-trend model is compared with a recent-weight baseline through rolling-origin backtests; the trend model is used only when it improves median error by at least 10%. Trend persistence is capped at `phi <= 0.98`, so short-term movement is never extended as a straight line for all 365 days. The current headline and the final overlay point share the exact same calculated value.
+
+This is a weigh-in-only estimate, not a promise of one-year accuracy. A biological body-weight model would also require inputs such as diet, activity, metabolism, and body composition, and Lily does not currently collect those inputs.
+
+Method references: [damped-trend forecasting](https://doi.org/10.1287/mnsc.31.10.1237), [robust Holt-Winters filtering](https://doi.org/10.1002/for.1125), [rolling-origin forecast evaluation](https://doi.org/10.1016/S0169-2070(00)00065-0), and the [NIDDK body-weight model research](https://www.niddk.nih.gov/research-funding/at-niddk/labs-branches/laboratory-biological-modeling/integrative-physiology-section/research/body-weight-planner).
+
 Railway variables:
 
 - `DATA_DIR=/data`
