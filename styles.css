@@ -13,6 +13,7 @@
   --accent-strong: #5f2638;
   --accent-soft: #f7e4e8;
   --sage: #dce6da;
+  --forecast: #2f655a;
   --gold: #d8be7a;
   --shadow: rgba(57, 43, 46, 0.11);
   --shadow-soft: rgba(57, 43, 46, 0.06);
@@ -606,11 +607,38 @@ noscript {
   stroke-width: 2.25;
 }
 
+.weight-prediction-line {
+  fill: none;
+  stroke: var(--forecast);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.4;
+}
+
 .weight-chart-wrap .weight-trend-label {
   fill: var(--muted);
   font-size: 9px;
   font-weight: 820;
   letter-spacing: 0.09em;
+}
+
+.weight-chart-wrap .weight-prediction-label {
+  fill: var(--forecast);
+  font-size: 8px;
+  font-weight: 820;
+  letter-spacing: 0.055em;
+}
+
+.weight-prediction-point {
+  fill: var(--surface);
+  stroke: var(--forecast);
+  stroke-width: 2;
+}
+
+.weight-prediction-point.is-current {
+  fill: var(--forecast);
+  stroke: var(--surface);
+  stroke-width: 2.25;
 }
 
 .weight-point {
