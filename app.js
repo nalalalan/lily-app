@@ -35,8 +35,7 @@ function init() {
   renderShell();
   bindEvents();
   if (hasStoredToken()) {
-    setLocked(false);
-    loadData();
+    loadStoredSession();
   } else {
     setLocked(true);
   }
@@ -177,6 +176,10 @@ function renderShell() {
             </label>
             <p class="pin-error" id="pinError" aria-live="polite"></p>
           </form>
+          <div class="pin-loading" id="pinLoading" role="status" aria-live="polite" aria-hidden="true">
+            <img src="/icon.svg?v=20260507-suite3" alt="">
+            <p>Loading Lily...</p>
+          </div>
         </div>
       </div>
 
@@ -312,6 +315,25 @@ function setLocked(isLocked) {
   }
 }
 
+function setLoading(isLoading) {
+  const memoryApp = document.getElementById("memoryApp");
+  const pinLoading = document.getElementById("pinLoading");
+  memoryApp.classList.toggle("is-loading", isLoading);
+  pinLoading.setAttribute("aria-hidden", String(!isLoading));
+}
+
+async function loadStoredSession() {
+  setLoading(true);
+  try {
+    await loadData({ rethrow: true });
+    setLocked(false);
+  } catch (error) {
+    setLocked(true);
+  } finally {
+    setLoading(false);
+  }
+}
+
 async function verifyPin() {
   const pinInput = document.getElementById("pinInput");
   const pinError = document.getElementById("pinError");
@@ -332,11 +354,14 @@ async function verifyPin() {
     localStorage.setItem(TOKEN_EXP_KEY, String(result.expiresAt));
     pinError.textContent = "";
     pinInput.value = "";
+    setLoading(true);
+    await loadData({ rethrow: true });
     setLocked(false);
+    setLoading(false);
     showToast("Unlocked");
-    await loadData();
     await migrateLegacyLocalMemories();
   } catch (error) {
+    setLoading(false);
     pinInput.value = "";
     pinError.textContent = "Wrong PIN or server unavailable.";
     document.getElementById("pinForm").classList.add("is-wrong");
@@ -377,8 +402,26 @@ async function loadTracker() {
   }
 }
 
-async function loadData() {
-  await Promise.all([loadMemories(), loadWeights(), loadTracker()]);
+async function loadData(options = {}) {
+  if (!hasStoredToken()) return false;
+  try {
+    const [memoryResult, weightResult, trackerResult] = await Promise.all([
+      apiFetch("/api/memories"),
+      apiFetch("/api/weights"),
+      apiFetch("/api/tracker")
+    ]);
+    state.memories = Array.isArray(memoryResult.memories) ? memoryResult.memories : [];
+    state.weights = Array.isArray(weightResult.weights) ? weightResult.weights : [];
+    state.tracker = trackerResult.tracker || null;
+    renderWall();
+    renderWeights();
+    renderTracker();
+    return true;
+  } catch (error) {
+    showToast(error.message);
+    if (options && options.rethrow) throw error;
+    return false;
+  }
 }
 
 function addPendingFiles(files) {

@@ -89,7 +89,8 @@ noscript {
   opacity: 1;
 }
 
-.memory-app.is-locked .app-surface {
+.memory-app.is-locked .app-surface,
+.memory-app.is-loading .app-surface {
   display: none;
 }
 
@@ -1024,7 +1025,34 @@ noscript {
   background: #f2eee8;
 }
 
-.memory-app.is-locked .pin-overlay {
+.memory-app.is-locked .pin-overlay,
+.memory-app.is-loading .pin-overlay {
+  display: grid;
+}
+
+.pin-loading {
+  display: none;
+  justify-items: center;
+  gap: 12px;
+  color: var(--ink);
+}
+
+.pin-loading img {
+  width: 54px;
+  height: 54px;
+}
+
+.pin-loading p {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 720;
+}
+
+.memory-app.is-loading .pin-window {
+  display: none;
+}
+
+.memory-app.is-loading .pin-loading {
   display: grid;
 }
 
