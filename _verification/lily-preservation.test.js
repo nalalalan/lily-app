@@ -48,4 +48,25 @@ assert.ok(
   "media state must be assigned before the wall is rendered"
 );
 
+assert.ok(
+  app.includes("Not a reliable 1-year prediction yet"),
+  "sub-year weight history must not be presented as a reliable annual prediction"
+);
+assert.ok(
+  app.includes("not that her weight will stay constant"),
+  "a near-current endpoint must not imply constant weight throughout the year"
+);
+assert.ok(
+  !app.includes("selected by rolling backtest"),
+  "short sequential errors must not be mislabeled as annual rolling-backtest evidence"
+);
+assert.ok(app.includes('predictionLabel.textContent = "1-YR BASELINE"'), "the overlay must be labeled as a baseline");
+assert.ok(app.includes('data-annual-calibrated'), "overlay points must expose annual-calibration state");
+assert.ok(!app.includes('aria-label="Lily weight and one-year prediction over time"'), "rejected prediction wording must not survive in accessibility output");
+assert.ok(!app.includes("Validated from"), "the page must not overclaim annual validation");
+assert.ok(
+  app.indexOf("points.forEach((point) =>") < app.indexOf("predictionPoints.forEach((point) =>"),
+  "the connected forecast series must render as an overlay above the measured weight points"
+);
+
 console.log("Lily preservation tests passed");

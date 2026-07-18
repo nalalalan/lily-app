@@ -616,6 +616,11 @@ noscript {
   stroke-width: 2.4;
 }
 
+.weight-prediction-line.is-unvalidated {
+  opacity: 0.8;
+  stroke-dasharray: 5 4;
+}
+
 .weight-chart-wrap .weight-trend-label {
   fill: var(--muted);
   font-size: 9px;
@@ -634,6 +639,10 @@ noscript {
   fill: var(--surface);
   stroke: var(--forecast);
   stroke-width: 2;
+}
+
+.weight-prediction-point.is-unvalidated {
+  opacity: 0.84;
 }
 
 .weight-prediction-point.is-current {

@@ -48,10 +48,23 @@ async function main() {
     forecast: current ? {
       method: current.method,
       modelSelection: current.selection,
+      confidence: current.confidence,
+      availableHorizonValidationCount: current.validationCount,
+      availableHorizonDays: current.validationHorizons,
+      annualValidationCount: current.annualValidationCount,
+      annualCalibrationReady: current.annualCalibrationReady,
+      oneYearErrorBand: current.oneYearErrorBand,
+      ensembleMembers: Array.isArray(current.model?.members)
+        ? current.model.members.map((member) => ({
+          id: member.id,
+          score: Math.round(member.score * 100) / 100,
+          weight: Math.round(member.weight * 1000) / 1000
+        }))
+        : [],
       oneWeekPounds: Math.round(current.oneWeekWeight * 10) / 10,
       oneMonthPounds: Math.round(current.oneMonthWeight * 10) / 10,
       oneYearPounds: Math.round(current.oneYearWeight * 10) / 10,
-      shortHorizonBacktestMae: Number.isFinite(current.backtestMae)
+      ensembleWalkForwardMae: Number.isFinite(current.backtestMae)
         ? Math.round(current.backtestMae * 100) / 100
         : null,
       historyMinPounds: Math.round(Math.min(...historyWeights) * 10) / 10,
