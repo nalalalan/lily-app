@@ -710,25 +710,18 @@ function createWeightEstimate(forecast) {
   const estimateLabel = "1-week, 1-month, 1-year estimates";
   if (!forecast) return `${estimateLabel} needs saved weights.`;
   const projections = [
-    createWeightProjection("1 week", forecast.oneWeekDay, forecast.oneWeekWeight),
-    createWeightProjection("1 month", forecast.oneMonthDay, forecast.oneMonthWeight),
-    createWeightProjection("1-year baseline", forecast.oneYearDay, forecast.oneYearWeight, true)
-  ].join("; ");
-  const history = forecast.pointCount === 1
-    ? "1 daily weight"
-    : `${forecast.pointCount} daily weights / ${formatPreciseDuration(forecast.spanDays)}`;
-  const delta = forecast.oneYearWeight - forecast.latestWeight;
-  const deltaText = `${delta >= 0 ? "+" : ""}${trimWeight(delta)} lb from latest`;
+    `1 wk ${trimWeight(forecast.oneWeekWeight)} lb`,
+    `1 mo ${trimWeight(forecast.oneMonthWeight)} lb`,
+    `1-yr baseline ${trimWeight(forecast.oneYearWeight)} lb`
+  ].join(" · ");
   if (!forecast.annualCalibrationReady) {
-    const horizonText = forecast.validationHorizons.length
-      ? `${forecast.validationHorizons.join("/")}-day walk-forward checks`
-      : "short-history checks";
-    return `${projections} (${deltaText}). Not a reliable 1-year prediction yet—${history}, ${horizonText}, and ${forecast.annualValidationCount} completed 1-year outcomes. A near-current baseline means these weigh-ins do not establish a stable long-term direction—not that her weight will stay constant. This estimates one future date, not her weight throughout the year.`;
+    const history = forecast.pointCount === 1 ? "one weigh-in" : formatPreciseDuration(forecast.spanDays);
+    return `${projections}. Only ${history} of data. Not a reliable 1-year prediction; it does not mean her weight will stay constant.`;
   }
   const errorText = Number.isFinite(forecast.annualMedianAbsoluteError)
-    ? `historical 1-year median absolute error ${trimWeight(forecast.annualMedianAbsoluteError)} lb`
-    : "annual error still being measured";
-  return `${projections} (${deltaText}). Historically evaluated across ${forecast.annualValidationCount} completed 1-year checks; ${errorText}. This remains an estimate of one future date, not a guarantee or her weight throughout the year.`;
+    ? `Typical historical 1-year error: ${trimWeight(forecast.annualMedianAbsoluteError)} lb.`
+    : "Annual error is still being measured.";
+  return `${projections}. ${errorText} This is an estimate, not a guarantee.`;
 }
 
 function dailyWeightPoints(rows) {
@@ -765,10 +758,6 @@ function robustDailyWeightTrend(points, direction) {
     rate: median(rangeSlopes),
     rangeSlopes
   };
-}
-
-function createWeightProjection(label, projectedDay, projectedWeight, includeYear = false) {
-  return `${label} ${formatProjectionDate(dateFromCalendarDay(projectedDay), includeYear)}: ${trimWeight(projectedWeight)} lb`;
 }
 
 function dateFromCalendarDay(day) {
