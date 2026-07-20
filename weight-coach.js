@@ -285,7 +285,7 @@
 
   function verdict(read) {
     if (!read) return "READY FOR THE FIRST WEIGH-IN!!!";
-    if (read.pointCount === 1) return "FIRST NUMBER LOGGED—NOW LET’S BUILD THE TREND!!!";
+    if (read.pointCount === 1) return "TOO EARLY TO JUDGE—FIRST NUMBER LOGGED, NOW LET’S BUILD THE TREND!!!";
     if (read.isOutlier) return "THIS NUMBER IS TOO EXTREME TO JUDGE YET—CONFIRM IT!!!";
     return STATE_VERDICTS[read.state] || STATE_VERDICTS["flat-noisy"];
   }
