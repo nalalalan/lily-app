@@ -565,20 +565,66 @@ noscript {
   pointer-events: none;
 }
 
-.weight-chart-wrap {
+.weight-chart-stack {
+  display: grid;
+  gap: 10px;
+}
+
+.weight-chart-card {
+  margin: 0;
   width: 100%;
-  min-height: 178px;
   overflow: hidden;
   border: 1px solid rgba(34, 25, 29, 0.1);
   border-radius: 8px;
   background: linear-gradient(180deg, #fffdf9 0%, #f7f1ec 100%);
 }
 
+.weight-chart-caption {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 11px 0;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 820;
+  letter-spacing: 0.075em;
+  text-transform: uppercase;
+}
+
+.weight-chart-caption strong {
+  color: var(--ink);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.weight-chart-wrap {
+  width: 100%;
+  overflow: hidden;
+}
+
+.weight-actual-chart-wrap {
+  min-height: 178px;
+}
+
+.weight-forecast-chart-wrap {
+  min-height: 136px;
+}
+
 .weight-chart-wrap svg {
   display: block;
   width: 100%;
   height: auto;
+}
+
+.weight-actual-chart-wrap svg {
   min-height: 178px;
+}
+
+.weight-forecast-chart-wrap svg {
+  min-height: 136px;
 }
 
 .weight-chart-wrap text {
@@ -631,13 +677,6 @@ noscript {
   letter-spacing: 0.09em;
 }
 
-.weight-chart-wrap .weight-prediction-label {
-  fill: var(--forecast);
-  font-size: 8px;
-  font-weight: 820;
-  letter-spacing: 0.055em;
-}
-
 .weight-prediction-point {
   fill: var(--surface);
   stroke: var(--forecast);
@@ -654,6 +693,12 @@ noscript {
   fill: var(--surface);
   stroke: var(--accent);
   stroke-width: 2.5;
+}
+
+.weight-point.is-current {
+  fill: var(--accent);
+  stroke: var(--surface);
+  stroke-width: 2.75;
 }
 
 .weight-list {
@@ -1493,9 +1538,14 @@ noscript {
     padding: 8px;
   }
 
-  .weight-chart-wrap,
-  .weight-chart-wrap svg {
-    min-height: 90px;
+  .weight-actual-chart-wrap,
+  .weight-actual-chart-wrap svg {
+    min-height: 145px;
+  }
+
+  .weight-forecast-chart-wrap,
+  .weight-forecast-chart-wrap svg {
+    min-height: 120px;
   }
 
   .chat-form textarea {

@@ -125,12 +125,41 @@ const lilyForecastHistory = forecast.buildOneYearHistory(lilyHistory, lilyForeca
 assert.equal(lilyForecast.confidence, "learning", "the live-shaped 22-day record must stay explicitly unvalidated");
 assert.equal(lilyForecast.annualValidationCount, 0, "the live-shaped record has no annual outcomes");
 assert.equal(lilyForecast.annualCalibrationReady, false, "the live-shaped one-year endpoint is an uncalibrated baseline");
-assert.equal(Number(lilyForecast.oneWeekWeight.toFixed(1)), 145, "current positive momentum must move the one-week forecast decisively");
-assert.equal(Number(lilyForecast.oneMonthWeight.toFixed(1)), 137.4, "current positive momentum must move the one-month forecast decisively");
-assert.equal(Number(lilyForecast.oneYearWeight.toFixed(1)), 123.5, "current positive momentum must move the one-year forecast decisively");
+assert.equal(Number(lilyForecast.oneWeekWeight.toFixed(1)), 148.4, "the one-week forecast must move toward the raw target without teleporting");
+assert.equal(Number(lilyForecast.oneMonthWeight.toFixed(1)), 147.8, "the one-month forecast must move toward the raw target without teleporting");
+assert.equal(Number(lilyForecast.oneYearWeight.toFixed(1)), 144.5, "three improving weigh-ins must push the annual call hard without a one-day cliff");
+assert.equal(Number(lilyForecast.rawOneYearWeight.toFixed(1)), 123.5, "the aggressive raw annual target must remain available behind the continuity layer");
 assert.equal(lilyForecast.momentum.momentumRate, -0.5, "the current three-drop run should reach the bounded celebratory momentum rate");
 assert.equal(lilyForecastHistory.at(-1).weight, lilyForecast.oneYearWeight, "live-shaped headline and overlay must match exactly");
 assert.equal(lilyForecastHistory.at(-1).annualCalibrated, false, "the current overlay point must carry its uncalibrated state");
+
+const lilyToday = lilyHistory.concat(point("2026-07-20", 149.9));
+const lilyTodayForecast = forecast.calculateForecast(lilyToday, { asOfDay: lilyAsOfDay });
+const lilyTrajectory = forecast.buildForecastHistory(lilyToday);
+assert.equal(Number(lilyTodayForecast.oneWeekWeight.toFixed(1)), 148.4, "one bump must not jerk the one-week call around");
+assert.equal(Number(lilyTodayForecast.oneMonthWeight.toFixed(1)), 147.8, "one bump must not jerk the one-month call around");
+assert.equal(Number(lilyTodayForecast.oneYearWeight.toFixed(1)), 141, "the annual signal should keep bending with the prior run instead of teleporting to the raw 150.6 lb target");
+assert.equal(Number(lilyTodayForecast.rawOneYearWeight.toFixed(1)), 150.6, "the raw annual target should still react aggressively to today's bump");
+assert.equal(Number(lilyTrajectory.at(-1).oneYearWeight.toFixed(1)), 141, "the final trajectory point must equal today's headline");
+for (const [key, limit] of [["oneWeekWeight", 1.5], ["oneMonthWeight", 2.5], ["oneYearWeight", 4]]) {
+  const jumps = lilyTrajectory.slice(1).map((row, index) => Math.abs(row[key] - lilyTrajectory[index][key]));
+  assert.ok(Math.max(...jumps) <= limit + 1e-9, `${key} must stay inside its causal continuity step limit`);
+}
+let annualDirectionChanges = 0;
+let priorAnnualDirection = 0;
+for (let index = 1; index < lilyTrajectory.length; index += 1) {
+  const direction = Math.sign(lilyTrajectory[index].oneYearWeight - lilyTrajectory[index - 1].oneYearWeight);
+  if (direction && priorAnnualDirection && direction !== priorAnnualDirection) annualDirectionChanges += 1;
+  if (direction) priorAnnualDirection = direction;
+}
+assert.ok(annualDirectionChanges <= 3, "the annual history must bend rather than randomly reverse on nearly every weigh-in");
+
+const lilyFuture = lilyToday.concat(point("2026-07-21", 150.4));
+assert.deepEqual(
+  forecast.buildForecastHistory(lilyFuture).slice(0, lilyTrajectory.length),
+  lilyTrajectory,
+  "future weigh-ins must not rewrite any prior week, month, or year forecast state"
+);
 
 const symmetricGain = dailySeries("2026-10-01", 21, (index) => 150 + index * 0.15);
 const symmetricGainForecast = forecast.calculateForecast(symmetricGain);

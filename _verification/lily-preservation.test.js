@@ -60,16 +60,32 @@ assert.ok(
   !app.includes("selected by rolling backtest"),
   "short sequential errors must not be mislabeled as annual rolling-backtest evidence"
 );
-assert.ok(app.includes('predictionLabel.textContent = "1-YR FORECAST"'), "the overlay must be labeled as a forecast");
-assert.ok(app.includes('data-annual-calibrated'), "overlay points must expose annual-calibration state");
+assert.ok(app.includes('id="weightActualChartWrap"'), "actual weight must have its own chart");
+assert.ok(app.includes('id="weightForecastChartWrap"'), "one-year prediction history must have its own chart");
+assert.ok(
+  app.indexOf('id="weightActualChartWrap"') < app.indexOf('id="weightForecastChartWrap"'),
+  "actual weight must remain visually primary above prediction history"
+);
+assert.ok(app.includes('id="weightActualChartValue"'), "the actual chart must label the current saved weight");
+assert.ok(app.includes('id="weightForecastChartValue"'), "the prediction chart must label its current endpoint");
+assert.ok(app.includes('data-chart-kind", options.kind'), "each chart must identify its independent data domain");
+assert.ok(app.includes('data-annual-calibrated'), "prediction-history points must expose annual-calibration state");
+assert.ok(app.includes('data-continuity-bounded'), "prediction-history points must expose the continuity gate");
 assert.ok(!app.includes("Validated from"), "the page must not overclaim annual validation");
 assert.ok(
   index.indexOf("/weight-forecast.js") < index.indexOf("/weight-coach.js") && index.indexOf("/weight-coach.js") < index.indexOf("/app.js"),
   "forecast and coach logic must load before the app"
 );
-assert.ok(
-  app.indexOf("points.forEach((point) =>") < app.indexOf("predictionPoints.forEach((point) =>"),
-  "the connected forecast series must render as an overlay above the measured weight points"
-);
+const actualChartStart = app.indexOf("function createActualWeightChart");
+const forecastChartStart = app.indexOf("function createOneYearForecastChart");
+const actualChart = app.slice(actualChartStart, forecastChartStart);
+const forecastChart = app.slice(forecastChartStart, app.indexOf("function createWeightRow", forecastChartStart));
+assert.ok(actualChartStart > 0 && forecastChartStart > actualChartStart, "the two chart renderers must stay separate and actual-first");
+assert.doesNotMatch(actualChart, /buildOneYearHistory|weight-prediction/, "forecast values must never enter the actual chart or its y-domain");
+assert.doesNotMatch(forecastChart, /weight-history-line|weight-trend-line/, "actual weights and their trend must never enter the prediction chart");
+assert.ok(!app.includes("one-year forecast history overlay"), "the rejected combined-overlay rendering path must stay removed");
+assert.match(styles, /\.weight-chart-stack\s*\{[\s\S]*?display:\s*grid;/, "the two charts must render as a deliberate stack");
+assert.match(styles, /\.weight-point\.is-current/, "the latest actual weight point must be visibly emphasized");
+assert.ok(index.includes("20260720-weight-hype-v2"), "the live bundle must carry the hype and split-chart cache key");
 
 console.log("Lily preservation tests passed");

@@ -1,5 +1,6 @@
 const API_BASE = "https://lily-api-production.up.railway.app";
 const weightForecast = require("../public/weight-forecast.js");
+const weightCoach = require("../public/weight-coach.js");
 
 async function main() {
   if (!process.env.LILY_PIN) throw new Error("LILY_PIN is unavailable.");
@@ -36,9 +37,30 @@ async function main() {
   const current = weightForecast.calculateForecast(dailyPoints, {
     asOfDay: weightForecast.calendarDay(Date.now())
   });
+  const trajectory = weightForecast.buildForecastHistory(dailyPoints);
   const history = weightForecast.buildOneYearHistory(dailyPoints, current, Date.now());
   const historyWeights = history.map((point) => point.weight);
   const jumps = history.slice(1).map((point, index) => Math.abs(point.weight - history[index].weight));
+  const horizonJumps = Object.fromEntries([
+    ["oneWeek", "oneWeekWeight"],
+    ["oneMonth", "oneMonthWeight"],
+    ["oneYear", "oneYearWeight"]
+  ].map(([label, key]) => [
+    label,
+    Math.max(0, ...trajectory.slice(1).map((point, index) => Math.abs(point[key] - trajectory[index][key])))
+  ]));
+  let annualDirectionChanges = 0;
+  let priorAnnualDirection = 0;
+  trajectory.slice(1).forEach((point, index) => {
+    const direction = Math.sign(point.oneYearWeight - trajectory[index].oneYearWeight);
+    if (direction && priorAnnualDirection && direction !== priorAnnualDirection) annualDirectionChanges += 1;
+    if (direction) priorAnnualDirection = direction;
+  });
+  const coachRead = weightCoach.analyze(dailyPoints, current);
+  const coachCopy = weightCoach.compose(coachRead);
+  if (!/!{3}/.test(coachCopy) || /bump|warning shot|not a verdict|no panic|no shrug|no shame|no drama/i.test(coachCopy)) {
+    throw new Error(`Live coach copy failed the hype gate: ${coachCopy}`);
+  }
   console.log(JSON.stringify({
     count: rows.length,
     distinctDates: new Set(rows.map((record) => record.createdAt.slice(0, 10))).size,
@@ -64,13 +86,24 @@ async function main() {
       oneWeekPounds: Math.round(current.oneWeekWeight * 10) / 10,
       oneMonthPounds: Math.round(current.oneMonthWeight * 10) / 10,
       oneYearPounds: Math.round(current.oneYearWeight * 10) / 10,
+      rawOneWeekPounds: Math.round(current.rawOneWeekWeight * 10) / 10,
+      rawOneMonthPounds: Math.round(current.rawOneMonthWeight * 10) / 10,
+      rawOneYearPounds: Math.round(current.rawOneYearWeight * 10) / 10,
+      aggressiveOneYearTargetPounds: Math.round(current.aggressiveOneYearTarget * 10) / 10,
       ensembleWalkForwardMae: Number.isFinite(current.backtestMae)
         ? Math.round(current.backtestMae * 100) / 100
         : null,
       historyMinPounds: Math.round(Math.min(...historyWeights) * 10) / 10,
       historyMaxPounds: Math.round(Math.max(...historyWeights) * 10) / 10,
       historyMaxJumpPounds: Math.round(Math.max(0, ...jumps) * 10) / 10,
+      historyMaxJumpByHorizon: Object.fromEntries(Object.entries(horizonJumps).map(([key, value]) => [key, Math.round(value * 10) / 10])),
+      historyAnnualDirectionChanges: annualDirectionChanges,
       currentMatchesHistory: history.at(-1)?.weight === current.oneYearWeight
+    } : null,
+    coach: coachRead ? {
+      state: coachRead.state,
+      text: coachCopy,
+      hypeGatePassed: true
     } : null,
     rows: rows.map((record) => ({
       date: record.createdAt.slice(0, 10),

@@ -105,7 +105,7 @@ function renderShell() {
                   <h2 id="weightTitle">weight</h2>
                   <p id="weightLatest">No weights saved.</p>
                   <p class="weight-estimate" id="weightEstimate">1-week, 1-month, 1-year estimates need saved weights.</p>
-                  <p class="weight-coach" id="weightCoach">Save a weigh-in and I’ll read the momentum.</p>
+                  <p class="weight-coach" id="weightCoach">DROP IN A WEIGH-IN AND LET’S LIGHT THIS TRACKER UP!!!</p>
                 </div>
               </div>
               <form class="weight-form" id="weightForm">
@@ -118,7 +118,16 @@ function renderShell() {
                   <button class="primary-button" type="submit">Save</button>
                 </div>
               </form>
-              <div class="weight-chart-wrap" id="weightChartWrap" aria-label="Lily weight and one-year forecast history"></div>
+              <div class="weight-chart-stack" aria-label="Lily weight charts">
+                <figure class="weight-chart-card weight-actual-chart-card">
+                  <figcaption class="weight-chart-caption"><span>actual weight</span><strong id="weightActualChartValue">--</strong></figcaption>
+                  <div class="weight-chart-wrap weight-actual-chart-wrap" id="weightActualChartWrap" aria-label="Lily actual weight history"></div>
+                </figure>
+                <figure class="weight-chart-card weight-forecast-chart-card">
+                  <figcaption class="weight-chart-caption"><span>1-year prediction history</span><strong id="weightForecastChartValue">--</strong></figcaption>
+                  <div class="weight-chart-wrap weight-forecast-chart-wrap" id="weightForecastChartWrap" aria-label="Lily one-year prediction history"></div>
+                </figure>
+              </div>
             </section>
 
             <section class="ingest-panel" aria-labelledby="saveTitle">
@@ -615,9 +624,12 @@ function renderWeights() {
   const latest = document.getElementById("weightLatest");
   const estimate = document.getElementById("weightEstimate");
   const coach = document.getElementById("weightCoach");
-  const chartWrap = document.getElementById("weightChartWrap");
+  const actualChartWrap = document.getElementById("weightActualChartWrap");
+  const forecastChartWrap = document.getElementById("weightForecastChartWrap");
+  const actualChartValue = document.getElementById("weightActualChartValue");
+  const forecastChartValue = document.getElementById("weightForecastChartValue");
   const list = document.getElementById("weightList");
-  if (!latest || !chartWrap || !list) return;
+  if (!latest || !actualChartWrap || !forecastChartWrap || !list) return;
 
   const rows = weightRows();
   const dailyPoints = dailyWeightPoints(rows);
@@ -630,14 +642,19 @@ function renderWeights() {
   latest.textContent = newest ? `${formatWeight(newest)} saved ${formatDateTime(newest.createdAt)}` : "No weights saved.";
   if (estimate) estimate.textContent = createWeightEstimate(currentForecast);
   if (coach) coach.textContent = createWeightCoach(dailyPoints, currentForecast);
-  chartWrap.innerHTML = "";
+  if (actualChartValue) actualChartValue.textContent = newest ? `${formatWeight(newest)} now` : "--";
+  if (forecastChartValue) forecastChartValue.textContent = currentForecast ? `${trimWeight(currentForecast.oneYearWeight)} lb in 1 yr` : "--";
+  actualChartWrap.innerHTML = "";
+  forecastChartWrap.innerHTML = "";
   list.innerHTML = "";
 
   if (!rows.length) {
     const empty = document.createElement("div");
     empty.className = "empty-state weight-empty";
     empty.textContent = "No weights saved.";
-    chartWrap.appendChild(empty);
+    actualChartWrap.appendChild(empty);
+    const forecastEmpty = empty.cloneNode(true);
+    forecastChartWrap.appendChild(forecastEmpty);
     const listEmpty = document.createElement("div");
     listEmpty.className = "record-empty";
     listEmpty.textContent = "No weights saved.";
@@ -645,7 +662,8 @@ function renderWeights() {
     return;
   }
 
-  chartWrap.appendChild(createWeightChart(rows.slice().reverse(), dailyPoints, currentForecast));
+  actualChartWrap.appendChild(createActualWeightChart(rows.slice().reverse(), dailyPoints));
+  forecastChartWrap.appendChild(createOneYearForecastChart(dailyPoints, currentForecast));
   rows.forEach((record) => list.appendChild(createWeightRow(record)));
 }
 
@@ -798,28 +816,13 @@ function fitDailyWeightTrend(points) {
   };
 }
 
-function createWeightChart(records, dailyPoints, currentForecast) {
+function createWeightChartFrame(times, values, options) {
   const ns = "http://www.w3.org/2000/svg";
   const width = 330;
-  const height = 190;
-  const pad = { top: 28, right: 16, bottom: 32, left: 42 };
-  const chartRecords = records
-    .map((record) => ({
-      record,
-      time: Date.parse(record.createdAt),
-      weight: weightInPounds(record)
-    }))
-    .filter((point) => Number.isFinite(point.time) && Number.isFinite(point.weight));
-  const trend = fitDailyWeightTrend(dailyPoints);
-  const predictionHistory = WEIGHT_FORECAST
-    ? WEIGHT_FORECAST.buildOneYearHistory(dailyPoints, currentForecast, Date.now())
-    : [];
-  const times = chartRecords.map((point) => point.time).concat(predictionHistory.map((point) => point.time));
-  const values = chartRecords.map((point) => point.weight);
+  const height = options.height;
+  const pad = { top: 24, right: 16, bottom: 32, left: 42 };
   let minTime = Math.min(...times);
   let maxTime = Math.max(...times);
-  if (trend) values.push(trend.weightAt(minTime), trend.weightAt(maxTime));
-  values.push(...predictionHistory.map((point) => point.weight));
   let minWeight = Math.min(...values);
   let maxWeight = Math.max(...values);
 
@@ -828,45 +831,28 @@ function createWeightChart(records, dailyPoints, currentForecast) {
     maxTime += 60 * 60 * 1000;
   }
 
-  if (minWeight === maxWeight) {
-    minWeight -= 1;
-    maxWeight += 1;
-  } else {
-    const spread = maxWeight - minWeight;
-    minWeight -= Math.max(0.2, spread * 0.18);
-    maxWeight += Math.max(0.2, spread * 0.18);
-  }
+  const rawSpread = Math.max(0, maxWeight - minWeight);
+  const paddedSpread = Math.max(options.minSpan, rawSpread);
+  const center = (minWeight + maxWeight) / 2;
+  minWeight = center - paddedSpread / 2;
+  maxWeight = center + paddedSpread / 2;
+  const extra = Math.max(options.minPadding, rawSpread * options.paddingRatio);
+  minWeight -= extra;
+  maxWeight += extra;
+  minWeight = Math.floor(minWeight / options.roundStep) * options.roundStep;
+  maxWeight = Math.ceil(maxWeight / options.roundStep) * options.roundStep;
 
   const plotWidth = width - pad.left - pad.right;
   const plotHeight = height - pad.top - pad.bottom;
   const xFor = (time) => pad.left + ((time - minTime) / (maxTime - minTime)) * plotWidth;
   const yFor = (weight) => pad.top + (1 - (weight - minWeight) / (maxWeight - minWeight)) * plotHeight;
-  const points = chartRecords.map((point) => ({
-    x: xFor(point.time),
-    y: yFor(point.weight),
-    record: point.record
-  }));
-  const sameChartDay = new Date(minTime).toDateString() === new Date(maxTime).toDateString();
-  const pathData = points
-    .map((point, index) => `${index ? "L" : "M"} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`)
-    .join(" ");
-  const trendPoints = trend ? [
-    { x: xFor(minTime), y: yFor(trend.weightAt(minTime)) },
-    { x: xFor(maxTime), y: yFor(trend.weightAt(maxTime)) }
-  ] : null;
-  const predictionPoints = predictionHistory.map((point) => ({
-    ...point,
-    x: xFor(point.time),
-    y: yFor(point.weight)
-  }));
-  const predictionPathData = predictionPoints
-    .map((point, index) => `${index ? "L" : "M"} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`)
-    .join(" ");
-
   const svg = document.createElementNS(ns, "svg");
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
   svg.setAttribute("role", "img");
-  svg.setAttribute("aria-label", `Lily weight chart with ${chartRecords.length} saved ${chartRecords.length === 1 ? "entry" : "entries"}${trend ? `, a dashed ${formatSignedRate(trend.rate)} lb/day median trend line` : ""}, and a connected ${predictionPoints.length}-point one-year forecast history overlay. Each green point is the one-year forecast calculated from the weigh-ins available on that date.`);
+  svg.setAttribute("aria-label", options.ariaLabel);
+  svg.setAttribute("data-chart-kind", options.kind);
+  svg.setAttribute("data-y-min", String(minWeight));
+  svg.setAttribute("data-y-max", String(maxWeight));
 
   const grid = document.createElementNS(ns, "g");
   grid.setAttribute("class", "weight-grid");
@@ -884,10 +870,10 @@ function createWeightChart(records, dailyPoints, currentForecast) {
   const axis = document.createElementNS(ns, "g");
   axis.setAttribute("class", "weight-axis");
   [
-    ["line", { x1: pad.left, x2: pad.left, y1: pad.top, y2: height - pad.bottom }],
-    ["line", { x1: pad.left, x2: width - pad.right, y1: height - pad.bottom, y2: height - pad.bottom }]
-  ].forEach(([tag, attrs]) => {
-    const line = document.createElementNS(ns, tag);
+    { x1: pad.left, x2: pad.left, y1: pad.top, y2: height - pad.bottom },
+    { x1: pad.left, x2: width - pad.right, y1: height - pad.bottom, y2: height - pad.bottom }
+  ].forEach((attrs) => {
+    const line = document.createElementNS(ns, "line");
     Object.entries(attrs).forEach(([key, value]) => line.setAttribute(key, String(value)));
     axis.appendChild(line);
   });
@@ -905,6 +891,7 @@ function createWeightChart(records, dailyPoints, currentForecast) {
   yMin.textContent = `${trimWeight(minWeight)} lb`;
   svg.appendChild(yMin);
 
+  const sameChartDay = new Date(minTime).toDateString() === new Date(maxTime).toDateString();
   const firstTime = document.createElementNS(ns, "text");
   firstTime.setAttribute("x", String(pad.left));
   firstTime.setAttribute("y", String(height - 8));
@@ -918,94 +905,129 @@ function createWeightChart(records, dailyPoints, currentForecast) {
   lastTime.textContent = formatShortDate(maxTime, sameChartDay);
   svg.appendChild(lastTime);
 
+  return { ns, svg, width, height, pad, minTime, maxTime, xFor, yFor };
+}
+
+function createActualWeightChart(records, dailyPoints) {
+  const chartRecords = records
+    .map((record) => ({ record, time: Date.parse(record.createdAt), weight: weightInPounds(record) }))
+    .filter((point) => Number.isFinite(point.time) && Number.isFinite(point.weight));
+  const times = chartRecords.map((point) => point.time);
+  const values = chartRecords.map((point) => point.weight);
+  const trend = fitDailyWeightTrend(dailyPoints);
+  if (trend) values.push(trend.weightAt(Math.min(...times)), trend.weightAt(Math.max(...times)));
+  const frame = createWeightChartFrame(times, values, {
+    kind: "actual-weight",
+    height: 190,
+    minSpan: 3.5,
+    minPadding: 0.5,
+    paddingRatio: 0.18,
+    roundStep: 0.5,
+    ariaLabel: `Lily actual weight chart with ${chartRecords.length} saved ${chartRecords.length === 1 ? "entry" : "entries"}${trend ? ` and a dashed ${formatSignedRate(trend.rate)} lb/day median trend line` : ""}. The scale is calculated only from actual weights and their trend.`
+  });
+  const points = chartRecords.map((point) => ({
+    ...point,
+    x: frame.xFor(point.time),
+    y: frame.yFor(point.weight)
+  }));
+
   if (points.length > 1) {
-    const history = document.createElementNS(ns, "path");
-    history.setAttribute("class", "weight-history-line");
-    history.setAttribute("d", pathData);
-    svg.appendChild(history);
+    const path = document.createElementNS(frame.ns, "path");
+    path.setAttribute("class", "weight-history-line");
+    path.setAttribute("d", points.map((point, index) => `${index ? "L" : "M"} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(" "));
+    path.setAttribute("data-actual-count", String(points.length));
+    frame.svg.appendChild(path);
   }
 
-  if (trendPoints) {
-    const trendLine = document.createElementNS(ns, "path");
+  if (trend) {
+    const trendLine = document.createElementNS(frame.ns, "path");
     trendLine.setAttribute("class", "weight-trend-line");
-    trendLine.setAttribute("d", `M ${trendPoints[0].x.toFixed(1)} ${trendPoints[0].y.toFixed(1)} L ${trendPoints[1].x.toFixed(1)} ${trendPoints[1].y.toFixed(1)}`);
+    trendLine.setAttribute("d", `M ${frame.xFor(frame.minTime).toFixed(1)} ${frame.yFor(trend.weightAt(frame.minTime)).toFixed(1)} L ${frame.xFor(frame.maxTime).toFixed(1)} ${frame.yFor(trend.weightAt(frame.maxTime)).toFixed(1)}`);
     trendLine.setAttribute("data-trend-rate", trend.rate.toFixed(6));
-    const title = document.createElementNS(ns, "title");
+    const title = document.createElementNS(frame.ns, "title");
     title.textContent = `Median daily trend: ${formatSignedRate(trend.rate)} lb/day`;
     trendLine.appendChild(title);
-    svg.appendChild(trendLine);
+    frame.svg.appendChild(trendLine);
 
-    const trendKey = document.createElementNS(ns, "line");
+    const trendKey = document.createElementNS(frame.ns, "line");
     trendKey.setAttribute("class", "weight-trend-line");
-    trendKey.setAttribute("x1", String(width - pad.right - 72));
-    trendKey.setAttribute("x2", String(width - pad.right - 58));
-    trendKey.setAttribute("y1", "13");
-    trendKey.setAttribute("y2", "13");
-    svg.appendChild(trendKey);
+    trendKey.setAttribute("x1", String(frame.width - frame.pad.right - 72));
+    trendKey.setAttribute("x2", String(frame.width - frame.pad.right - 58));
+    trendKey.setAttribute("y1", "12");
+    trendKey.setAttribute("y2", "12");
+    frame.svg.appendChild(trendKey);
 
-    const trendLabel = document.createElementNS(ns, "text");
+    const trendLabel = document.createElementNS(frame.ns, "text");
     trendLabel.setAttribute("class", "weight-trend-label");
-    trendLabel.setAttribute("x", String(width - pad.right - 53));
-    trendLabel.setAttribute("y", "16");
+    trendLabel.setAttribute("x", String(frame.width - frame.pad.right - 53));
+    trendLabel.setAttribute("y", "15");
     trendLabel.textContent = "TREND";
-    svg.appendChild(trendLabel);
+    frame.svg.appendChild(trendLabel);
   }
 
-  if (predictionPoints.length) {
-    const predictionKey = document.createElementNS(ns, "line");
-    predictionKey.setAttribute("class", "weight-prediction-line");
-    predictionKey.setAttribute("x1", String(pad.left));
-    predictionKey.setAttribute("x2", String(pad.left + 14));
-    predictionKey.setAttribute("y1", "13");
-    predictionKey.setAttribute("y2", "13");
-    svg.appendChild(predictionKey);
+  points.forEach((point, index) => {
+    const isCurrent = index === points.length - 1;
+    const circle = document.createElementNS(frame.ns, "circle");
+    circle.setAttribute("class", `weight-point${isCurrent ? " is-current" : ""}`);
+    circle.setAttribute("cx", point.x.toFixed(1));
+    circle.setAttribute("cy", point.y.toFixed(1));
+    circle.setAttribute("r", isCurrent ? "5.5" : "4");
+    circle.setAttribute("data-actual-weight", String(point.weight));
+    const title = document.createElementNS(frame.ns, "title");
+    title.textContent = `${formatWeight(point.record)} saved ${formatDateTime(point.record.createdAt)}${isCurrent ? " — current weight" : ""}`;
+    circle.appendChild(title);
+    frame.svg.appendChild(circle);
+  });
+  return frame.svg;
+}
 
-    const predictionLabel = document.createElementNS(ns, "text");
-    predictionLabel.setAttribute("class", "weight-prediction-label");
-    predictionLabel.setAttribute("x", String(pad.left + 19));
-    predictionLabel.setAttribute("y", "16");
-    predictionLabel.textContent = "1-YR FORECAST";
-    svg.appendChild(predictionLabel);
-  }
+function createOneYearForecastChart(dailyPoints, currentForecast) {
+  const history = WEIGHT_FORECAST
+    ? WEIGHT_FORECAST.buildOneYearHistory(dailyPoints, currentForecast, Date.now())
+    : [];
+  const times = history.map((point) => point.time);
+  const values = history.map((point) => point.weight);
+  const frame = createWeightChartFrame(times, values, {
+    kind: "one-year-forecast-history",
+    height: 150,
+    minSpan: 10,
+    minPadding: 2,
+    paddingRatio: 0.12,
+    roundStep: 5,
+    ariaLabel: `Lily connected ${history.length}-point one-year prediction history. Every point is calculated causally from the weigh-ins available on that date, then continuity-bounded so the prediction bends instead of teleporting.`
+  });
+  const points = history.map((point) => ({
+    ...point,
+    x: frame.xFor(point.time),
+    y: frame.yFor(point.weight)
+  }));
 
-  if (predictionPoints.length > 1) {
-    const predictionLine = document.createElementNS(ns, "path");
-    predictionLine.setAttribute("class", "weight-prediction-line");
-    predictionLine.setAttribute("d", predictionPathData);
-    predictionLine.setAttribute("data-prediction-count", String(predictionPoints.length));
-    predictionLine.setAttribute("data-current-one-year-weight", String(currentForecast.oneYearWeight));
-    svg.appendChild(predictionLine);
+  if (points.length > 1) {
+    const path = document.createElementNS(frame.ns, "path");
+    path.setAttribute("class", "weight-prediction-line");
+    path.setAttribute("d", points.map((point, index) => `${index ? "L" : "M"} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(" "));
+    path.setAttribute("data-prediction-count", String(points.length));
+    path.setAttribute("data-current-one-year-weight", String(currentForecast.oneYearWeight));
+    frame.svg.appendChild(path);
   }
 
   points.forEach((point) => {
-    const circle = document.createElementNS(ns, "circle");
-    circle.setAttribute("class", "weight-point");
-    circle.setAttribute("cx", point.x.toFixed(1));
-    circle.setAttribute("cy", point.y.toFixed(1));
-    circle.setAttribute("r", "4");
-    const title = document.createElementNS(ns, "title");
-    title.textContent = `${formatWeight(point.record)} saved ${formatDateTime(point.record.createdAt)}`;
-    circle.appendChild(title);
-    svg.appendChild(circle);
-  });
-
-  predictionPoints.forEach((point) => {
-    const circle = document.createElementNS(ns, "circle");
+    const circle = document.createElementNS(frame.ns, "circle");
     circle.setAttribute("class", `weight-prediction-point${point.isCurrent ? " is-current" : ""}`);
     circle.setAttribute("cx", point.x.toFixed(1));
     circle.setAttribute("cy", point.y.toFixed(1));
-    circle.setAttribute("r", point.isCurrent ? "4" : "3");
+    circle.setAttribute("r", point.isCurrent ? "4.5" : "3");
     circle.setAttribute("data-predicted-weight", String(point.weight));
     circle.setAttribute("data-calculated-day", String(point.day));
     circle.setAttribute("data-target-day", String(point.projectedDay));
     circle.setAttribute("data-annual-calibrated", String(Boolean(point.annualCalibrated)));
-    const title = document.createElementNS(ns, "title");
-    title.textContent = `Calculated ${formatShortDate(point.time)}: ${formatProjectionDate(dateFromCalendarDay(point.projectedDay), true)} forecast ${trimWeight(point.weight)} lb`;
+    circle.setAttribute("data-continuity-bounded", String(Boolean(point.continuityBounded)));
+    const title = document.createElementNS(frame.ns, "title");
+    title.textContent = `Calculated ${formatShortDate(point.time)}: ${formatProjectionDate(dateFromCalendarDay(point.projectedDay), true)} prediction ${trimWeight(point.weight)} lb`;
     circle.appendChild(title);
-    svg.appendChild(circle);
+    frame.svg.appendChild(circle);
   });
-
-  return svg;
+  return frame.svg;
 }
 
 function createWeightRow(record) {

@@ -16,7 +16,7 @@ function dailySeries(startDate, count, weightAt) {
   });
 }
 
-const lilyPoints = [
+const lilyThroughJul19 = [
   ["2026-06-26", 149.4], ["2026-06-28", 148.5], ["2026-06-29", 147.4],
   ["2026-06-30", 149], ["2026-07-01", 149.4], ["2026-07-02", 149.4],
   ["2026-07-03", 148.8], ["2026-07-04", 149.9], ["2026-07-06", 150.7],
@@ -26,8 +26,8 @@ const lilyPoints = [
   ["2026-07-17", 149.9], ["2026-07-18", 149.4], ["2026-07-19", 148.5]
 ].map(([date, weight]) => point(date, weight));
 const asOfDay = forecast.calendarDay(new Date("2026-07-20T12:00:00-04:00").getTime());
-const lilyForecast = forecast.calculateForecast(lilyPoints, { asOfDay });
-const lilyRead = coach.analyze(lilyPoints, lilyForecast);
+const lilyForecast = forecast.calculateForecast(lilyThroughJul19, { asOfDay });
+const lilyRead = coach.analyze(lilyThroughJul19, lilyForecast);
 const lilyCopy = coach.compose(lilyRead);
 
 assert.equal(lilyRead.state, "accelerating-loss", "Lily's current run must trigger the strongest celebration state");
@@ -38,12 +38,26 @@ assert.deepEqual(lilyRead.streakChanges.map((value) => Number(value.toFixed(1)))
 assert.equal(lilyRead.movementGrowing, true, "each current drop is larger than the prior drop");
 assert.match(lilyCopy, /FOUR LOWER WEIGH-INS IN A ROW/);
 assert.match(lilyCopy, /150\.3 → 148\.5 lb in three days/);
-assert.match(lilyCopy, /WEO+/);
-assert.equal(coach.buildCoachRead(lilyPoints, lilyForecast), lilyCopy, "the same saved data must produce stable copy on refresh");
+assert.match(lilyCopy, /!{3}/);
+assert.equal(coach.buildCoachRead(lilyThroughJul19, lilyForecast), lilyCopy, "the same saved data must produce stable copy on refresh");
 
-const nextPoints = lilyPoints.concat(point("2026-07-20", 147.8));
+const nextPoints = lilyThroughJul19.concat(point("2026-07-20", 147.8));
 const nextForecast = forecast.calculateForecast(nextPoints);
 assert.notEqual(coach.buildCoachRead(nextPoints, nextForecast), lilyCopy, "a new dated weigh-in must refresh the sentence structure");
+
+const todayPoints = lilyThroughJul19.concat(point("2026-07-20", 149.9));
+const todayForecast = forecast.calculateForecast(todayPoints, { asOfDay });
+const todayRead = coach.analyze(todayPoints, todayForecast);
+const todayCopy = coach.compose(todayRead);
+assert.equal(todayRead.state, "turning-gain", "today's 1.4 lb rise must use the fired-up reversal state");
+assert.equal(todayRead.previousDirection, -1, "today's read must remember the downward run it interrupted");
+assert.equal(todayRead.previousTransitionCount, 3, "today followed four consecutive lower weigh-ins");
+assert.equal(Number(todayRead.previousTotalMovement.toFixed(1)), 1.8, "the prior four-weigh-in run was 1.8 lb down");
+assert.match(todayCopy, /149\.9 LB—UP 1\.4 SINCE JUL 19/);
+assert.match(todayCopy, /four lower weigh-ins and 1\.8 lb down/i);
+assert.match(todayCopy, /1-YEAR CALL IS NOW/);
+assert.match(todayCopy, /!{3}/);
+assert.doesNotMatch(todayCopy, /bump|warning shot|not a verdict|next 24 hours/i);
 
 const acceleratingGain = [
   point("2026-08-01", 150),
@@ -54,7 +68,7 @@ const acceleratingGain = [
 const gainForecast = forecast.calculateForecast(acceleratingGain);
 const gainRead = coach.analyze(acceleratingGain, gainForecast);
 assert.equal(gainRead.state, "accelerating-gain");
-assert.match(coach.compose(gainRead), /(eyes up|response|wrong way|climbing|RED ALERT|upward streak)/i);
+assert.match(coach.compose(gainRead), /!{3}/);
 
 const flatPoints = dailySeries("2026-09-01", 8, () => 150);
 const flatRead = coach.analyze(flatPoints, forecast.calculateForecast(flatPoints));
@@ -66,9 +80,50 @@ const spikeRead = coach.analyze(isolatedSpike, spikeForecast);
 assert.ok(!["accelerating-gain", "steady-gain"].includes(spikeRead.state), "one outlier cannot be called a sustained upward run");
 assert.equal(spikeForecast.momentum.strong, false, "one implausibly large jump cannot activate amplified momentum");
 
-for (const copy of [lilyCopy, coach.compose(gainRead), coach.compose(flatRead), coach.compose(spikeRead)]) {
-  assert.doesNotMatch(copy, /obese|unhealthy|worth|lazy|failure|starv|punish|crash diet/i);
-  assert.ok(copy.length < 360, "coach copy must stay screenshot-friendly");
+const stateFixtures = [
+  {
+    expected: "accelerating-loss",
+    points: [point("2026-08-01", 150), point("2026-08-02", 149.7), point("2026-08-03", 149.2), point("2026-08-04", 148.3)]
+  },
+  {
+    expected: "steady-loss",
+    points: [point("2026-08-01", 150), point("2026-08-02", 149.6), point("2026-08-03", 149.2), point("2026-08-04", 148.8)]
+  },
+  {
+    expected: "turning-loss",
+    points: [point("2026-08-01", 149), point("2026-08-02", 149.4), point("2026-08-03", 149.9), point("2026-08-04", 149.2)]
+  },
+  { expected: "accelerating-gain", points: acceleratingGain },
+  {
+    expected: "steady-gain",
+    points: [point("2026-08-01", 150), point("2026-08-02", 150.4), point("2026-08-03", 150.8), point("2026-08-04", 151.2)]
+  },
+  { expected: "turning-gain", points: todayPoints },
+  { expected: "flat-noisy", points: flatPoints }
+];
+
+const allCopies = [];
+for (const fixture of stateFixtures) {
+  const read = coach.analyze(fixture.points, forecast.calculateForecast(fixture.points));
+  assert.equal(read.state, fixture.expected, `${fixture.expected} fixture must reach the intended state`);
+  const copies = Array.from({ length: 6 }, (_, seed) => coach.compose({ ...read, seed }));
+  assert.equal(new Set(copies).size, 6, `${fixture.expected} must have six genuinely different responses`);
+  for (const [seed, copy] of copies.entries()) {
+    const label = `${fixture.expected}/${seed}`;
+    assert.match(copy, /!{3}/, `${label} needs unmistakable hype`);
+    assert.ok(copy.includes(Number(read.latestWeight.toFixed(1)).toString()), `${label} must name the actual latest weight`);
+    assert.match(
+      copy,
+      /(attack|answer|break|bring|charge|chase|choose|collect|control|drive|earn|fight|flip|force|get a walk|go|grab|hold|hunt|keep|lock|make|move|nail|own|pick|plan|press|protect|repeat|reset|stack|stay|take|tighten|win)/i,
+      `${label} must carry an active next move`
+    );
+    assert.doesNotMatch(copy, /bump|warning shot|not a verdict|no panic|no shrug|no shame|no drama|no honest streak|scale noise|undecided/i, `${label} must not fall back to de-escalating copy`);
+    assert.doesNotMatch(copy, /obese|unhealthy|worth|lazy|failure|starv|punish|crash diet/i, `${label} must stay non-shaming and non-diagnostic`);
+    assert.ok(copy.length < 360, `${label} must stay screenshot-friendly`);
+  }
+  allCopies.push(...copies);
 }
+assert.equal(new Set(allCopies).size, 42, "all seven states and six variants must remain distinct");
+assert.match(coach.compose(null), /!{3}/, "even the empty coach invitation must carry hype");
 
 console.log("weight coach tests passed");
