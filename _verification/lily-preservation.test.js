@@ -5,6 +5,7 @@ const path = require("node:path");
 const root = path.join(__dirname, "..");
 const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
 const styles = fs.readFileSync(path.join(root, "public", "styles.css"), "utf8");
+const index = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
 
 assert.ok(
   app.indexOf('<section class="image-section"') < app.indexOf('<section class="right-rail"'),
@@ -48,24 +49,24 @@ assert.ok(
   "media state must be assigned before the wall is rendered"
 );
 
-assert.ok(
-  app.includes("Not a reliable 1-year prediction"),
-  "sub-year weight history must not be presented as a reliable annual prediction"
-);
-assert.ok(
-  app.includes("it does not mean her weight will stay constant"),
-  "a near-current endpoint must not imply constant weight throughout the year"
-);
 assert.ok(app.includes('].join(" · ")'), "the visible forecast values must stay compact and scannable");
+assert.ok(app.includes('`1 yr ${trimWeight(forecast.oneYearWeight)} lb`'), "the primary card must show a direct one-year forecast");
+assert.ok(app.includes('id="weightCoach"'), "the primary card must carry the live coach analysis");
+assert.match(styles, /\.panel-head p\.weight-coach/, "coach copy must have an intentional readable treatment");
+assert.doesNotMatch(app, /Not a reliable|Only .* of data|does not mean her weight will stay constant|This is an estimate, not a guarantee/i);
+assert.doesNotMatch(app, /1-yr baseline|uncalibrated baseline|historically evaluated baseline/i);
 assert.ok(!app.includes("completed 1-year outcomes"), "validation plumbing must not crowd the visible weight summary");
 assert.ok(
   !app.includes("selected by rolling backtest"),
   "short sequential errors must not be mislabeled as annual rolling-backtest evidence"
 );
-assert.ok(app.includes('predictionLabel.textContent = "1-YR BASELINE"'), "the overlay must be labeled as a baseline");
+assert.ok(app.includes('predictionLabel.textContent = "1-YR FORECAST"'), "the overlay must be labeled as a forecast");
 assert.ok(app.includes('data-annual-calibrated'), "overlay points must expose annual-calibration state");
-assert.ok(!app.includes('aria-label="Lily weight and one-year prediction over time"'), "rejected prediction wording must not survive in accessibility output");
 assert.ok(!app.includes("Validated from"), "the page must not overclaim annual validation");
+assert.ok(
+  index.indexOf("/weight-forecast.js") < index.indexOf("/weight-coach.js") && index.indexOf("/weight-coach.js") < index.indexOf("/app.js"),
+  "forecast and coach logic must load before the app"
+);
 assert.ok(
   app.indexOf("points.forEach((point) =>") < app.indexOf("predictionPoints.forEach((point) =>"),
   "the connected forecast series must render as an overlay above the measured weight points"

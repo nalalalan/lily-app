@@ -117,15 +117,29 @@ const lilyHistory = [
   ["2026-07-07", 149], ["2026-07-08", 147.5], ["2026-07-10", 150.3],
   ["2026-07-11", 150.5], ["2026-07-12", 149.9], ["2026-07-13", 150],
   ["2026-07-14", 147.7], ["2026-07-15", 149.4], ["2026-07-16", 150.3],
-  ["2026-07-17", 149.9], ["2026-07-18", 149.4]
+  ["2026-07-17", 149.9], ["2026-07-18", 149.4], ["2026-07-19", 148.5]
 ].map(([date, weight]) => point(date, weight));
-const lilyForecast = forecast.calculateForecast(lilyHistory);
-const lilyForecastHistory = forecast.buildOneYearHistory(lilyHistory, lilyForecast, lilyHistory.at(-1).time);
+const lilyAsOfDay = forecast.calendarDay(new Date("2026-07-20T12:00:00-04:00").getTime());
+const lilyForecast = forecast.calculateForecast(lilyHistory, { asOfDay: lilyAsOfDay });
+const lilyForecastHistory = forecast.buildOneYearHistory(lilyHistory, lilyForecast, new Date("2026-07-20T12:00:00-04:00").getTime());
 assert.equal(lilyForecast.confidence, "learning", "the live-shaped 22-day record must stay explicitly unvalidated");
 assert.equal(lilyForecast.annualValidationCount, 0, "the live-shaped record has no annual outcomes");
 assert.equal(lilyForecast.annualCalibrationReady, false, "the live-shaped one-year endpoint is an uncalibrated baseline");
+assert.equal(Number(lilyForecast.oneWeekWeight.toFixed(1)), 145, "current positive momentum must move the one-week forecast decisively");
+assert.equal(Number(lilyForecast.oneMonthWeight.toFixed(1)), 137.4, "current positive momentum must move the one-month forecast decisively");
+assert.equal(Number(lilyForecast.oneYearWeight.toFixed(1)), 123.5, "current positive momentum must move the one-year forecast decisively");
+assert.equal(lilyForecast.momentum.momentumRate, -0.5, "the current three-drop run should reach the bounded celebratory momentum rate");
 assert.equal(lilyForecastHistory.at(-1).weight, lilyForecast.oneYearWeight, "live-shaped headline and overlay must match exactly");
 assert.equal(lilyForecastHistory.at(-1).annualCalibrated, false, "the current overlay point must carry its uncalibrated state");
+
+const symmetricGain = dailySeries("2026-10-01", 21, (index) => 150 + index * 0.15);
+const symmetricGainForecast = forecast.calculateForecast(symmetricGain);
+assert.ok(symmetricGainForecast.oneYearWeight > symmetricGain.at(-1).weight + 15, "a sustained gain must move the annual forecast strongly upward");
+
+const isolatedHigh = dailySeries("2026-11-01", 21, (index) => index === 20 ? 170 : 150);
+const isolatedHighForecast = forecast.calculateForecast(isolatedHigh);
+assert.equal(isolatedHighForecast.momentum.strong, false, "one isolated high value must not activate amplified momentum");
+assert.ok(isolatedHighForecast.oneYearWeight < 155, "one isolated high value must not create a runaway annual forecast");
 
 const annualHistory = dailySeries("2023-01-01", 930, (index) => 145 + index * 0.005 + Math.sin(index / 9) * 0.6);
 const annualStarted = Date.now();

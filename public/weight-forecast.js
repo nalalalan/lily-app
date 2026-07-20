@@ -18,6 +18,9 @@
   const MIN_ANNUAL_CALIBRATION_POINTS = 20;
   const HUBER_LIMIT = 2.5;
   const ROBUST_SCALE_WINDOW = 30;
+  const MOMENTUM_DECAY_DAYS = 48;
+  const MOMENTUM_RATE_LIMIT = 0.5;
+  const WEAK_MOMENTUM_RATE_LIMIT = 0.12;
   const PARAMETER_GRID = [
     [0.2, 0.02, 0.9], [0.2, 0.02, 0.95], [0.2, 0.02, 0.98],
     [0.2, 0.08, 0.9], [0.2, 0.08, 0.95], [0.2, 0.08, 0.98],
@@ -35,6 +38,107 @@
     if (!sorted.length) return NaN;
     const middle = Math.floor(sorted.length / 2);
     return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+  }
+
+  function theilSenSlope(points) {
+    const slopes = [];
+    for (let left = 0; left < points.length; left += 1) {
+      for (let right = left + 1; right < points.length; right += 1) {
+        const dayDelta = points[right].day - points[left].day;
+        if (dayDelta > 0) slopes.push((points[right].weight - points[left].weight) / dayDelta);
+      }
+    }
+    return median(slopes);
+  }
+
+  function pointsInRecentDays(points, endIndex, calendarDays) {
+    const latestDay = points[endIndex].day;
+    const firstDay = latestDay - Math.max(0, calendarDays - 1);
+    return points.slice(0, endIndex + 1).filter((point) => point.day >= firstDay);
+  }
+
+  function recentDirectionalStreak(points, endIndex) {
+    let direction = 0;
+    let intervals = 0;
+    let firstIndex = endIndex;
+    const changes = [];
+    for (let index = endIndex; index > 0; index -= 1) {
+      const newer = points[index];
+      const older = points[index - 1];
+      const gap = newer.day - older.day;
+      if (gap < 1 || gap > 2) break;
+      const change = newer.weight - older.weight;
+      const dailyRate = change / gap;
+      const changeDirection = Math.sign(dailyRate);
+      if (!changeDirection || Math.abs(dailyRate) < 0.1 || Math.abs(dailyRate) > 2.5) break;
+      if (!direction) direction = changeDirection;
+      if (changeDirection !== direction) break;
+      intervals += 1;
+      firstIndex = index - 1;
+      changes.unshift(change);
+    }
+    return {
+      direction,
+      intervals,
+      weighInCount: intervals ? intervals + 1 : 1,
+      firstIndex,
+      changes,
+      totalChange: points[endIndex].weight - points[firstIndex].weight,
+      durationDays: points[endIndex].day - points[firstIndex].day
+    };
+  }
+
+  function momentumDiagnostics(points, endIndex) {
+    const finalIndex = Number.isInteger(endIndex) ? Math.min(endIndex, points.length - 1) : points.length - 1;
+    const prefix = points.slice(0, finalIndex + 1);
+    const r3 = theilSenSlope(prefix.slice(-3));
+    const r7 = theilSenSlope(pointsInRecentDays(points, finalIndex, 7));
+    const r14 = theilSenSlope(pointsInRecentDays(points, finalIndex, 14));
+    const streak = recentDirectionalStreak(points, finalIndex);
+    const finiteRate = (value) => Number.isFinite(value) ? value : 0;
+    let rawRate;
+    let multiplier = 1;
+    let strong = false;
+    if (streak.intervals >= 2) {
+      rawRate = 0.65 * finiteRate(r3) + 0.25 * finiteRate(r7) + 0.10 * finiteRate(r14);
+      multiplier = Math.min(1.5, 1 + 0.15 * (streak.intervals - 1));
+      strong = true;
+    } else {
+      rawRate = 0.25 * finiteRate(r7) + 0.10 * finiteRate(r14);
+    }
+    const rateLimit = strong ? MOMENTUM_RATE_LIMIT : WEAK_MOMENTUM_RATE_LIMIT;
+    const momentumRate = Math.max(-rateLimit, Math.min(rateLimit, rawRate * multiplier));
+    return {
+      r3,
+      r7,
+      r14,
+      rawRate,
+      multiplier,
+      momentumRate,
+      strong,
+      capped: Math.abs(rawRate * multiplier) > rateLimit,
+      streak
+    };
+  }
+
+  function horizonCap(points, endIndex, horizonDays) {
+    const anchor = median(points.slice(Math.max(0, endIndex - 2), endIndex + 1).map((point) => point.weight));
+    const cap = horizonDays <= 10
+      ? Math.max(4, anchor * 0.04)
+      : horizonDays <= 45
+        ? Math.max(8, anchor * 0.08)
+        : Math.max(20, anchor * 0.20);
+    return { anchor, lower: Math.max(0.1, anchor - cap), upper: anchor + cap };
+  }
+
+  function projectWithMomentum(points, endIndex, model, targetDay, diagnostics) {
+    const baseWeight = projectModel(model, targetDay);
+    if (!Number.isFinite(baseWeight)) return NaN;
+    const horizonDays = Math.max(0, targetDay - points[endIndex].day);
+    const momentum = diagnostics || momentumDiagnostics(points, endIndex);
+    const adjustment = momentum.momentumRate * MOMENTUM_DECAY_DAYS * (1 - Math.exp(-horizonDays / MOMENTUM_DECAY_DAYS));
+    const limits = horizonCap(points, endIndex, horizonDays);
+    return Math.max(limits.lower, Math.min(limits.upper, baseWeight + adjustment));
   }
 
   function calendarDay(time) {
@@ -350,7 +454,7 @@
       }
       if (!target) continue;
       const originModel = selectModelAt(points, prepared, originIndex);
-      const predicted = projectModel(originModel, target.day);
+      const predicted = projectWithMomentum(points, originIndex, originModel, target.day);
       if (!Number.isFinite(predicted)) continue;
       completed.push({
         originDay: points[originIndex].day,
@@ -378,9 +482,13 @@
     const oneMonthDay = addCalendarMonths(anchorDay, 1);
     const oneYearDay = addCalendarMonths(anchorDay, 12);
     const spanDays = points[points.length - 1].day - points[0].day;
-    const oneWeekWeight = projectModel(model, oneWeekDay);
-    const oneMonthWeight = projectModel(model, oneMonthDay);
-    const oneYearWeight = projectModel(model, oneYearDay);
+    const momentum = momentumDiagnostics(points, points.length - 1);
+    const baseOneWeekWeight = projectModel(model, oneWeekDay);
+    const baseOneMonthWeight = projectModel(model, oneMonthDay);
+    const baseOneYearWeight = projectModel(model, oneYearDay);
+    const oneWeekWeight = projectWithMomentum(points, points.length - 1, model, oneWeekDay, momentum);
+    const oneMonthWeight = projectWithMomentum(points, points.length - 1, model, oneMonthDay, momentum);
+    const oneYearWeight = projectWithMomentum(points, points.length - 1, model, oneYearDay, momentum);
     const skipAnnualEvaluation = Boolean(options && options.skipAnnualEvaluation);
     const annualErrors = skipAnnualEvaluation ? [] : annualWalkForwardErrors(points, prepared);
     const annualValidationCount = annualErrors.length;
@@ -415,6 +523,7 @@
       validationCount: model.validationCount || 0,
       validationHorizons: model.validationHorizons || [],
       model,
+      momentum,
       confidence,
       annualValidationCount,
       annualMedianAbsoluteError: median(annualErrors.map((row) => Math.abs(row.error))),
@@ -422,10 +531,13 @@
       annualCalibrationReady,
       oneYearErrorBand,
       oneWeekDay,
+      baseOneWeekWeight,
       oneWeekWeight,
       oneMonthDay,
+      baseOneMonthWeight,
       oneMonthWeight,
       oneYearDay,
+      baseOneYearWeight,
       oneYearWeight
     };
   }
@@ -440,7 +552,7 @@
       const oneYearDay = addCalendarMonths(point.day, 12);
       const forecast = isFinalMeasuredPoint ? currentForecast : {
         oneYearDay,
-        oneYearWeight: projectModel(model, oneYearDay),
+        oneYearWeight: projectWithMomentum(points, index, model, oneYearDay),
         method: model.method,
         annualCalibrationReady: false
       };
@@ -485,6 +597,7 @@
     calendarDay,
     dampedSteps,
     normalizePoints,
+    momentumDiagnostics,
     projectModel
   };
 });

@@ -2,6 +2,7 @@ const app = document.getElementById("app");
 
 const API_BASE = String(window.LILY_API_BASE || "").replace(/\/$/, "");
 const WEIGHT_FORECAST = window.LilyWeightForecast;
+const WEIGHT_COACH = window.LilyWeightCoach;
 const TOKEN_KEY = "lily-api-token-v1";
 const TOKEN_EXP_KEY = "lily-api-token-exp-v1";
 const LEGACY_MEMORY_KEY = "lily-memories-v1";
@@ -104,6 +105,7 @@ function renderShell() {
                   <h2 id="weightTitle">weight</h2>
                   <p id="weightLatest">No weights saved.</p>
                   <p class="weight-estimate" id="weightEstimate">1-week, 1-month, 1-year estimates need saved weights.</p>
+                  <p class="weight-coach" id="weightCoach">Save a weigh-in and I’ll read the momentum.</p>
                 </div>
               </div>
               <form class="weight-form" id="weightForm">
@@ -116,7 +118,7 @@ function renderShell() {
                   <button class="primary-button" type="submit">Save</button>
                 </div>
               </form>
-              <div class="weight-chart-wrap" id="weightChartWrap" aria-label="Lily weight and one-year endpoint baseline history"></div>
+              <div class="weight-chart-wrap" id="weightChartWrap" aria-label="Lily weight and one-year forecast history"></div>
             </section>
 
             <section class="ingest-panel" aria-labelledby="saveTitle">
@@ -612,6 +614,7 @@ function renderWall() {
 function renderWeights() {
   const latest = document.getElementById("weightLatest");
   const estimate = document.getElementById("weightEstimate");
+  const coach = document.getElementById("weightCoach");
   const chartWrap = document.getElementById("weightChartWrap");
   const list = document.getElementById("weightList");
   if (!latest || !chartWrap || !list) return;
@@ -626,6 +629,7 @@ function renderWeights() {
   const newest = rows[0];
   latest.textContent = newest ? `${formatWeight(newest)} saved ${formatDateTime(newest.createdAt)}` : "No weights saved.";
   if (estimate) estimate.textContent = createWeightEstimate(currentForecast);
+  if (coach) coach.textContent = createWeightCoach(dailyPoints, currentForecast);
   chartWrap.innerHTML = "";
   list.innerHTML = "";
 
@@ -709,19 +713,16 @@ function weightRows() {
 function createWeightEstimate(forecast) {
   const estimateLabel = "1-week, 1-month, 1-year estimates";
   if (!forecast) return `${estimateLabel} needs saved weights.`;
-  const projections = [
+  return [
     `1 wk ${trimWeight(forecast.oneWeekWeight)} lb`,
     `1 mo ${trimWeight(forecast.oneMonthWeight)} lb`,
-    `1-yr baseline ${trimWeight(forecast.oneYearWeight)} lb`
+    `1 yr ${trimWeight(forecast.oneYearWeight)} lb`
   ].join(" · ");
-  if (!forecast.annualCalibrationReady) {
-    const history = forecast.pointCount === 1 ? "one weigh-in" : formatPreciseDuration(forecast.spanDays);
-    return `${projections}. Only ${history} of data. Not a reliable 1-year prediction; it does not mean her weight will stay constant.`;
-  }
-  const errorText = Number.isFinite(forecast.annualMedianAbsoluteError)
-    ? `Typical historical 1-year error: ${trimWeight(forecast.annualMedianAbsoluteError)} lb.`
-    : "Annual error is still being measured.";
-  return `${projections}. ${errorText} This is an estimate, not a guarantee.`;
+}
+
+function createWeightCoach(points, forecast) {
+  if (!WEIGHT_COACH) return "";
+  return WEIGHT_COACH.buildCoachRead(points, forecast);
 }
 
 function dailyWeightPoints(rows) {
@@ -865,7 +866,7 @@ function createWeightChart(records, dailyPoints, currentForecast) {
   const svg = document.createElementNS(ns, "svg");
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
   svg.setAttribute("role", "img");
-  svg.setAttribute("aria-label", `Lily weight chart with ${chartRecords.length} saved ${chartRecords.length === 1 ? "entry" : "entries"}${trend ? `, a dashed ${formatSignedRate(trend.rate)} lb/day median trend line` : ""}, and a connected ${predictionPoints.length}-point one-year baseline endpoint history overlay. Each green point is an endpoint estimate made on that weigh-in date, not a daily future weight path.`);
+  svg.setAttribute("aria-label", `Lily weight chart with ${chartRecords.length} saved ${chartRecords.length === 1 ? "entry" : "entries"}${trend ? `, a dashed ${formatSignedRate(trend.rate)} lb/day median trend line` : ""}, and a connected ${predictionPoints.length}-point one-year forecast history overlay. Each green point is the one-year forecast calculated from the weigh-ins available on that date.`);
 
   const grid = document.createElementNS(ns, "g");
   grid.setAttribute("class", "weight-grid");
@@ -963,13 +964,13 @@ function createWeightChart(records, dailyPoints, currentForecast) {
     predictionLabel.setAttribute("class", "weight-prediction-label");
     predictionLabel.setAttribute("x", String(pad.left + 19));
     predictionLabel.setAttribute("y", "16");
-    predictionLabel.textContent = "1-YR BASELINE";
+    predictionLabel.textContent = "1-YR FORECAST";
     svg.appendChild(predictionLabel);
   }
 
   if (predictionPoints.length > 1) {
     const predictionLine = document.createElementNS(ns, "path");
-    predictionLine.setAttribute("class", `weight-prediction-line${currentForecast.annualCalibrationReady ? "" : " is-unvalidated"}`);
+    predictionLine.setAttribute("class", "weight-prediction-line");
     predictionLine.setAttribute("d", predictionPathData);
     predictionLine.setAttribute("data-prediction-count", String(predictionPoints.length));
     predictionLine.setAttribute("data-current-one-year-weight", String(currentForecast.oneYearWeight));
@@ -990,7 +991,7 @@ function createWeightChart(records, dailyPoints, currentForecast) {
 
   predictionPoints.forEach((point) => {
     const circle = document.createElementNS(ns, "circle");
-    circle.setAttribute("class", `weight-prediction-point${point.isCurrent ? " is-current" : ""}${point.annualCalibrated ? "" : " is-unvalidated"}`);
+    circle.setAttribute("class", `weight-prediction-point${point.isCurrent ? " is-current" : ""}`);
     circle.setAttribute("cx", point.x.toFixed(1));
     circle.setAttribute("cy", point.y.toFixed(1));
     circle.setAttribute("r", point.isCurrent ? "4" : "3");
@@ -999,8 +1000,7 @@ function createWeightChart(records, dailyPoints, currentForecast) {
     circle.setAttribute("data-target-day", String(point.projectedDay));
     circle.setAttribute("data-annual-calibrated", String(Boolean(point.annualCalibrated)));
     const title = document.createElementNS(ns, "title");
-    const evaluation = point.annualCalibrated ? "historically evaluated baseline" : "uncalibrated baseline";
-    title.textContent = `Calculated ${formatShortDate(point.time)}: estimated ${formatProjectionDate(dateFromCalendarDay(point.projectedDay), true)} endpoint ${trimWeight(point.weight)} lb (${evaluation})`;
+    title.textContent = `Calculated ${formatShortDate(point.time)}: ${formatProjectionDate(dateFromCalendarDay(point.projectedDay), true)} forecast ${trimWeight(point.weight)} lb`;
     circle.appendChild(title);
     svg.appendChild(circle);
   });

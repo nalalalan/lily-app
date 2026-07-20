@@ -278,6 +278,14 @@ noscript {
   font-weight: 720;
 }
 
+.panel-head p.weight-coach {
+  margin-top: 8px;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.38;
+  font-weight: 760;
+}
+
 .messages {
   flex: none;
   min-height: 168px;
@@ -616,11 +624,6 @@ noscript {
   stroke-width: 2.4;
 }
 
-.weight-prediction-line.is-unvalidated {
-  opacity: 0.8;
-  stroke-dasharray: 5 4;
-}
-
 .weight-chart-wrap .weight-trend-label {
   fill: var(--muted);
   font-size: 9px;
@@ -639,10 +642,6 @@ noscript {
   fill: var(--surface);
   stroke: var(--forecast);
   stroke-width: 2;
-}
-
-.weight-prediction-point.is-unvalidated {
-  opacity: 0.84;
 }
 
 .weight-prediction-point.is-current {
