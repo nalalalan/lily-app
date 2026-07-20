@@ -21,6 +21,17 @@
   const MOMENTUM_DECAY_DAYS = 48;
   const MOMENTUM_RATE_LIMIT = 0.5;
   const WEAK_MOMENTUM_RATE_LIMIT = 0.12;
+  const FORECAST_SIGNAL_ALPHA = 0.10;
+  const FORECAST_SIGNAL_SCALE = 0.12;
+  const FORECAST_ANNUAL_SWING = 35;
+  const FORECAST_VELOCITY_MEMORY = 0.60;
+  const FORECAST_VELOCITY_RESPONSE = 0.40;
+  const FORECAST_VELOCITY_FLOOR = 0.08;
+  const FORECAST_STEP_LIMITS = {
+    oneWeek: 1.5,
+    oneMonth: 2.5,
+    oneYear: 4
+  };
   const PARAMETER_GRID = [
     [0.2, 0.02, 0.9], [0.2, 0.02, 0.95], [0.2, 0.02, 0.98],
     [0.2, 0.08, 0.9], [0.2, 0.08, 0.95], [0.2, 0.08, 0.98],
@@ -426,6 +437,90 @@
     return Number.isFinite(raw) ? Math.max(0.1, raw) : NaN;
   }
 
+  function clamp(value, lower, upper) {
+    return Math.max(lower, Math.min(upper, value));
+  }
+
+  function clippedSlope(value) {
+    return Number.isFinite(value) ? clamp(value, -MOMENTUM_RATE_LIMIT, MOMENTUM_RATE_LIMIT) : 0;
+  }
+
+  function advanceForecastState(previous, target, stepLimit) {
+    const desiredVelocity = clamp(target - previous.value, -stepLimit, stepLimit);
+    let velocity = FORECAST_VELOCITY_MEMORY * previous.velocity
+      + FORECAST_VELOCITY_RESPONSE * desiredVelocity;
+    if (Math.abs(velocity) < FORECAST_VELOCITY_FLOOR) velocity = 0;
+    return {
+      value: Math.max(0.1, previous.value + velocity),
+      velocity
+    };
+  }
+
+  function buildForecastTrajectoryFromPoints(points, prepared) {
+    if (!points.length) return [];
+    let signal = 0;
+    let oneWeekState = { value: points[0].weight, velocity: 0 };
+    let oneMonthState = { value: points[0].weight, velocity: 0 };
+    let oneYearState = { value: points[0].weight, velocity: 0 };
+
+    return points.map((point, index) => {
+      const model = selectModelAt(points, prepared, index);
+      const momentum = momentumDiagnostics(points, index);
+      const rawSignal = 0.55 * clippedSlope(momentum.r3)
+        + 0.30 * clippedSlope(momentum.r7)
+        + 0.15 * clippedSlope(momentum.r14);
+      signal = (1 - FORECAST_SIGNAL_ALPHA) * signal + FORECAST_SIGNAL_ALPHA * rawSignal;
+
+      const oneWeekDay = point.day + 7;
+      const oneMonthDay = addCalendarMonths(point.day, 1);
+      const oneYearDay = addCalendarMonths(point.day, 12);
+      const rawOneWeekWeight = projectWithMomentum(points, index, model, oneWeekDay, momentum);
+      const rawOneMonthWeight = projectWithMomentum(points, index, model, oneMonthDay, momentum);
+      const rawOneYearWeight = projectWithMomentum(points, index, model, oneYearDay, momentum);
+      const baseOneYearWeight = projectModel(model, oneYearDay);
+      const annualLimits = horizonCap(points, index, oneYearDay - point.day);
+      const aggressiveOneYearTarget = clamp(
+        baseOneYearWeight + FORECAST_ANNUAL_SWING * Math.tanh(signal / FORECAST_SIGNAL_SCALE),
+        annualLimits.lower,
+        annualLimits.upper
+      );
+
+      if (index > 0) {
+        oneWeekState = advanceForecastState(oneWeekState, rawOneWeekWeight, FORECAST_STEP_LIMITS.oneWeek);
+        oneMonthState = advanceForecastState(oneMonthState, rawOneMonthWeight, FORECAST_STEP_LIMITS.oneMonth);
+        oneYearState = advanceForecastState(oneYearState, aggressiveOneYearTarget, FORECAST_STEP_LIMITS.oneYear);
+      }
+
+      return {
+        time: point.time,
+        day: point.day,
+        latestWeight: point.weight,
+        oneWeekDay,
+        oneMonthDay,
+        oneYearDay,
+        oneWeekWeight: oneWeekState.value,
+        oneMonthWeight: oneMonthState.value,
+        oneYearWeight: oneYearState.value,
+        rawOneWeekWeight,
+        rawOneMonthWeight,
+        rawOneYearWeight,
+        aggressiveOneYearTarget,
+        rawSignal,
+        smoothedSignal: signal,
+        oneWeekVelocity: oneWeekState.velocity,
+        oneMonthVelocity: oneMonthState.velocity,
+        oneYearVelocity: oneYearState.velocity,
+        method: model.method
+      };
+    });
+  }
+
+  function buildForecastHistory(inputPoints) {
+    const points = normalizePoints(inputPoints);
+    if (!points.length) return [];
+    return buildForecastTrajectoryFromPoints(points, prepareCandidateSequences(points));
+  }
+
   function quantile(values, probability) {
     const sorted = values.filter(Number.isFinite).slice().sort((a, b) => a - b);
     if (!sorted.length) return NaN;
@@ -486,9 +581,14 @@
     const baseOneWeekWeight = projectModel(model, oneWeekDay);
     const baseOneMonthWeight = projectModel(model, oneMonthDay);
     const baseOneYearWeight = projectModel(model, oneYearDay);
-    const oneWeekWeight = projectWithMomentum(points, points.length - 1, model, oneWeekDay, momentum);
-    const oneMonthWeight = projectWithMomentum(points, points.length - 1, model, oneMonthDay, momentum);
-    const oneYearWeight = projectWithMomentum(points, points.length - 1, model, oneYearDay, momentum);
+    const rawOneWeekWeight = projectWithMomentum(points, points.length - 1, model, oneWeekDay, momentum);
+    const rawOneMonthWeight = projectWithMomentum(points, points.length - 1, model, oneMonthDay, momentum);
+    const rawOneYearWeight = projectWithMomentum(points, points.length - 1, model, oneYearDay, momentum);
+    const forecastTrajectory = buildForecastTrajectoryFromPoints(points, prepared);
+    const displayedForecast = forecastTrajectory[forecastTrajectory.length - 1];
+    const oneWeekWeight = displayedForecast.oneWeekWeight;
+    const oneMonthWeight = displayedForecast.oneMonthWeight;
+    const oneYearWeight = displayedForecast.oneYearWeight;
     const skipAnnualEvaluation = Boolean(options && options.skipAnnualEvaluation);
     const annualErrors = skipAnnualEvaluation ? [] : annualWalkForwardErrors(points, prepared);
     const annualValidationCount = annualErrors.length;
@@ -532,12 +632,23 @@
       oneYearErrorBand,
       oneWeekDay,
       baseOneWeekWeight,
+      rawOneWeekWeight,
       oneWeekWeight,
       oneMonthDay,
       baseOneMonthWeight,
+      rawOneMonthWeight,
       oneMonthWeight,
       oneYearDay,
       baseOneYearWeight,
+      rawOneYearWeight,
+      aggressiveOneYearTarget: displayedForecast.aggressiveOneYearTarget,
+      forecastContinuity: {
+        signal: displayedForecast.smoothedSignal,
+        oneWeekVelocity: displayedForecast.oneWeekVelocity,
+        oneMonthVelocity: displayedForecast.oneMonthVelocity,
+        oneYearVelocity: displayedForecast.oneYearVelocity,
+        stepLimits: { ...FORECAST_STEP_LIMITS }
+      },
       oneYearWeight
     };
   }
@@ -545,24 +656,20 @@
   function buildOneYearHistory(inputPoints, currentForecast, currentTime) {
     const points = normalizePoints(inputPoints);
     if (!points.length) return [];
-    const prepared = prepareCandidateSequences(points);
-    const history = points.map((point, index) => {
+    const trajectory = buildForecastTrajectoryFromPoints(points, prepareCandidateSequences(points));
+    const history = trajectory.map((forecast, index) => {
+      const point = points[index];
       const isFinalMeasuredPoint = index === points.length - 1 && currentForecast && currentForecast.anchorDay === point.day;
-      const model = selectModelAt(points, prepared, index);
-      const oneYearDay = addCalendarMonths(point.day, 12);
-      const forecast = isFinalMeasuredPoint ? currentForecast : {
-        oneYearDay,
-        oneYearWeight: projectWithMomentum(points, index, model, oneYearDay),
-        method: model.method,
-        annualCalibrationReady: false
-      };
       return {
         time: point.time,
         day: point.day,
         weight: forecast.oneYearWeight,
         projectedDay: forecast.oneYearDay,
         method: forecast.method,
-        annualCalibrated: forecast.annualCalibrationReady,
+        rawWeight: forecast.rawOneYearWeight,
+        targetWeight: forecast.aggressiveOneYearTarget,
+        annualCalibrated: isFinalMeasuredPoint ? currentForecast.annualCalibrationReady : false,
+        continuityBounded: true,
         isCurrent: isFinalMeasuredPoint
       };
     });
@@ -576,14 +683,20 @@
         weight: currentForecast.oneYearWeight,
         projectedDay: currentForecast.oneYearDay,
         method: currentForecast.method,
+        rawWeight: currentForecast.rawOneYearWeight,
+        targetWeight: currentForecast.aggressiveOneYearTarget,
         annualCalibrated: currentForecast.annualCalibrationReady,
+        continuityBounded: true,
         isCurrent: true
       });
     } else if (currentForecast && history.length) {
       history[history.length - 1].weight = currentForecast.oneYearWeight;
       history[history.length - 1].projectedDay = currentForecast.oneYearDay;
       history[history.length - 1].method = currentForecast.method;
+      history[history.length - 1].rawWeight = currentForecast.rawOneYearWeight;
+      history[history.length - 1].targetWeight = currentForecast.aggressiveOneYearTarget;
       history[history.length - 1].annualCalibrated = currentForecast.annualCalibrationReady;
+      history[history.length - 1].continuityBounded = true;
       history[history.length - 1].isCurrent = true;
     }
     return history;
@@ -592,6 +705,7 @@
   return {
     DAY_MS,
     addCalendarMonths,
+    buildForecastHistory,
     buildOneYearHistory,
     calculateForecast,
     calendarDay,

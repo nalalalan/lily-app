@@ -75,6 +75,23 @@
     const movementGrowing = streakChanges.length >= 3 && streakChanges.slice(1).every((change, index) => (
       Math.abs(change) >= Math.abs(streakChanges[index]) + 0.049
     ));
+
+    let previousDirection = 0;
+    let previousTransitionCount = 0;
+    let previousStart = changes.length >= 2 ? changes[changes.length - 2].newer : null;
+    const previousEnd = previousStart;
+    for (let index = changes.length - 2; index >= 0; index -= 1) {
+      const row = changes[index];
+      if (row.gap < 1 || row.gap > 2 || Math.abs(row.change / row.gap) < 0.1 || Math.abs(row.change / row.gap) > 2.5) break;
+      const rowDirection = Math.sign(row.change);
+      if (!previousDirection) previousDirection = rowDirection;
+      if (rowDirection !== previousDirection) break;
+      previousTransitionCount += 1;
+      previousStart = row.older;
+    }
+    const previousTotalChange = previousStart && previousEnd
+      ? previousEnd.weight - previousStart.weight
+      : 0;
     let state = "flat-noisy";
     if (direction < 0 && transitionCount >= 3 && totalMovement >= 0.8) {
       state = movementGrowing ? "accelerating-loss" : "steady-loss";
@@ -107,8 +124,50 @@
       recentChange,
       streakChanges,
       movementGrowing,
+      previousDirection,
+      previousTransitionCount,
+      previousWeighInCount: previousTransitionCount ? previousTransitionCount + 1 : 0,
+      previousStartDay: previousStart ? previousStart.day : null,
+      previousEndDay: previousEnd ? previousEnd.day : null,
+      previousStartWeight: previousStart ? previousStart.weight : null,
+      previousEndWeight: previousEnd ? previousEnd.weight : null,
+      previousTotalChange,
+      previousTotalMovement: Math.abs(previousTotalChange),
       oneYearWeight: Number(forecast && forecast.oneYearWeight)
     };
+  }
+
+  function priorLossContext(read) {
+    if (read.previousDirection >= 0 || read.previousTransitionCount < 2) {
+      return "This number gets a full-energy answer RIGHT NOW!!!";
+    }
+    const count = spokenNumber(read.previousWeighInCount);
+    const movement = trimWeight(read.previousTotalMovement);
+    const facts = `${trimWeight(read.previousStartWeight)} → ${trimWeight(read.previousEndWeight)} lb`;
+    return [
+      `The ${count} weigh-ins before today cut ${movement} lb, so we already know this scale can move our way!!!`,
+      `Today interrupted a ${movement}-lb, ${count}-weigh-in slide—the progress proof is STILL RIGHT THERE!!!`,
+      `That follows ${count} weigh-ins moving ${facts}, so the comeback blueprint is fresh!!!`,
+      `The run immediately before this was ${count} lower weigh-ins and ${movement} lb down—we know exactly what a response looks like!!!`,
+      `One rise just challenged a ${count}-weigh-in drop; it did NOT erase it!!!`,
+      `Lily had ${movement} lb of downward momentum before this jump, and we are calling it back NOW!!!`
+    ][read.seed % 6];
+  }
+
+  function priorGainContext(read) {
+    if (read.previousDirection <= 0 || read.previousTransitionCount < 2) {
+      return "The comeback door is OPEN—charge through it!!!";
+    }
+    const count = spokenNumber(read.previousWeighInCount);
+    const movement = trimWeight(read.previousTotalMovement);
+    return [
+      `That just punched back after ${count} higher weigh-ins and ${movement} lb of climb!!!`,
+      `A ${movement}-lb upward run finally cracked—NOW PRESS THE TURN!!!`,
+      `The previous ${count} weigh-ins climbed, and this drop just changed the fight!!!`,
+      `This snapped a ${count}-weigh-in rise—THE COMEBACK IS LIVE!!!`,
+      `After ${movement} lb up, Lily just forced the first move back down!!!`,
+      `The wrong-way run finally took a hit—NOW MAKE IT TWO!!!`
+    ][read.seed % 6];
   }
 
   function acceleratingLossCopy(read) {
@@ -119,35 +178,36 @@
     const forecast = trimWeight(read.oneYearWeight);
     const growing = read.movementGrowing ? ", and every drop got bigger" : "";
     return [
-      `${numberWord(read.transitionCount)} DROPS IN A ROW—${start} → ${latest} lb in ${days}. The scale is moving with PURPOSE now. Protect this streak, repeat what worked, and go earn the next lower number—WEOOOOOOOOO!`,
-      `${count} LOWER WEIGH-INS IN A ROW—${start} → ${latest} lb in ${days}${growing}. THIS is the turn we wanted. Lock in the routine, protect the streak, and make the next weigh-in number ${spokenNumber(read.weighInCount + 1)}—WEOOOOOOOOOOOOO!`,
-      `LILY IS MOVING!!! ${start} → ${latest} lb since ${dayLabel(read.startDay)}, with ${read.transitionCount} straight drops. The 1-year forecast just charged to ${forecast} lb. Keep the day tight and make this run impossible to ignore!`,
-      `THIS RUN IS AWESOME—${trimWeight(read.totalMovement)} lb down across ${read.weighInCount} weigh-ins. The newest drop was ${trimWeight(Math.abs(read.recentChange))} lb, so the momentum is getting LOUD. Same focus today; next lower weigh-in, let’s gooooo!`,
-      `Okay, THIS is what progress looks like: ${count} lower weigh-ins, ${trimWeight(read.totalMovement)} lb gone in ${days}, and the forecast is responding hard. Do not coast—repeat the winning basics and keep the streak alive!`,
-      `THE SCALE FINALLY BROKE OUR WAY!!! ${start} → ${latest} lb, ${read.transitionCount} drops without a bounce. That is a real momentum swing. Stay sharp today and chase weigh-in ${read.weighInCount + 1}—WE’RE ROLLING!`
+      `${numberWord(read.transitionCount)} DROPS IN A ROW—${start} → ${latest} lb in ${days}!!! The scale is moving with PURPOSE now. Protect this streak and hunt the next lower number—WEOOOOOOOOO!!!`,
+      `${count} LOWER WEIGH-INS IN A ROW—${start} → ${latest} lb in ${days}${growing}!!! THIS IS A FULL-BLAST RUN. Lock in the routine and make weigh-in ${spokenNumber(read.weighInCount + 1)} another win—LET’S GOOOOOO!!!`,
+      `LILY IS FLYING!!! ${start} → ${latest} lb since ${dayLabel(read.startDay)}, with ${read.transitionCount} straight drops, and the 1-year call just charged to ${forecast} lb. ARE YOU KIDDING ME?! KEEP PRESSING!!!`,
+      `THIS RUN IS ABSOLUTELY AWESOME!!! ${latest} lb now, ${trimWeight(read.totalMovement)} lb down across ${read.weighInCount} weigh-ins, and the newest drop was ${trimWeight(Math.abs(read.recentChange))} lb. The momentum is getting LOUDER—GO STACK ANOTHER ONE!!!`,
+      `OH, THIS IS REAL PROGRESS!!! ${latest} lb now, ${count} lower weigh-ins, ${trimWeight(read.totalMovement)} lb gone in ${days}, and the forecast is answering hard. Repeat the winning basics—WE ARE COOKING!!!`,
+      `THE SCALE BROKE OUR WAY AND LILY KEPT PUSHING!!! ${start} → ${latest} lb with ${read.transitionCount} drops and no bounce. Chase weigh-in ${read.weighInCount + 1}—WE’RE ROLLING, GO GO GO!!!`
     ][read.seed % 6];
   }
 
   function steadyLossCopy(read) {
     const facts = `${trimWeight(read.startWeight)} → ${trimWeight(read.latestWeight)} lb`;
     return [
-      `${numberWord(read.transitionCount)} STRAIGHT DROPS—${facts}. This is clean, repeatable progress. Keep the routine boring and strong; another lower weigh-in turns a good run into a serious one!`,
-      `${trimWeight(read.totalMovement)} lb down since ${dayLabel(read.startDay)}—YES. The direction is right and the streak is alive. Stay on it today and make the next number confirm the move!`,
-      `The scale keeps stepping down: ${facts}. That is exactly the pattern we want. Protect it with one more focused day—no victory lap yet!`,
-      `Momentum check: ${read.weighInCount} lower weigh-ins and ${trimWeight(read.totalMovement)} lb down. GOOD WORK. Now make it undeniable with the next weigh-in!`,
-      `${facts} across ${read.weighInCount} weigh-ins—Lily is building something here. Keep today simple, controlled, and consistent. Let’s stack another win!`,
-      `Another lower number, another piece of proof. ${trimWeight(read.totalMovement)} lb down in this run and the forecast is following. KEEP GOING!`
+      `YESSSSS!!! ${numberWord(read.transitionCount)} STRAIGHT DROPS—${facts}, ${trimWeight(read.totalMovement)} lb DOWN. The line is clean and the work is landing. Hold the rhythm and collect another lower number!!!`,
+      `${trimWeight(read.latestWeight)} LB AND ${trimWeight(read.totalMovement)} LB DOWN SINCE ${dayLabel(read.startDay).toUpperCase()}—LET’S GOOOO!!! The direction is ours. Stay locked in and drive it lower again!!!`,
+      `DOWN AGAIN!!! The scale keeps stepping ${facts}. THIS IS THE STUFF. Bring one more focused day and make this streak impossible to ignore!!!`,
+      `MOMENTUM IS ALIVE!!! ${trimWeight(read.latestWeight)} lb now after ${read.weighInCount} lower weigh-ins and ${trimWeight(read.totalMovement)} lb gone. Go earn the next drop—LET’S GOOOOOO!!!`,
+      `LILY IS STACKING WINS!!! ${facts} across ${read.weighInCount} lower weigh-ins. Keep the routine tight and send that line down again!!!`,
+      `ANOTHER LOWER NUMBER—BOOM!!! ${trimWeight(read.latestWeight)} lb now and ${trimWeight(read.totalMovement)} lb down for this run. PRESS THE ADVANTAGE AND KEEP IT COMING!!!`
     ][read.seed % 6];
   }
 
   function turningLossCopy(read) {
+    const context = priorGainContext(read);
     return [
-      `YES—${trimWeight(Math.abs(read.recentChange))} lb down on the newest weigh-in. That breaks the wrong direction, but one drop is the opening move. Back it up with another focused day!`,
-      `The newest number came down to ${trimWeight(read.latestWeight)} lb. Good turn. Now protect it—one more lower weigh-in makes momentum, not just a moment!`,
-      `That ${trimWeight(Math.abs(read.recentChange))}-lb drop got my attention. The scale finally leaned the right way. Stay disciplined today and make it the start of a streak!`,
-      `A lower weigh-in—GOOD. The comeback has a first step now. Repeat what worked and force the next number to confirm it!`,
-      `${trimWeight(read.latestWeight)} lb, down ${trimWeight(Math.abs(read.recentChange))} from the last check. This is the response we needed. Do it again before we celebrate the full turn!`,
-      `The scale just gave us an opening: ${trimWeight(Math.abs(read.recentChange))} lb down. Take it. One strong day, one more lower number, and this story changes fast!`
+      `YESSSSS—${trimWeight(read.latestWeight)} LB AFTER A ${trimWeight(Math.abs(read.recentChange))}-LB DROP!!! ${context} Bring the heat and turn one drop into two—LET’S GO!!!`,
+      `THE SCALE JUST FLIPPED OUR WAY!!! ${trimWeight(read.latestWeight)} lb, down ${trimWeight(Math.abs(read.recentChange))}. ${context} Charge through the opening and stack the next lower weigh-in!!!`,
+      `DOWN ${trimWeight(Math.abs(read.recentChange))} LB TO ${trimWeight(read.latestWeight)}—NOW WE’RE TALKING!!! ${context} Stay locked in and make this the opening move of a real run!!!`,
+      `COMEBACK MODE IS ON!!! ${trimWeight(read.latestWeight)} lb after a ${trimWeight(Math.abs(read.recentChange))}-lb drop. ${context} Go make the next number lower and turn this momentum into a ROAR!!!`,
+      `LILY ANSWERED BACK—${trimWeight(read.latestWeight)} LB, DOWN ${trimWeight(Math.abs(read.recentChange))}!!! ${context} Keep pressing and force the next weigh-in to confirm the turn!!!`,
+      `THERE IT IS: ${trimWeight(Math.abs(read.recentChange))} LB DOWN TO ${trimWeight(read.latestWeight)}!!! ${context} Grab this opening and make the next number even better—LET’S GOOOOOO!!!`
     ][read.seed % 6];
   }
 
@@ -156,39 +216,44 @@
     const facts = `${trimWeight(read.startWeight)} → ${trimWeight(read.latestWeight)} lb`;
     const speed = accelerating && read.movementGrowing ? " and the jumps are getting larger" : "";
     return [
-      `Okay—eyes up. ${count} higher weigh-ins in a row: ${facts}${speed}. Do not hand this trend another day—reset one controllable thing now and make the next weigh-in the break in the streak.`,
-      `This needs a response: ${trimWeight(read.totalMovement)} lb up since ${dayLabel(read.startDay)}. No shame, no drama—just urgency. Plan the next meal or take a walk, then stop the streak at the next weigh-in.`,
-      `${facts}, moving the wrong way across ${read.weighInCount} weigh-ins. Catch it NOW. Choose one concrete reset today and make the next number prove the turn.`,
-      `The scale is climbing and I am not letting it slide: ${count} higher weigh-ins, ${trimWeight(read.totalMovement)} lb up. Tighten the next decision, move today, and break this run immediately.`,
-      `RED ALERT ON THE TREND—not on Lily. ${facts} in ${read.durationDays} days. The answer is action: one planned meal, one walk, and a hard stop to this streak at the next check.`,
-      `We have a live upward streak: ${trimWeight(read.totalMovement)} lb across ${read.weighInCount} weigh-ins. Face it, fix one thing today, and make tomorrow the pivot. The next number matters!`
+      `WAKE-UP CALL!!! ${count} HIGHER WEIGH-INS—${facts}${speed}. This run stops here. Plan the next meal or get a walk in, then fight for the turn—LOCK IN!!!`,
+      `${trimWeight(read.latestWeight)} LB, UP ${trimWeight(read.totalMovement)} SINCE ${dayLabel(read.startDay).toUpperCase()}—THE TREND IS PUSHING BACK HARD!!! Answer with one planned choice and attack the next weigh-in—LET’S FLIP IT!!!`,
+      `${facts} across ${read.weighInCount} weigh-ins—WE ARE MOVING THE WRONG WAY AND IT NEEDS AN ANSWER!!! Reset one controllable now and go earn the pivot!!!`,
+      `THE SCALE IS CLIMBING, SO WE ARE CLAPPING BACK!!! ${count} higher reads, +${trimWeight(read.totalMovement)} lb to ${trimWeight(read.latestWeight)}${speed}. Tighten the next decision and BREAK THIS STREAK!!!`,
+      `TREND ALARM—LET’S MOVE!!! ${facts} in ${read.durationDays} days. Plan the next meal or get a walk in, then hunt the reversal HARD!!!`,
+      `UPWARD STREAK CONFIRMED—TIME TO FIGHT FOR THE TURN!!! ${trimWeight(read.latestWeight)} lb after ${trimWeight(read.totalMovement)} lb across ${read.weighInCount} weigh-ins. Choose the reset and make the next check the pivot!!!`
     ][read.seed % 6];
   }
 
   function turningGainCopy(read) {
+    const context = priorLossContext(read);
+    const latest = trimWeight(read.latestWeight);
+    const change = trimWeight(read.recentChange);
+    const forecast = trimWeight(read.oneYearWeight);
     return [
-      `Up ${trimWeight(read.recentChange)} lb on the newest weigh-in. One jump is not a trend, but it earns attention. Reset one controllable choice today and do not let it become two.`,
-      `${trimWeight(read.latestWeight)} lb today, a ${trimWeight(read.recentChange)}-lb rise. Catch it early—plan the next meal or get a walk in, then look for the immediate bounce back.`,
-      `The latest number moved up ${trimWeight(read.recentChange)} lb. No panic, but no shrug either. Make one strong adjustment today and keep this from becoming a streak.`,
-      `A bump to ${trimWeight(read.latestWeight)} lb. Treat it like a warning shot, not a verdict. Win the next 24 hours and make the next weigh-in answer back.`,
-      `Newest read: +${trimWeight(read.recentChange)} lb. I’m watching it. Tighten one thing now and stop a one-day rise from growing legs.`,
-      `That ${trimWeight(read.recentChange)}-lb increase needs a quick response. Keep it practical: one planned choice, one bit of movement, then hunt the reversal.`
+      `ALRIGHT LILY—UP ${change} LB TO ${latest}, SO THE COMEBACK STARTS RIGHT NOW!!! ${context} Plan the next meal or get a walk in, then hunt the bounce-back—LET’S GOOOOOO!!!`,
+      `${latest} LB TODAY—UP ${change}, AND THE COMEBACK MISSION IS LIVE!!! ${context} The 1-year call is ${forecast} lb. Make one strong reset and attack the next weigh-in!!!`,
+      `OH, THE SCALE WANTS A FIGHT?! +${change} LB TO ${latest}. GOOD—LET’S ANSWER!!! ${context} Tighten the next decision and hunt the reversal HARD!!!`,
+      `${latest} LB—UP ${change} SINCE ${dayLabel(read.previousEndDay).toUpperCase()}, AND THE 1-YEAR CALL IS NOW ${forecast} LB!!! ${context} Plan the next meal or get a walk in, then make the next weigh-in CLAP BACK—COME ONNNNN!!!`,
+      `NEWEST READ: +${change} LB TO ${latest}—MY EYES ARE WIDE OPEN!!! ${context} Pick the reset, own it, and attack the next check—WE’RE COMING BACK!!!`,
+      `THAT +${change}-LB RISE JUST TURNED THE VOLUME ALL THE WAY UP!!! ${latest} lb is today’s line. ${context} Bring a fierce, smart reset and go earn the immediate comeback—LET’S GOOOO!!!`
     ][read.seed % 6];
   }
 
   function flatNoisyCopy(read) {
+    const latest = trimWeight(read.latestWeight);
     return [
-      `The scale is bouncing without a clean direction yet. Do not chase one noisy number—stack one focused day and make the next weigh-in give us a stronger signal.`,
-      `${trimWeight(read.latestWeight)} lb today, but no honest streak to call. Stay steady, control the controllables, and give the trend a reason to move.`,
-      `No clear run yet—just scale noise. This is where consistency wins. One planned meal, one walk, one solid day; then we read the next number.`,
-      `The trend is undecided, so today gets to cast the deciding vote. Keep the routine clean and make the next weigh-in more useful than the last.`,
-      `Holding around ${trimWeight(read.latestWeight)} lb. Maintenance takes control, but if the goal is down, now is the time to tighten one repeatable habit and create movement.`,
-      `Up, down, sideways—the scale has not committed. Lily can. Win the next 24 hours and force a clearer direction at the next check.`
+      `THE SCALE IS THROWING CONFETTI IN EVERY DIRECTION AT ${latest} LB!!! Perfect—Lily gets to break the tie. Nail one planned choice and make the next weigh-in LOUD—LET’S GOOOO!!!`,
+      `${latest} LB AND THE TREND IS IN A FULL TUG-OF-WAR!!! Take control with one strong repeatable choice and make the next number pick our side!!!`,
+      `NO BORING LIMBO TODAY—${latest} LB IS THE LAUNCHPAD!!! Plan the next meal or get a walk in, then make the next weigh-in impossible to ignore!!!`,
+      `THE TREND HASN’T PICKED A SIDE, SO LILY GETS TO PICK IT!!! ${latest} lb is today’s line. Stack one sharp decision and force some movement—GAME ON!!!`,
+      `${latest} LB, HOLDING GROUND—NOW LET’S CREATE SOME MOVEMENT!!! Own one repeatable habit and turn the next weigh-in into a BREAKOUT!!!`,
+      `UP, DOWN, SIDEWAYS—THIS SCALE IS BEING DRAMATIC AT ${latest} LB!!! Lily can end the suspense. Win the next decision and make the trend MOVE—LET’S GOOOOOO!!!`
     ][read.seed % 6];
   }
 
   function compose(read) {
-    if (!read) return "Save a weigh-in and I’ll read the momentum.";
+    if (!read) return "DROP IN A WEIGH-IN AND LET’S LIGHT THIS TRACKER UP!!!";
     if (read.state === "accelerating-loss") return acceleratingLossCopy(read);
     if (read.state === "steady-loss") return steadyLossCopy(read);
     if (read.state === "turning-loss") return turningLossCopy(read);
