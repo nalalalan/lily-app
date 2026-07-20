@@ -7,6 +7,15 @@
 
   const DAY_MS = 24 * 60 * 60 * 1000;
   const NUMBER_WORDS = ["ZERO", "ONE", "TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN", "EIGHT"];
+  const STATE_VERDICTS = Object.freeze({
+    "accelerating-loss": "I LOVE THIS—ABSOLUTELY AWESOME!!!",
+    "steady-loss": "YES—THIS IS GOOD PROGRESS!!!",
+    "turning-loss": "I LIKE THIS WEIGH-IN—NOW PROVE THE TURN!!!",
+    "flat-noisy": "I’M NOT SATISFIED YET—THIS TREND NEEDS TO MOVE!!!",
+    "turning-gain": "I DON’T LIKE THIS WEIGH-IN—IT WENT THE WRONG WAY!!!",
+    "steady-gain": "I DON’T LIKE THIS TREND—IT IS MOVING THE WRONG WAY!!!",
+    "accelerating-gain": "THIS IS GETTING WORSE—RED ALERT!!!"
+  });
 
   function trimWeight(value) {
     if (!Number.isFinite(Number(value))) return "--";
@@ -72,6 +81,9 @@
     const totalChange = latest.weight - streakStart.weight;
     const totalMovement = Math.abs(totalChange);
     const recentChange = changes.length ? changes[changes.length - 1].change : 0;
+    const recentGap = changes.length ? changes[changes.length - 1].gap : 0;
+    const recentRate = recentGap > 0 ? Math.abs(recentChange / recentGap) : 0;
+    const isOutlier = changes.length > 0 && recentRate > 2.5;
     const movementGrowing = streakChanges.length >= 3 && streakChanges.slice(1).every((change, index) => (
       Math.abs(change) >= Math.abs(streakChanges[index]) + 0.049
     ));
@@ -122,6 +134,8 @@
       totalChange,
       totalMovement,
       recentChange,
+      recentGap,
+      isOutlier,
       streakChanges,
       movementGrowing,
       previousDirection,
@@ -233,8 +247,8 @@
     return [
       `ALRIGHT LILY—UP ${change} LB TO ${latest}, SO THE COMEBACK STARTS RIGHT NOW!!! ${context} Plan the next meal or get a walk in, then hunt the bounce-back—LET’S GOOOOOO!!!`,
       `${latest} LB TODAY—UP ${change}, AND THE COMEBACK MISSION IS LIVE!!! ${context} The 1-year call is ${forecast} lb. Make one strong reset and attack the next weigh-in!!!`,
-      `OH, THE SCALE WANTS A FIGHT?! +${change} LB TO ${latest}. GOOD—LET’S ANSWER!!! ${context} Tighten the next decision and hunt the reversal HARD!!!`,
-      `${latest} LB—UP ${change} SINCE ${dayLabel(read.previousEndDay).toUpperCase()}, AND THE 1-YEAR CALL IS NOW ${forecast} LB!!! ${context} Plan the next meal or get a walk in, then make the next weigh-in CLAP BACK—COME ONNNNN!!!`,
+      `OH, THE SCALE WANTS A FIGHT?! +${change} LB TO ${latest}. NOT WHAT WE WANT—LET’S ANSWER!!! ${context} Tighten the next decision and hunt the reversal HARD!!!`,
+      `${latest} lb is up ${change} lb since ${dayLabel(read.previousEndDay)}. The ${spokenNumber(read.previousWeighInCount)} weigh-ins before today dropped ${trimWeight(read.previousTotalMovement)} lb, and the 1-year call still points to ${forecast} lb, so the bigger downward push is STILL ALIVE—but today does NOT get a win. Reset one controllable now and make the next weigh-in CLAP BACK HARD!!!`,
       `NEWEST READ: +${change} LB TO ${latest}—MY EYES ARE WIDE OPEN!!! ${context} Pick the reset, own it, and attack the next check—WE’RE COMING BACK!!!`,
       `THAT +${change}-LB RISE JUST TURNED THE VOLUME ALL THE WAY UP!!! ${latest} lb is today’s line. ${context} Bring a fierce, smart reset and go earn the immediate comeback—LET’S GOOOO!!!`
     ][read.seed % 6];
@@ -243,7 +257,7 @@
   function flatNoisyCopy(read) {
     const latest = trimWeight(read.latestWeight);
     return [
-      `THE SCALE IS THROWING CONFETTI IN EVERY DIRECTION AT ${latest} LB!!! Perfect—Lily gets to break the tie. Nail one planned choice and make the next weigh-in LOUD—LET’S GOOOO!!!`,
+      `THE SCALE IS THROWING CONFETTI IN EVERY DIRECTION AT ${latest} LB!!! Lily gets to break the tie. Nail one planned choice and make the next weigh-in LOUD—LET’S GOOOO!!!`,
       `${latest} LB AND THE TREND IS IN A FULL TUG-OF-WAR!!! Take control with one strong repeatable choice and make the next number pick our side!!!`,
       `NO BORING LIMBO TODAY—${latest} LB IS THE LAUNCHPAD!!! Plan the next meal or get a walk in, then make the next weigh-in impossible to ignore!!!`,
       `THE TREND HASN’T PICKED A SIDE, SO LILY GETS TO PICK IT!!! ${latest} lb is today’s line. Stack one sharp decision and force some movement—GAME ON!!!`,
@@ -252,8 +266,41 @@
     ][read.seed % 6];
   }
 
-  function compose(read) {
+  function firstEntryCopy(read) {
+    return `${trimWeight(read.latestWeight)} lb is the starting line. Save the next weigh-in and we’ll make the direction LOUD!!!`;
+  }
+
+  function outlierCopy(read) {
+    const latest = trimWeight(read.latestWeight);
+    const change = trimWeight(Math.abs(read.recentChange));
+    return [
+      `${latest} lb is ${change} lb away from the previous read—too large a swing to call a real trend yet. Check the entry or confirm it with the next weigh-in, then we’ll call it LOUD!!!`,
+      `${latest} lb moved ${change} lb in one jump, so this number needs confirmation before it earns praise or alarm. Verify it and bring the next read!!!`,
+      `A ${change}-lb jump to ${latest} lb is too extreme to treat like normal momentum. Check the saved number or stack one confirming weigh-in—THEN WE ATTACK THE REAL STORY!!!`,
+      `${latest} lb is a ${change}-lb swing, and one extreme point does not get to write the trend. Confirm the entry and make the next weigh-in settle it!!!`,
+      `This ${change}-lb move to ${latest} lb is outside the normal fight. Verify the number or confirm it next time, then we’ll judge the direction HARD!!!`,
+      `${latest} lb just landed ${change} lb from the prior read. That needs one confirmation before we celebrate or sound the alarm—CHECK IT AND COME BACK LOUD!!!`
+    ][read.seed % 6];
+  }
+
+  function verdict(read) {
+    if (!read) return "READY FOR THE FIRST WEIGH-IN!!!";
+    if (read.pointCount === 1) return "FIRST NUMBER LOGGED—NOW LET’S BUILD THE TREND!!!";
+    if (read.isOutlier) return "THIS NUMBER IS TOO EXTREME TO JUDGE YET—CONFIRM IT!!!";
+    return STATE_VERDICTS[read.state] || STATE_VERDICTS["flat-noisy"];
+  }
+
+  function verdictTone(read) {
+    if (!read || read.pointCount === 1) return "ready";
+    if (read.isOutlier || read.state === "flat-noisy") return "neutral";
+    if (["accelerating-loss", "steady-loss", "turning-loss"].includes(read.state)) return "positive";
+    return "negative";
+  }
+
+  function composeDetail(read) {
     if (!read) return "DROP IN A WEIGH-IN AND LET’S LIGHT THIS TRACKER UP!!!";
+    if (read.pointCount === 1) return firstEntryCopy(read);
+    if (read.isOutlier) return outlierCopy(read);
     if (read.state === "accelerating-loss") return acceleratingLossCopy(read);
     if (read.state === "steady-loss") return steadyLossCopy(read);
     if (read.state === "turning-loss") return turningLossCopy(read);
@@ -263,9 +310,13 @@
     return flatNoisyCopy(read);
   }
 
+  function compose(read) {
+    return `${verdict(read)} ${composeDetail(read)}`;
+  }
+
   function buildCoachRead(points, forecast) {
     return compose(analyze(points, forecast));
   }
 
-  return { analyze, buildCoachRead, compose };
+  return { STATE_VERDICTS, analyze, buildCoachRead, compose, composeDetail, verdict, verdictTone };
 });

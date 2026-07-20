@@ -57,9 +57,18 @@ async function main() {
     if (direction) priorAnnualDirection = direction;
   });
   const coachRead = weightCoach.analyze(dailyPoints, current);
+  const coachVerdict = weightCoach.verdict(coachRead);
+  const coachDetail = weightCoach.composeDetail(coachRead);
+  const coachTone = weightCoach.verdictTone(coachRead);
   const coachCopy = weightCoach.compose(coachRead);
   if (!/!{3}/.test(coachCopy) || /bump|warning shot|not a verdict|no panic|no shrug|no shame|no drama/i.test(coachCopy)) {
     throw new Error(`Live coach copy failed the hype gate: ${coachCopy}`);
+  }
+  if (!coachCopy.startsWith(`${coachVerdict} `) || /1-year|forecast|previous run|weigh-ins before/i.test(coachVerdict)) {
+    throw new Error(`Live coach verdict is not current-result-first: ${coachVerdict}`);
+  }
+  if (coachRead && coachRead.state === "turning-gain" && (coachTone !== "negative" || !/DON’T LIKE/.test(coachVerdict))) {
+    throw new Error(`Live gain reversal is not unmistakably disapproved: ${coachVerdict}`);
   }
   console.log(JSON.stringify({
     count: rows.length,
@@ -102,8 +111,12 @@ async function main() {
     } : null,
     coach: coachRead ? {
       state: coachRead.state,
+      verdict: coachVerdict,
+      tone: coachTone,
+      detail: coachDetail,
       text: coachCopy,
-      hypeGatePassed: true
+      hypeGatePassed: true,
+      verdictFirstPassed: true
     } : null,
     rows: rows.map((record) => ({
       date: record.createdAt.slice(0, 10),

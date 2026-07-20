@@ -105,6 +105,7 @@ function renderShell() {
                   <h2 id="weightTitle">weight</h2>
                   <p id="weightLatest">No weights saved.</p>
                   <p class="weight-estimate" id="weightEstimate">1-week, 1-month, 1-year estimates need saved weights.</p>
+                  <p class="weight-verdict" id="weightVerdict" data-tone="ready">READY FOR THE FIRST WEIGH-IN!!!</p>
                   <p class="weight-coach" id="weightCoach">DROP IN A WEIGH-IN AND LET’S LIGHT THIS TRACKER UP!!!</p>
                 </div>
               </div>
@@ -623,6 +624,7 @@ function renderWall() {
 function renderWeights() {
   const latest = document.getElementById("weightLatest");
   const estimate = document.getElementById("weightEstimate");
+  const verdict = document.getElementById("weightVerdict");
   const coach = document.getElementById("weightCoach");
   const actualChartWrap = document.getElementById("weightActualChartWrap");
   const forecastChartWrap = document.getElementById("weightForecastChartWrap");
@@ -639,9 +641,14 @@ function renderWeights() {
     })
     : null;
   const newest = rows[0];
+  const coachRead = createWeightCoachRead(dailyPoints, currentForecast);
   latest.textContent = newest ? `${formatWeight(newest)} saved ${formatDateTime(newest.createdAt)}` : "No weights saved.";
   if (estimate) estimate.textContent = createWeightEstimate(currentForecast);
-  if (coach) coach.textContent = createWeightCoach(dailyPoints, currentForecast);
+  if (verdict) {
+    verdict.textContent = coachRead.verdict;
+    verdict.dataset.tone = coachRead.tone;
+  }
+  if (coach) coach.textContent = coachRead.detail;
   if (actualChartValue) actualChartValue.textContent = newest ? `${formatWeight(newest)} now` : "--";
   if (forecastChartValue) forecastChartValue.textContent = currentForecast ? `${trimWeight(currentForecast.oneYearWeight)} lb in 1 yr` : "--";
   actualChartWrap.innerHTML = "";
@@ -738,9 +745,14 @@ function createWeightEstimate(forecast) {
   ].join(" · ");
 }
 
-function createWeightCoach(points, forecast) {
-  if (!WEIGHT_COACH) return "";
-  return WEIGHT_COACH.buildCoachRead(points, forecast);
+function createWeightCoachRead(points, forecast) {
+  if (!WEIGHT_COACH) return { verdict: "", detail: "", tone: "ready" };
+  const read = WEIGHT_COACH.analyze(points, forecast);
+  return {
+    verdict: WEIGHT_COACH.verdict(read),
+    detail: WEIGHT_COACH.composeDetail(read),
+    tone: WEIGHT_COACH.verdictTone(read)
+  };
 }
 
 function dailyWeightPoints(rows) {

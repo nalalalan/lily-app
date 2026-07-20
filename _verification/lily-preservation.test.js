@@ -51,8 +51,18 @@ assert.ok(
 
 assert.ok(app.includes('].join(" · ")'), "the visible forecast values must stay compact and scannable");
 assert.ok(app.includes('`1 yr ${trimWeight(forecast.oneYearWeight)} lb`'), "the primary card must show a direct one-year forecast");
+assert.ok(app.includes('id="weightVerdict"'), "the primary card must show a standalone current verdict");
 assert.ok(app.includes('id="weightCoach"'), "the primary card must carry the live coach analysis");
+assert.match(styles, /\.panel-head p\.weight-verdict/, "the verdict must have a distinct first-read treatment");
+assert.match(styles, /weight-verdict\[data-tone="positive"\]/, "approved results must expose a positive status treatment");
+assert.match(styles, /weight-verdict\[data-tone="negative"\]/, "disapproved results must expose a negative status treatment");
 assert.match(styles, /\.panel-head p\.weight-coach/, "coach copy must have an intentional readable treatment");
+assert.ok(
+  app.indexOf('id="weightVerdict"') < app.indexOf('id="weightCoach"'),
+  "the current verdict must render before broader trend analysis"
+);
+assert.ok(app.includes("WEIGHT_COACH.verdict(read)"), "the visible verdict must come from the tested coach state");
+assert.ok(app.includes("WEIGHT_COACH.composeDetail(read)"), "the broader analysis must stay separate from the verdict");
 assert.doesNotMatch(app, /Not a reliable|Only .* of data|does not mean her weight will stay constant|This is an estimate, not a guarantee/i);
 assert.doesNotMatch(app, /1-yr baseline|uncalibrated baseline|historically evaluated baseline/i);
 assert.ok(!app.includes("completed 1-year outcomes"), "validation plumbing must not crowd the visible weight summary");
@@ -86,6 +96,6 @@ assert.doesNotMatch(forecastChart, /weight-history-line|weight-trend-line/, "act
 assert.ok(!app.includes("one-year forecast history overlay"), "the rejected combined-overlay rendering path must stay removed");
 assert.match(styles, /\.weight-chart-stack\s*\{[\s\S]*?display:\s*grid;/, "the two charts must render as a deliberate stack");
 assert.match(styles, /\.weight-point\.is-current/, "the latest actual weight point must be visibly emphasized");
-assert.ok(index.includes("20260720-weight-hype-v2"), "the live bundle must carry the hype and split-chart cache key");
+assert.ok(index.includes("20260720-weight-verdict-v3"), "the live bundle must carry the verdict-first cache key");
 
 console.log("Lily preservation tests passed");
