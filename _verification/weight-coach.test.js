@@ -153,7 +153,8 @@ for (const fixture of stateFixtures) {
 assert.equal(new Set(allCopies).size, 42, "all seven states and six variants must remain distinct");
 
 const firstRead = coach.analyze([point("2026-11-01", 150)], forecast.calculateForecast([point("2026-11-01", 150)]));
-assert.equal(coach.verdict(firstRead), "FIRST NUMBER LOGGED—NOW LET’S BUILD THE TREND!!!");
+assert.equal(coach.verdict(firstRead), "TOO EARLY TO JUDGE—FIRST NUMBER LOGGED, NOW LET’S BUILD THE TREND!!!");
+assert.match(coach.verdict(firstRead), /TOO EARLY TO JUDGE/, "the first weigh-in must explicitly hold judgment");
 assert.equal(coach.verdictTone(firstRead), "ready");
 assert.match(coach.composeDetail(firstRead), /^150 lb is the starting line\./);
 assert.match(coach.compose(null), /^READY FOR THE FIRST WEIGH-IN!!!/);

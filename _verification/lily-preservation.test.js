@@ -96,6 +96,6 @@ assert.doesNotMatch(forecastChart, /weight-history-line|weight-trend-line/, "act
 assert.ok(!app.includes("one-year forecast history overlay"), "the rejected combined-overlay rendering path must stay removed");
 assert.match(styles, /\.weight-chart-stack\s*\{[\s\S]*?display:\s*grid;/, "the two charts must render as a deliberate stack");
 assert.match(styles, /\.weight-point\.is-current/, "the latest actual weight point must be visibly emphasized");
-assert.ok(index.includes("20260720-weight-verdict-v3"), "the live bundle must carry the verdict-first cache key");
+assert.ok(index.includes("20260720-weight-verdict-v4"), "the live bundle must carry the verdict-first cache key");
 
 console.log("Lily preservation tests passed");
