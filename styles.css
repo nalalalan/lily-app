@@ -278,12 +278,49 @@ noscript {
   font-weight: 720;
 }
 
+.panel-head p.weight-verdict {
+  display: block;
+  width: fit-content;
+  margin-top: 10px;
+  padding: 7px 9px;
+  border: 1px solid rgba(34, 25, 29, 0.14);
+  border-radius: 7px;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.25;
+  font-weight: 850;
+  letter-spacing: 0.01em;
+}
+
+.panel-head p.weight-verdict[data-tone="positive"] {
+  border-color: rgba(34, 111, 72, 0.34);
+  background: rgba(218, 240, 226, 0.78);
+  color: #185436;
+}
+
+.panel-head p.weight-verdict[data-tone="negative"] {
+  border-color: rgba(142, 42, 62, 0.34);
+  background: rgba(248, 224, 228, 0.84);
+  color: #7d2038;
+}
+
+.panel-head p.weight-verdict[data-tone="neutral"] {
+  border-color: rgba(147, 101, 25, 0.32);
+  background: rgba(250, 238, 208, 0.82);
+  color: #6d4710;
+}
+
+.panel-head p.weight-verdict[data-tone="ready"] {
+  background: rgba(238, 230, 233, 0.72);
+  color: var(--accent-strong);
+}
+
 .panel-head p.weight-coach {
   margin-top: 8px;
   color: var(--ink);
   font-size: 13px;
   line-height: 1.38;
-  font-weight: 760;
+  font-weight: 620;
 }
 
 .messages {
