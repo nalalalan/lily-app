@@ -1,6 +1,7 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const vm = require("node:vm");
 
 const root = path.join(__dirname, "..");
 const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
@@ -75,7 +76,8 @@ assert.ok(
 assert.ok(app.includes('id="weightActualChartWrap"'), "actual weight must have its own chart");
 assert.ok(app.includes('id="weightForecastChartWrap"'), "one-year trend outlook must have its own chart");
 assert.ok(app.includes("actual weight vs time"), "the actual chart must use the screenshot-ready visible name");
-assert.ok(app.includes("1-year trend outlook vs time"), "the outlook chart must use the screenshot-ready visible name");
+assert.ok(app.includes('<span class="weight-chart-title">1-year trend outlook</span>'), "the outlook chart must use the concise sentence-case title");
+assert.ok(!app.includes("1-year trend outlook vs time"), "the redundant versus-time suffix must stay removed from the outlook title");
 assert.doesNotMatch(app, /one-year prediction history|prediction history/i, "public chart copy must use trend outlook language");
 assert.ok(
   app.indexOf('id="weightActualChartWrap"') < app.indexOf('id="weightForecastChartWrap"'),
@@ -92,7 +94,9 @@ assert.ok(app.includes('data-annual-calibrated'), "outlook points must expose an
 assert.ok(app.includes('data-continuity-bounded'), "outlook points must expose the continuity gate");
 assert.ok(app.includes('data-outlook-direction'), "each outlook segment must expose its direction without relying on color");
 assert.ok(app.includes('data-current-one-year-outlook'), "the SVG must retain the exact current outlook value");
-assert.ok(app.includes('≈${Math.round(endpoint.weight)} lb ${arrow} ${signedChange}'), "the endpoint must directly label its rounded value, arrow, and change");
+assert.ok(app.includes('const endpointLabel = `≈${Math.round(endpoint.weight)} lb`'), "the endpoint must directly label only its rounded value");
+assert.ok(app.includes('id="weightForecastChartContext"'), "the outlook caption must reserve a separate preserved-progress line");
+assert.ok(app.includes("createOneYearOutlookChart(outlookHistory, outlookPresentation)"), "the caption and SVG must share one presentation state");
 assert.ok(!app.includes("Validated from"), "the page must not overclaim annual validation");
 assert.ok(
   index.indexOf("/weight-forecast.js") < index.indexOf("/app.js"),
@@ -107,7 +111,10 @@ assert.ok(actualChartStart > 0 && forecastChartStart > actualChartStart, "the tw
 assert.doesNotMatch(actualChart, /buildOneYearHistory|weight-outlook-segment/, "outlook values must never enter the actual chart or its y-domain");
 assert.doesNotMatch(forecastChart, /weight-history-line|weight-trend-line/, "actual weights and their trend must never enter the outlook chart");
 assert.match(forecastChart, /minSpan:\s*10,[\s\S]*?minPadding:\s*2,[\s\S]*?roundStep:\s*5,/, "the outlook must keep its independent padded five-pound-rounded scale");
+assert.match(forecastChart, /rightPadding:\s*72,[\s\S]*?yTickStep:\s*5,/, "the outlook must reserve a collision-free endpoint gutter and use five-pound y ticks");
 assert.ok(forecastChart.includes('document.createElementNS(frame.ns, "line")'), "outlook points must be joined by straight non-overshooting segments");
+assert.ok(forecastChart.includes("weight-outlook-endpoint-leader"), "the endpoint label must connect to its point with a leader line");
+assert.ok(forecastChart.includes('is-${direction}${index === points.length - 1 ? " is-latest" : ""}'), "the latest outlook segment must be independently emphasized");
 assert.ok(!app.includes("one-year forecast history overlay"), "the rejected combined-overlay rendering path must stay removed");
 assert.match(styles, /\.weight-chart-stack\s*\{[\s\S]*?display:\s*grid;/, "the two charts must render as a deliberate stack");
 assert.match(styles, /\.weight-point\.is-current/, "the latest actual weight point must be visibly emphasized");
@@ -118,11 +125,95 @@ assert.match(styles, /\.weight-outlook-segment\.is-flat\s*\{[\s\S]*?var\(--outlo
 assert.match(styles, /\.weight-chart-wrap text\s*\{[\s\S]*?font-size:\s*11px;/, "chart axes must remain at least eleven pixels for screenshots");
 assert.match(styles, /\.weight-chart-caption\s*\{[\s\S]*?font-size:\s*11px;/, "chart captions must remain at least eleven pixels for screenshots");
 assert.match(styles, /weight-outlook-endpoint-label[\s\S]*?font-size:\s*13px;/, "endpoint labels must remain screenshot-readable");
+assert.match(styles, /\.weight-outlook-caption \.weight-chart-title\s*\{[\s\S]*?white-space:\s*nowrap;/, "the outlook title must remain on one line");
+assert.match(styles, /\.weight-outlook-caption \.weight-outlook-verdict\s*\{[\s\S]*?white-space:\s*nowrap;/, "the latest verdict must remain on one line");
+assert.match(styles, /\.weight-outlook-segment\.is-latest\s*\{[\s\S]*?stroke-width:\s*3\.5;/, "the latest segment must read more strongly than older history");
 assert.match(styles, /@media \(max-width:\s*560px\)[\s\S]*?\.suite-topbar,[\s\S]*?\.split-workspace\s*\{[\s\S]*?width:\s*calc\(100% - 20px\);/, "the 390px mobile layout must retain safe side gutters");
 assert.match(styles, /@media \(max-width:\s*560px\)[\s\S]*?\.weight-entry-row\s*\{[\s\S]*?grid-template-columns:\s*1fr;/, "the mobile weight form must not overflow its card");
 assert.match(styles, /body\s*\{[\s\S]*?overflow-x:\s*hidden;/, "the screenshot stack must not introduce horizontal overflow");
 assert.match(styles, /\.weight-chart-card\s*\{[\s\S]*?min-width:\s*0;/, "chart cards must shrink inside the existing desktop rail and 390px mobile card");
 assert.match(index, /\/app\.js\?v=/, "the live bundle must retain explicit cache versioning");
+
+const presentationStart = app.indexOf("function createOneYearOutlookPresentation");
+const presentationEnd = app.indexOf("function createOneYearOutlookChart", presentationStart);
+assert.ok(presentationStart > 0 && presentationEnd > presentationStart, "the shared outlook presentation state must remain independently testable");
+const presentationSandbox = {
+  formatShortDate(value) {
+    return new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      month: "short",
+      day: "numeric"
+    }).format(new Date(value));
+  },
+  formatProjectionDate() {
+    return "Jul 21, 2027";
+  },
+  dateFromCalendarDay() {
+    return new Date("2027-07-21T12:00:00-04:00");
+  }
+};
+vm.runInNewContext(`${app.slice(presentationStart, presentationEnd)}\nthis.buildPresentation = createOneYearOutlookPresentation;`, presentationSandbox);
+const buildPresentation = presentationSandbox.buildPresentation;
+const outlookPoint = (date, weight) => ({
+  time: Date.parse(`${date}T12:00:00-04:00`),
+  weight,
+  projectedDay: 0
+});
+
+const starting = buildPresentation([outlookPoint("2026-07-01", 150)]);
+assert.equal(starting.verdict, "STARTING POINT — NEXT WEIGH-IN SETS DIRECTION");
+assert.equal(starting.direction, "starting");
+
+const improving = buildPresentation([
+  outlookPoint("2026-07-01", 150),
+  outlookPoint("2026-07-02", 149),
+  outlookPoint("2026-07-03", 148.25)
+]);
+assert.equal(improving.verdict, "RIGHT WAY ↓ 0.8 lb since Jul 2");
+assert.equal(improving.context, "Now 1.8 lb lower than Jul 1. Keep stacking downward arrows.");
+
+const setback = buildPresentation([
+  outlookPoint("2026-07-01", 150),
+  outlookPoint("2026-07-02", 147),
+  outlookPoint("2026-07-03", 148)
+]);
+assert.equal(setback.verdict, "WRONG WAY ↑ 1.0 lb since Jul 2");
+assert.equal(setback.context, "Still 2.0 lb lower than Jul 1. Turn the next arrow down.");
+
+const flat = buildPresentation([
+  outlookPoint("2026-07-01", 150),
+  outlookPoint("2026-07-02", 149),
+  outlookPoint("2026-07-03", 149.049)
+]);
+assert.equal(flat.verdict, "NO CHANGE → since Jul 2");
+assert.equal(flat.context, "Still 1.0 lb lower than Jul 1. Turn the next arrow down.");
+assert.equal(buildPresentation([outlookPoint("2026-07-01", 150), outlookPoint("2026-07-02", 150.05)]).direction, "up", "exactly 0.05 lb must not enter the under-0.05 flat branch");
+
+const worseOverall = buildPresentation([
+  outlookPoint("2026-07-01", 150),
+  outlookPoint("2026-07-02", 152),
+  outlookPoint("2026-07-03", 151)
+]);
+assert.equal(worseOverall.context, "Now 1.0 lb higher than Jul 1. Turn the next arrow down.");
+const equalOverall = buildPresentation([
+  outlookPoint("2026-07-01", 150),
+  outlookPoint("2026-07-02", 151),
+  outlookPoint("2026-07-03", 150)
+]);
+assert.equal(equalOverall.context, "Back at the Jul 1 starting outlook. Make the next arrow point down.");
+
+const liveAcceptance = buildPresentation([
+  outlookPoint("2026-06-26", 149.397225),
+  outlookPoint("2026-07-20", 144.677225),
+  outlookPoint("2026-07-21", 145.427225)
+]);
+assert.equal(liveAcceptance.endpointExact, "145.4 lb");
+assert.equal(liveAcceptance.endpointLabel, "≈145 lb");
+assert.equal(liveAcceptance.verdict, "WRONG WAY ↑ 0.8 lb since Jul 20");
+assert.equal(liveAcceptance.context, "Still 4.0 lb lower than Jun 26. Turn the next arrow down.");
+assert.match(liveAcceptance.tooltip, /one-year trend outlook 145\.4 lb/);
+assert.match(liveAcceptance.ariaLabel, /Exact current endpoint 145\.4 lb\. The latest outlook worsened 0\.8 lb since Jul 20\./);
+assert.doesNotMatch(liveAcceptance.ariaLabel, /[↑↓→]/, "accessibility text must say improved, worsened, or held instead of relying on glyphs");
 
 const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
 const weightPostStart = server.indexOf('if (pathname === "/api/weights" && req.method === "POST")');
