@@ -114,7 +114,11 @@ function renderShell() {
                   <div class="weight-chart-wrap weight-actual-chart-wrap" id="weightActualChartWrap" aria-label="Lily actual weight versus time"></div>
                 </figure>
                 <figure class="weight-chart-card weight-forecast-chart-card">
-                  <figcaption class="weight-chart-caption"><span>1-year trend outlook vs time</span><strong id="weightForecastChartValue">--</strong></figcaption>
+                  <figcaption class="weight-chart-caption weight-outlook-caption">
+                    <span class="weight-chart-title">1-year trend outlook</span>
+                    <strong class="weight-outlook-verdict is-empty" id="weightForecastChartValue">SAVE A WEIGH-IN TO START</strong>
+                    <span class="weight-outlook-context" id="weightForecastChartContext"></span>
+                  </figcaption>
                   <div class="weight-chart-wrap weight-forecast-chart-wrap" id="weightForecastChartWrap" aria-label="Lily one-year trend outlook versus time"></div>
                 </figure>
               </div>
@@ -651,6 +655,7 @@ function renderWeights() {
   const forecastChartWrap = document.getElementById("weightForecastChartWrap");
   const actualChartValue = document.getElementById("weightActualChartValue");
   const forecastChartValue = document.getElementById("weightForecastChartValue");
+  const forecastChartContext = document.getElementById("weightForecastChartContext");
   const list = document.getElementById("weightList");
   if (!latest || !actualChartWrap || !forecastChartWrap || !list) return;
 
@@ -661,12 +666,23 @@ function renderWeights() {
       asOfDay: dailyPoints[dailyPoints.length - 1].day
     })
     : null;
+  const outlookHistory = WEIGHT_FORECAST && currentForecast
+    ? WEIGHT_FORECAST.buildOneYearHistory(dailyPoints, currentForecast, Date.now())
+    : [];
+  const outlookPresentation = createOneYearOutlookPresentation(outlookHistory);
   const newest = rows[0];
   latest.textContent = newest ? `${formatWeight(newest)} saved ${formatDateTime(newest.createdAt)}` : "No weights saved.";
   if (estimate) estimate.textContent = createWeightEstimate(currentForecast);
   if (coach) coach.textContent = createWeightCoachMessage(newest, dailyPoints, currentForecast);
   if (actualChartValue) actualChartValue.textContent = newest ? `${formatWeight(newest)} now` : "--";
-  if (forecastChartValue) forecastChartValue.textContent = currentForecast ? formatOneYearHeadline(currentForecast) : "--";
+  if (forecastChartValue) {
+    forecastChartValue.textContent = outlookPresentation ? outlookPresentation.verdict : "SAVE A WEIGH-IN TO START";
+    forecastChartValue.className = `weight-outlook-verdict is-${outlookPresentation ? outlookPresentation.direction : "empty"}`;
+  }
+  if (forecastChartContext) {
+    forecastChartContext.textContent = outlookPresentation ? outlookPresentation.context : "";
+    forecastChartContext.hidden = !outlookPresentation || !outlookPresentation.context;
+  }
   actualChartWrap.innerHTML = "";
   forecastChartWrap.innerHTML = "";
   list.innerHTML = "";
@@ -686,7 +702,7 @@ function renderWeights() {
   }
 
   actualChartWrap.appendChild(createActualWeightChart(rows.slice().reverse(), dailyPoints));
-  forecastChartWrap.appendChild(createOneYearOutlookChart(dailyPoints, currentForecast));
+  forecastChartWrap.appendChild(createOneYearOutlookChart(outlookHistory, outlookPresentation));
   rows.forEach((record) => list.appendChild(createWeightRow(record)));
 }
 
@@ -881,7 +897,7 @@ function createWeightChartFrame(times, values, options) {
   const ns = "http://www.w3.org/2000/svg";
   const width = 330;
   const height = options.height;
-  const pad = { top: 24, right: 16, bottom: 32, left: 42 };
+  const pad = { top: 24, right: options.rightPadding || 16, bottom: 32, left: 42 };
   let minTime = Math.min(...times);
   let maxTime = Math.max(...times);
   let minWeight = Math.min(...values);
@@ -917,8 +933,16 @@ function createWeightChartFrame(times, values, options) {
 
   const grid = document.createElementNS(ns, "g");
   grid.setAttribute("class", "weight-grid");
-  [0, 0.5, 1].forEach((ratio) => {
-    const y = pad.top + ratio * plotHeight;
+  const yTicks = [];
+  if (Number.isFinite(options.yTickStep) && options.yTickStep > 0) {
+    for (let value = Math.ceil(minWeight / options.yTickStep) * options.yTickStep; value <= maxWeight + 0.0001; value += options.yTickStep) {
+      yTicks.push(value);
+    }
+  } else {
+    yTicks.push(maxWeight, (maxWeight + minWeight) / 2, minWeight);
+  }
+  yTicks.forEach((value) => {
+    const y = yFor(value);
     const line = document.createElementNS(ns, "line");
     line.setAttribute("x1", String(pad.left));
     line.setAttribute("x2", String(width - pad.right));
@@ -940,17 +964,20 @@ function createWeightChartFrame(times, values, options) {
   });
   svg.appendChild(axis);
 
-  const yMax = document.createElementNS(ns, "text");
-  yMax.setAttribute("x", "8");
-  yMax.setAttribute("y", String(pad.top + 4));
-  yMax.textContent = `${trimWeight(maxWeight)} lb`;
-  svg.appendChild(yMax);
-
-  const yMin = document.createElementNS(ns, "text");
-  yMin.setAttribute("x", "8");
-  yMin.setAttribute("y", String(height - pad.bottom + 4));
-  yMin.textContent = `${trimWeight(minWeight)} lb`;
-  svg.appendChild(yMin);
+  const visibleYTicks = Number.isFinite(options.yTickStep) && options.yTickStep > 0
+    ? yTicks
+    : [maxWeight, minWeight];
+  visibleYTicks.forEach((value) => {
+    const label = document.createElementNS(ns, "text");
+    label.setAttribute("class", "weight-y-tick-label");
+    label.setAttribute("x", "8");
+    label.setAttribute("y", (yFor(value) + 4).toFixed(1));
+    label.textContent = `${trimWeight(value)} lb`;
+    svg.appendChild(label);
+  });
+  if (Number.isFinite(options.yTickStep) && options.yTickStep > 0) {
+    svg.setAttribute("data-y-tick-step", String(options.yTickStep));
+  }
 
   const sameChartDay = new Date(minTime).toDateString() === new Date(maxTime).toDateString();
   const firstTime = document.createElementNS(ns, "text");
@@ -1052,10 +1079,78 @@ function createActualWeightChart(records, dailyPoints) {
   return frame.svg;
 }
 
-function createOneYearOutlookChart(dailyPoints, currentForecast) {
-  const history = WEIGHT_FORECAST
-    ? WEIGHT_FORECAST.buildOneYearHistory(dailyPoints, currentForecast, Date.now())
-    : [];
+function createOneYearOutlookPresentation(history) {
+  if (!Array.isArray(history) || !history.length) return null;
+  const first = history[0];
+  const endpoint = history[history.length - 1];
+  const previous = history.length > 1 ? history[history.length - 2] : null;
+  const latestChange = previous ? endpoint.weight - previous.weight : null;
+  const overallChange = endpoint.weight - first.weight;
+  const previousDate = previous ? formatShortDate(previous.time) : "";
+  const firstDate = formatShortDate(first.time);
+  let direction = "starting";
+  let verdict = "STARTING POINT — NEXT WEIGH-IN SETS DIRECTION";
+  let spokenVerdict = "Starting point; the next weigh-in sets the direction.";
+
+  if (previous) {
+    if (Math.abs(latestChange) < 0.05) {
+      direction = "flat";
+      verdict = `NO CHANGE → since ${previousDate}`;
+      spokenVerdict = `The latest outlook held since ${previousDate}.`;
+    } else if (latestChange < 0) {
+      direction = "down";
+      verdict = `RIGHT WAY ↓ ${Math.abs(latestChange).toFixed(1)} lb since ${previousDate}`;
+      spokenVerdict = `The latest outlook improved ${Math.abs(latestChange).toFixed(1)} lb since ${previousDate}.`;
+    } else {
+      direction = "up";
+      verdict = `WRONG WAY ↑ ${Math.abs(latestChange).toFixed(1)} lb since ${previousDate}`;
+      spokenVerdict = `The latest outlook worsened ${Math.abs(latestChange).toFixed(1)} lb since ${previousDate}.`;
+    }
+  }
+
+  let context = "";
+  if (previous) {
+    if (Math.abs(overallChange) < 0.05) {
+      context = `Back at the ${firstDate} starting outlook. Make the next arrow point down.`;
+    } else if (overallChange < 0 && direction === "down") {
+      context = `Now ${Math.abs(overallChange).toFixed(1)} lb lower than ${firstDate}. Keep stacking downward arrows.`;
+    } else if (overallChange < 0) {
+      context = `Still ${Math.abs(overallChange).toFixed(1)} lb lower than ${firstDate}. Turn the next arrow down.`;
+    } else {
+      context = `Now ${Math.abs(overallChange).toFixed(1)} lb higher than ${firstDate}. Turn the next arrow down.`;
+    }
+  }
+
+  const endpointLabel = `≈${Math.round(endpoint.weight)} lb`;
+  const endpointExact = `${Number(endpoint.weight).toFixed(1)} lb`;
+  const projectedDate = formatProjectionDate(dateFromCalendarDay(endpoint.projectedDay), true);
+  const tooltip = `Calculated ${formatShortDate(endpoint.time)}: ${projectedDate} one-year trend outlook ${endpointExact}. ${spokenVerdict}${context ? ` ${context}` : ""}`;
+  const ariaLabel = `Lily connected ${history.length}-point one-year trend outlook. Exact current endpoint ${endpointExact}. ${spokenVerdict}${context ? ` ${context}` : ""} Each dated point uses only weigh-ins available through that date.`;
+
+  return {
+    first,
+    previous,
+    endpoint,
+    latestChange,
+    overallChange,
+    direction,
+    verdict,
+    spokenVerdict,
+    context,
+    endpointLabel,
+    endpointExact,
+    tooltip,
+    ariaLabel
+  };
+}
+
+function createOneYearOutlookChart(history, presentation) {
+  if (!Array.isArray(history) || !history.length || !presentation) {
+    const empty = document.createElement("div");
+    empty.className = "empty-state weight-empty";
+    empty.textContent = "No weights saved.";
+    return empty;
+  }
   const times = history.map((point) => point.time);
   const values = history.map((point) => point.weight);
   const frame = createWeightChartFrame(times, values, {
@@ -1065,7 +1160,9 @@ function createOneYearOutlookChart(dailyPoints, currentForecast) {
     minPadding: 2,
     paddingRatio: 0.12,
     roundStep: 5,
-    ariaLabel: `Lily connected ${history.length}-point one-year trend outlook. Each dated point uses only weigh-ins available through that date.`
+    rightPadding: 72,
+    yTickStep: 5,
+    ariaLabel: presentation ? presentation.ariaLabel : "Lily one-year trend outlook needs a saved weight."
   });
   const points = history.map((point) => ({
     ...point,
@@ -1079,7 +1176,7 @@ function createOneYearOutlookChart(dailyPoints, currentForecast) {
     const change = point.weight - previous.weight;
     const direction = Math.abs(change) < 0.05 ? "flat" : change < 0 ? "down" : "up";
     const segment = document.createElementNS(frame.ns, "line");
-    segment.setAttribute("class", `weight-outlook-segment is-${direction}`);
+    segment.setAttribute("class", `weight-outlook-segment is-${direction}${index === points.length - 1 ? " is-latest" : ""}`);
     segment.setAttribute("x1", previous.x.toFixed(1));
     segment.setAttribute("y1", previous.y.toFixed(1));
     segment.setAttribute("x2", point.x.toFixed(1));
@@ -1093,48 +1190,52 @@ function createOneYearOutlookChart(dailyPoints, currentForecast) {
   }
 
   points.forEach((point, index) => {
+    const isCurrent = index === points.length - 1;
     const incomingChange = index ? point.weight - points[index - 1].weight : 0;
     const direction = index === 0 || Math.abs(incomingChange) < 0.05 ? "flat" : incomingChange < 0 ? "down" : "up";
     const circle = document.createElementNS(frame.ns, "circle");
-    circle.setAttribute("class", `weight-outlook-point is-${direction}${point.isCurrent ? " is-current" : ""}`);
+    circle.setAttribute("class", `weight-outlook-point is-${direction}${isCurrent ? " is-current" : ""}`);
     circle.setAttribute("cx", point.x.toFixed(1));
     circle.setAttribute("cy", point.y.toFixed(1));
-    circle.setAttribute("r", point.isCurrent ? "4.5" : "3");
+    circle.setAttribute("r", isCurrent ? "5.5" : "3");
     circle.setAttribute("data-outlook-weight", String(point.weight));
     circle.setAttribute("data-calculated-day", String(point.day));
     circle.setAttribute("data-target-day", String(point.projectedDay));
     circle.setAttribute("data-annual-calibrated", String(Boolean(point.annualCalibrated)));
     circle.setAttribute("data-continuity-bounded", String(Boolean(point.continuityBounded)));
     const title = document.createElementNS(frame.ns, "title");
-    title.textContent = `Calculated ${formatShortDate(point.time)}: ${formatProjectionDate(dateFromCalendarDay(point.projectedDay), true)} one-year trend outlook ${trimWeight(point.weight)} lb`;
+    title.textContent = isCurrent && presentation
+      ? presentation.tooltip
+      : `Calculated ${formatShortDate(point.time)}: ${formatProjectionDate(dateFromCalendarDay(point.projectedDay), true)} one-year trend outlook ${Number(point.weight).toFixed(1)} lb`;
     circle.appendChild(title);
     frame.svg.appendChild(circle);
   });
 
   const endpoint = points[points.length - 1];
-  if (endpoint) {
-    const change = points.length > 1 ? endpoint.weight - points[points.length - 2].weight : 0;
-    const direction = Math.abs(change) < 0.05 ? "flat" : change < 0 ? "down" : "up";
-    const arrow = direction === "down" ? "↓" : direction === "up" ? "↑" : "→";
-    const signedChange = direction === "flat"
-      ? "0 lb"
-      : `${change > 0 ? "+" : "−"}${trimWeight(Math.abs(change))} lb`;
+  if (endpoint && presentation) {
+    const direction = presentation.direction === "starting" ? "flat" : presentation.direction;
+    const labelY = Math.max(frame.pad.top + 5, Math.min(frame.height - frame.pad.bottom - 5, endpoint.y + 4));
+    const leader = document.createElementNS(frame.ns, "line");
+    leader.setAttribute("class", `weight-outlook-endpoint-leader is-${direction}`);
+    leader.setAttribute("x1", (endpoint.x + 6).toFixed(1));
+    leader.setAttribute("y1", endpoint.y.toFixed(1));
+    leader.setAttribute("x2", (endpoint.x + 11).toFixed(1));
+    leader.setAttribute("y2", (labelY - 4).toFixed(1));
+    frame.svg.appendChild(leader);
+
     const label = document.createElementNS(frame.ns, "text");
     label.setAttribute("class", `weight-outlook-endpoint-label is-${direction}`);
-    label.setAttribute("x", (endpoint.x - 7).toFixed(1));
-    label.setAttribute("y", (endpoint.y < frame.pad.top + 18 ? endpoint.y + 21 : endpoint.y - 11).toFixed(1));
-    label.setAttribute("text-anchor", "end");
-    label.textContent = `≈${Math.round(endpoint.weight)} lb ${arrow} ${signedChange}`;
+    label.setAttribute("x", (endpoint.x + 14).toFixed(1));
+    label.setAttribute("y", labelY.toFixed(1));
+    label.setAttribute("text-anchor", "start");
+    label.textContent = presentation.endpointLabel;
     frame.svg.appendChild(label);
     frame.svg.setAttribute("data-outlook-count", String(points.length));
     frame.svg.setAttribute("data-current-one-year-outlook", String(endpoint.weight));
-    const changePhrase = direction === "flat"
-      ? "unchanged from the prior point"
-      : `${direction === "down" ? "down" : "up"} ${trimWeight(Math.abs(change))} lb from the prior point`;
-    frame.svg.setAttribute(
-      "aria-label",
-      `Lily connected ${history.length}-point one-year trend outlook. Current endpoint approximately ${Math.round(endpoint.weight)} lb, ${changePhrase}. Each dated point uses only weigh-ins available through that date.`
-    );
+    frame.svg.setAttribute("data-latest-outlook-direction", presentation.direction);
+    frame.svg.setAttribute("data-latest-outlook-change", presentation.latestChange === null ? "" : presentation.latestChange.toFixed(3));
+    frame.svg.setAttribute("data-first-outlook-change", presentation.overallChange.toFixed(3));
+    frame.svg.setAttribute("aria-label", presentation.ariaLabel);
   }
   return frame.svg;
 }
