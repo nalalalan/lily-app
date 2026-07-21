@@ -2,7 +2,6 @@ const app = document.getElementById("app");
 
 const API_BASE = String(window.LILY_API_BASE || "").replace(/\/$/, "");
 const WEIGHT_FORECAST = window.LilyWeightForecast;
-const WEIGHT_COACH = window.LilyWeightCoach;
 const TOKEN_KEY = "lily-api-token-v1";
 const TOKEN_EXP_KEY = "lily-api-token-exp-v1";
 const LEGACY_MEMORY_KEY = "lily-memories-v1";
@@ -15,6 +14,7 @@ const state = {
   authenticated: false,
   memories: [],
   weights: [],
+  latestCoach: null,
   tracker: null,
   pendingFiles: [],
   chat: [
@@ -105,9 +105,18 @@ function renderShell() {
                   <h2 id="weightTitle">weight</h2>
                   <p id="weightLatest">No weights saved.</p>
                   <p class="weight-estimate" id="weightEstimate">1-week, 1-month, 1-year estimates need saved weights.</p>
-                  <p class="weight-verdict" id="weightVerdict" data-tone="ready">READY FOR THE FIRST WEIGH-IN!!!</p>
-                  <p class="weight-coach" id="weightCoach">DROP IN A WEIGH-IN AND LET’S LIGHT THIS TRACKER UP!!!</p>
+                  <p class="weight-coach" id="weightCoach" aria-live="polite">DROP IN A WEIGH-IN AND LET’S LIGHT THIS TRACKER UP!!!</p>
                 </div>
+              </div>
+              <div class="weight-chart-stack" aria-label="Lily weight charts">
+                <figure class="weight-chart-card weight-actual-chart-card">
+                  <figcaption class="weight-chart-caption"><span>actual weight vs time</span><strong id="weightActualChartValue">--</strong></figcaption>
+                  <div class="weight-chart-wrap weight-actual-chart-wrap" id="weightActualChartWrap" aria-label="Lily actual weight versus time"></div>
+                </figure>
+                <figure class="weight-chart-card weight-forecast-chart-card">
+                  <figcaption class="weight-chart-caption"><span>1-year trend outlook vs time</span><strong id="weightForecastChartValue">--</strong></figcaption>
+                  <div class="weight-chart-wrap weight-forecast-chart-wrap" id="weightForecastChartWrap" aria-label="Lily one-year trend outlook versus time"></div>
+                </figure>
               </div>
               <form class="weight-form" id="weightForm">
                 <label class="weight-field-label" for="weightInput">Weight</label>
@@ -119,16 +128,6 @@ function renderShell() {
                   <button class="primary-button" type="submit">Save</button>
                 </div>
               </form>
-              <div class="weight-chart-stack" aria-label="Lily weight charts">
-                <figure class="weight-chart-card weight-actual-chart-card">
-                  <figcaption class="weight-chart-caption"><span>actual weight</span><strong id="weightActualChartValue">--</strong></figcaption>
-                  <div class="weight-chart-wrap weight-actual-chart-wrap" id="weightActualChartWrap" aria-label="Lily actual weight history"></div>
-                </figure>
-                <figure class="weight-chart-card weight-forecast-chart-card">
-                  <figcaption class="weight-chart-caption"><span>1-year prediction history</span><strong id="weightForecastChartValue">--</strong></figcaption>
-                  <div class="weight-chart-wrap weight-forecast-chart-wrap" id="weightForecastChartWrap" aria-label="Lily one-year prediction history"></div>
-                </figure>
-              </div>
             </section>
 
             <section class="ingest-panel" aria-labelledby="saveTitle">
@@ -397,6 +396,7 @@ async function loadWeights() {
   try {
     const result = await apiFetch("/api/weights");
     state.weights = Array.isArray(result.weights) ? result.weights : [];
+    state.latestCoach = normalizeLatestCoach(result.latestCoach);
     renderWeights();
   } catch (error) {
     showToast(error.message);
@@ -424,6 +424,7 @@ async function loadData(options = {}) {
     ]);
     state.memories = Array.isArray(memoryResult.memories) ? memoryResult.memories : [];
     state.weights = Array.isArray(weightResult.weights) ? weightResult.weights : [];
+    state.latestCoach = normalizeLatestCoach(weightResult.latestCoach);
     state.tracker = trackerResult.tracker || null;
     renderWall();
     renderWeights();
@@ -522,18 +523,39 @@ async function saveWeight(event) {
 
   setBusy(true);
   try {
-    await apiFetch("/api/weights", {
+    const result = await apiFetch("/api/weights", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ weight, unit: "lb" })
     });
+    state.latestCoach = normalizeLatestCoach(result.latestCoach);
     input.value = "";
     await loadWeights();
     showToast("Weight saved");
+    pollCoachReplacement(result.weight?.id, result.latestCoach?.text);
   } catch (error) {
     showToast(error.message);
   } finally {
     setBusy(false);
+  }
+}
+
+async function pollCoachReplacement(weightId, initialText) {
+  if (!weightId) return;
+  for (const waitMs of [1200, 1800, 2500, 4000, 6000, 9000, 10000]) {
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
+    try {
+      const result = await apiFetch("/api/weights");
+      const latestCoach = normalizeLatestCoach(result.latestCoach);
+      const latestWeight = Array.isArray(result.weights) ? result.weights[0] : null;
+      if (!latestWeight || String(latestWeight.id) !== String(weightId)) return;
+      state.weights = result.weights;
+      state.latestCoach = latestCoach;
+      renderWeights();
+      if (latestCoach && latestCoach.text !== String(initialText || "")) return;
+    } catch (error) {
+      // The saved fallback remains valid; a later poll or page load can retrieve the replacement.
+    }
   }
 }
 
@@ -624,7 +646,6 @@ function renderWall() {
 function renderWeights() {
   const latest = document.getElementById("weightLatest");
   const estimate = document.getElementById("weightEstimate");
-  const verdict = document.getElementById("weightVerdict");
   const coach = document.getElementById("weightCoach");
   const actualChartWrap = document.getElementById("weightActualChartWrap");
   const forecastChartWrap = document.getElementById("weightForecastChartWrap");
@@ -637,20 +658,15 @@ function renderWeights() {
   const dailyPoints = dailyWeightPoints(rows);
   const currentForecast = WEIGHT_FORECAST && dailyPoints.length
     ? WEIGHT_FORECAST.calculateForecast(dailyPoints, {
-      asOfDay: WEIGHT_FORECAST.calendarDay(Date.now())
+      asOfDay: dailyPoints[dailyPoints.length - 1].day
     })
     : null;
   const newest = rows[0];
-  const coachRead = createWeightCoachRead(dailyPoints, currentForecast);
   latest.textContent = newest ? `${formatWeight(newest)} saved ${formatDateTime(newest.createdAt)}` : "No weights saved.";
   if (estimate) estimate.textContent = createWeightEstimate(currentForecast);
-  if (verdict) {
-    verdict.textContent = coachRead.verdict;
-    verdict.dataset.tone = coachRead.tone;
-  }
-  if (coach) coach.textContent = coachRead.detail;
+  if (coach) coach.textContent = createWeightCoachMessage(newest, dailyPoints, currentForecast);
   if (actualChartValue) actualChartValue.textContent = newest ? `${formatWeight(newest)} now` : "--";
-  if (forecastChartValue) forecastChartValue.textContent = currentForecast ? `${trimWeight(currentForecast.oneYearWeight)} lb in 1 yr` : "--";
+  if (forecastChartValue) forecastChartValue.textContent = currentForecast ? formatOneYearHeadline(currentForecast) : "--";
   actualChartWrap.innerHTML = "";
   forecastChartWrap.innerHTML = "";
   list.innerHTML = "";
@@ -670,7 +686,7 @@ function renderWeights() {
   }
 
   actualChartWrap.appendChild(createActualWeightChart(rows.slice().reverse(), dailyPoints));
-  forecastChartWrap.appendChild(createOneYearForecastChart(dailyPoints, currentForecast));
+  forecastChartWrap.appendChild(createOneYearOutlookChart(dailyPoints, currentForecast));
   rows.forEach((record) => list.appendChild(createWeightRow(record)));
 }
 
@@ -741,18 +757,51 @@ function createWeightEstimate(forecast) {
   return [
     `1 wk ${trimWeight(forecast.oneWeekWeight)} lb`,
     `1 mo ${trimWeight(forecast.oneMonthWeight)} lb`,
-    `1 yr ${trimWeight(forecast.oneYearWeight)} lb`
+    formatOneYearHeadline(forecast)
   ].join(" · ");
 }
 
-function createWeightCoachRead(points, forecast) {
-  if (!WEIGHT_COACH) return { verdict: "", detail: "", tone: "ready" };
-  const read = WEIGHT_COACH.analyze(points, forecast);
+function formatOneYearHeadline(forecast) {
+  const exact = Number(forecast && forecast.oneYearWeight);
+  if (!Number.isFinite(exact)) return "1-year outlook needs saved weights";
+  return forecast.annualCalibrationReady
+    ? `${trimWeight(exact)} lb in 1 yr`
+    : `about ${Math.round(exact)} lb in 1 yr`;
+}
+
+function normalizeLatestCoach(value) {
+  if (!value || !value.weightId || typeof value.text !== "string") return null;
+  const text = value.text.replace(/\s+/g, " ").trim();
+  if (!text) return null;
   return {
-    verdict: WEIGHT_COACH.verdict(read),
-    detail: WEIGHT_COACH.composeDetail(read),
-    tone: WEIGHT_COACH.verdictTone(read)
+    weightId: String(value.weightId),
+    text,
+    createdAt: value.createdAt || null
   };
+}
+
+function createWeightCoachMessage(newest, points, forecast) {
+  const saved = normalizeLatestCoach(state.latestCoach);
+  if (newest && saved && String(saved.weightId) === String(newest.id)) return saved.text;
+  if (!newest || !points.length || !forecast) {
+    return "DROP IN THE FIRST WEIGH-IN AND LET’S LIGHT THIS TRACKER UP—ONE HONEST NUMBER STARTS THE LINE, AND THE NEXT REPEATABLE CHOICE STARTS THE MOMENTUM!!!";
+  }
+
+  const current = points[points.length - 1];
+  const prior = points.length > 1 ? points[points.length - 2] : null;
+  const change = prior ? current.weight - prior.weight : null;
+  const currentWeight = `${trimWeight(current.weight)} lb`;
+  const outlook = formatOneYearHeadline(forecast);
+  if (!Number.isFinite(change)) {
+    return `FIRST NUMBER IN—${currentWeight} is the starting point, and the 1-year trend outlook is ${outlook}. Make the next meal a balanced plate you can repeat; that single move gives the next weigh-in a real chance to improve the line. LET’S GET MOVING!!!`;
+  }
+  if (change > 0.05) {
+    return `TODAY NEEDS A RESPONSE—${currentWeight} is up ${trimWeight(Math.abs(change))} lb, and the 1-year trend outlook is ${outlook}. Make the next meal a balanced plate you can repeat; that single move can make the next weigh-in answer back. TURN THIS AROUND—LET’S GO!!!`;
+  }
+  if (change < -0.05) {
+    return `THAT’S REAL MOVEMENT—${currentWeight} is down ${trimWeight(Math.abs(change))} lb, and the 1-year trend outlook is ${outlook}. Make the next meal a balanced plate you can repeat; that single move protects today’s momentum and gives the line another chance to improve. KEEP PRESSING—LET’S GO!!!`;
+  }
+  return `NOT GOOD ENOUGH YET—${currentWeight} is unchanged, and the 1-year trend outlook is ${outlook}. Make the next meal a balanced plate you can repeat; that single move can make the next weigh-in turn this line the right way. COME ON—LET’S GO!!!`;
 }
 
 function dailyWeightPoints(rows) {
@@ -927,6 +976,7 @@ function createActualWeightChart(records, dailyPoints) {
   const times = chartRecords.map((point) => point.time);
   const values = chartRecords.map((point) => point.weight);
   const trend = fitDailyWeightTrend(dailyPoints);
+  const currentMeasuredWeight = chartRecords.length ? chartRecords[chartRecords.length - 1].weight : null;
   if (trend) values.push(trend.weightAt(Math.min(...times)), trend.weightAt(Math.max(...times)));
   const frame = createWeightChartFrame(times, values, {
     kind: "actual-weight",
@@ -935,7 +985,7 @@ function createActualWeightChart(records, dailyPoints) {
     minPadding: 0.5,
     paddingRatio: 0.18,
     roundStep: 0.5,
-    ariaLabel: `Lily actual weight chart with ${chartRecords.length} saved ${chartRecords.length === 1 ? "entry" : "entries"}${trend ? ` and a dashed ${formatSignedRate(trend.rate)} lb/day median trend line` : ""}. The scale is calculated only from actual weights and their trend.`
+    ariaLabel: `Lily actual weight versus time with ${chartRecords.length} saved ${chartRecords.length === 1 ? "entry" : "entries"}${Number.isFinite(currentMeasuredWeight) ? `. Current measured weight ${trimWeight(currentMeasuredWeight)} lb` : ""}${trend ? ` and a dashed ${formatSignedRate(trend.rate)} lb/day median trend line` : ""}. The scale is calculated only from actual weights and their trend.`
   });
   const points = chartRecords.map((point) => ({
     ...point,
@@ -989,24 +1039,33 @@ function createActualWeightChart(records, dailyPoints) {
     title.textContent = `${formatWeight(point.record)} saved ${formatDateTime(point.record.createdAt)}${isCurrent ? " — current weight" : ""}`;
     circle.appendChild(title);
     frame.svg.appendChild(circle);
+    if (isCurrent) {
+      const label = document.createElementNS(frame.ns, "text");
+      label.setAttribute("class", "weight-current-label");
+      label.setAttribute("x", (point.x - 8).toFixed(1));
+      label.setAttribute("y", (point.y < frame.pad.top + 18 ? point.y + 20 : point.y - 10).toFixed(1));
+      label.setAttribute("text-anchor", "end");
+      label.textContent = `${trimWeight(point.weight)} lb`;
+      frame.svg.appendChild(label);
+    }
   });
   return frame.svg;
 }
 
-function createOneYearForecastChart(dailyPoints, currentForecast) {
+function createOneYearOutlookChart(dailyPoints, currentForecast) {
   const history = WEIGHT_FORECAST
     ? WEIGHT_FORECAST.buildOneYearHistory(dailyPoints, currentForecast, Date.now())
     : [];
   const times = history.map((point) => point.time);
   const values = history.map((point) => point.weight);
   const frame = createWeightChartFrame(times, values, {
-    kind: "one-year-forecast-history",
+    kind: "one-year-trend-outlook",
     height: 150,
     minSpan: 10,
     minPadding: 2,
     paddingRatio: 0.12,
     roundStep: 5,
-    ariaLabel: `Lily connected ${history.length}-point one-year prediction history. Every point is calculated causally from the weigh-ins available on that date, then continuity-bounded so the prediction bends instead of teleporting.`
+    ariaLabel: `Lily connected ${history.length}-point one-year trend outlook. Each dated point uses only weigh-ins available through that date.`
   });
   const points = history.map((point) => ({
     ...point,
@@ -1014,31 +1073,69 @@ function createOneYearForecastChart(dailyPoints, currentForecast) {
     y: frame.yFor(point.weight)
   }));
 
-  if (points.length > 1) {
-    const path = document.createElementNS(frame.ns, "path");
-    path.setAttribute("class", "weight-prediction-line");
-    path.setAttribute("d", points.map((point, index) => `${index ? "L" : "M"} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(" "));
-    path.setAttribute("data-prediction-count", String(points.length));
-    path.setAttribute("data-current-one-year-weight", String(currentForecast.oneYearWeight));
-    frame.svg.appendChild(path);
+  for (let index = 1; index < points.length; index += 1) {
+    const previous = points[index - 1];
+    const point = points[index];
+    const change = point.weight - previous.weight;
+    const direction = Math.abs(change) < 0.05 ? "flat" : change < 0 ? "down" : "up";
+    const segment = document.createElementNS(frame.ns, "line");
+    segment.setAttribute("class", `weight-outlook-segment is-${direction}`);
+    segment.setAttribute("x1", previous.x.toFixed(1));
+    segment.setAttribute("y1", previous.y.toFixed(1));
+    segment.setAttribute("x2", point.x.toFixed(1));
+    segment.setAttribute("y2", point.y.toFixed(1));
+    segment.setAttribute("data-outlook-direction", direction);
+    segment.setAttribute("data-outlook-change", change.toFixed(3));
+    const title = document.createElementNS(frame.ns, "title");
+    title.textContent = `${formatShortDate(previous.time)} to ${formatShortDate(point.time)}: outlook ${direction === "down" ? "fell" : direction === "up" ? "rose" : "held"} ${trimWeight(Math.abs(change))} lb`;
+    segment.appendChild(title);
+    frame.svg.appendChild(segment);
   }
 
-  points.forEach((point) => {
+  points.forEach((point, index) => {
+    const incomingChange = index ? point.weight - points[index - 1].weight : 0;
+    const direction = index === 0 || Math.abs(incomingChange) < 0.05 ? "flat" : incomingChange < 0 ? "down" : "up";
     const circle = document.createElementNS(frame.ns, "circle");
-    circle.setAttribute("class", `weight-prediction-point${point.isCurrent ? " is-current" : ""}`);
+    circle.setAttribute("class", `weight-outlook-point is-${direction}${point.isCurrent ? " is-current" : ""}`);
     circle.setAttribute("cx", point.x.toFixed(1));
     circle.setAttribute("cy", point.y.toFixed(1));
     circle.setAttribute("r", point.isCurrent ? "4.5" : "3");
-    circle.setAttribute("data-predicted-weight", String(point.weight));
+    circle.setAttribute("data-outlook-weight", String(point.weight));
     circle.setAttribute("data-calculated-day", String(point.day));
     circle.setAttribute("data-target-day", String(point.projectedDay));
     circle.setAttribute("data-annual-calibrated", String(Boolean(point.annualCalibrated)));
     circle.setAttribute("data-continuity-bounded", String(Boolean(point.continuityBounded)));
     const title = document.createElementNS(frame.ns, "title");
-    title.textContent = `Calculated ${formatShortDate(point.time)}: ${formatProjectionDate(dateFromCalendarDay(point.projectedDay), true)} prediction ${trimWeight(point.weight)} lb`;
+    title.textContent = `Calculated ${formatShortDate(point.time)}: ${formatProjectionDate(dateFromCalendarDay(point.projectedDay), true)} one-year trend outlook ${trimWeight(point.weight)} lb`;
     circle.appendChild(title);
     frame.svg.appendChild(circle);
   });
+
+  const endpoint = points[points.length - 1];
+  if (endpoint) {
+    const change = points.length > 1 ? endpoint.weight - points[points.length - 2].weight : 0;
+    const direction = Math.abs(change) < 0.05 ? "flat" : change < 0 ? "down" : "up";
+    const arrow = direction === "down" ? "↓" : direction === "up" ? "↑" : "→";
+    const signedChange = direction === "flat"
+      ? "0 lb"
+      : `${change > 0 ? "+" : "−"}${trimWeight(Math.abs(change))} lb`;
+    const label = document.createElementNS(frame.ns, "text");
+    label.setAttribute("class", `weight-outlook-endpoint-label is-${direction}`);
+    label.setAttribute("x", (endpoint.x - 7).toFixed(1));
+    label.setAttribute("y", (endpoint.y < frame.pad.top + 18 ? endpoint.y + 21 : endpoint.y - 11).toFixed(1));
+    label.setAttribute("text-anchor", "end");
+    label.textContent = `≈${Math.round(endpoint.weight)} lb ${arrow} ${signedChange}`;
+    frame.svg.appendChild(label);
+    frame.svg.setAttribute("data-outlook-count", String(points.length));
+    frame.svg.setAttribute("data-current-one-year-outlook", String(endpoint.weight));
+    const changePhrase = direction === "flat"
+      ? "unchanged from the prior point"
+      : `${direction === "down" ? "down" : "up"} ${trimWeight(Math.abs(change))} lb from the prior point`;
+    frame.svg.setAttribute(
+      "aria-label",
+      `Lily connected ${history.length}-point one-year trend outlook. Current endpoint approximately ${Math.round(endpoint.weight)} lb, ${changePhrase}. Each dated point uses only weigh-ins available through that date.`
+    );
+  }
   return frame.svg;
 }
 
@@ -1095,7 +1192,7 @@ function createTrackerRow(event) {
     if (!window.confirm(`Delete this ${event.type} entry?`)) return;
     try {
       await apiFetch(`/api/tracker/${encodeURIComponent(event.id)}`, { method: "DELETE" });
-      await loadTracker();
+      await Promise.all([loadTracker(), loadWeights()]);
       showToast(`${event.type === "conflict" ? "Conflict" : "Period"} deleted`);
     } catch (error) {
       showToast(error.message);
@@ -1435,7 +1532,7 @@ function appendDelete(card, memory) {
     if (!window.confirm("Delete this memory?")) return;
     try {
       await apiFetch(`/api/memories/${encodeURIComponent(memory.id)}`, { method: "DELETE" });
-      await loadMemories();
+      await Promise.all([loadMemories(), loadWeights()]);
       showToast("Deleted");
     } catch (error) {
       showToast(error.message);

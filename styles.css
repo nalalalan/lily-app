@@ -13,7 +13,9 @@
   --accent-strong: #5f2638;
   --accent-soft: #f7e4e8;
   --sage: #dce6da;
-  --forecast: #2f655a;
+  --outlook-down: #2f655a;
+  --outlook-up: #9a3551;
+  --outlook-flat: #8a756d;
   --gold: #d8be7a;
   --shadow: rgba(57, 43, 46, 0.11);
   --shadow-soft: rgba(57, 43, 46, 0.06);
@@ -278,49 +280,12 @@ noscript {
   font-weight: 720;
 }
 
-.panel-head p.weight-verdict {
-  display: block;
-  width: fit-content;
-  margin-top: 10px;
-  padding: 7px 9px;
-  border: 1px solid rgba(34, 25, 29, 0.14);
-  border-radius: 7px;
-  color: var(--ink);
-  font-size: 13px;
-  line-height: 1.25;
-  font-weight: 850;
-  letter-spacing: 0.01em;
-}
-
-.panel-head p.weight-verdict[data-tone="positive"] {
-  border-color: rgba(34, 111, 72, 0.34);
-  background: rgba(218, 240, 226, 0.78);
-  color: #185436;
-}
-
-.panel-head p.weight-verdict[data-tone="negative"] {
-  border-color: rgba(142, 42, 62, 0.34);
-  background: rgba(248, 224, 228, 0.84);
-  color: #7d2038;
-}
-
-.panel-head p.weight-verdict[data-tone="neutral"] {
-  border-color: rgba(147, 101, 25, 0.32);
-  background: rgba(250, 238, 208, 0.82);
-  color: #6d4710;
-}
-
-.panel-head p.weight-verdict[data-tone="ready"] {
-  background: rgba(238, 230, 233, 0.72);
-  color: var(--accent-strong);
-}
-
 .panel-head p.weight-coach {
-  margin-top: 8px;
+  margin-top: 10px;
   color: var(--ink);
-  font-size: 13px;
-  line-height: 1.38;
-  font-weight: 620;
+  font-size: 13.5px;
+  line-height: 1.42;
+  font-weight: 700;
 }
 
 .messages {
@@ -559,7 +524,9 @@ noscript {
 }
 
 .weight-form {
-  margin: 0 0 10px;
+  margin: 12px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid rgba(34, 25, 29, 0.08);
 }
 
 .weight-field-label {
@@ -609,6 +576,7 @@ noscript {
 
 .weight-chart-card {
   margin: 0;
+  min-width: 0;
   width: 100%;
   overflow: hidden;
   border: 1px solid rgba(34, 25, 29, 0.1);
@@ -623,7 +591,7 @@ noscript {
   gap: 10px;
   padding: 9px 11px 0;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 820;
   letter-spacing: 0.075em;
   text-transform: uppercase;
@@ -631,7 +599,7 @@ noscript {
 
 .weight-chart-caption strong {
   color: var(--ink);
-  font-size: 11px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0;
   text-transform: none;
@@ -666,7 +634,7 @@ noscript {
 
 .weight-chart-wrap text {
   fill: var(--soft);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 740;
   font-variant-numeric: tabular-nums;
 }
@@ -684,7 +652,7 @@ noscript {
 .weight-history-line {
   fill: none;
   stroke: var(--accent);
-  opacity: 0.58;
+  opacity: 0.82;
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 3;
@@ -699,31 +667,64 @@ noscript {
   stroke-width: 2.25;
 }
 
-.weight-prediction-line {
-  fill: none;
-  stroke: var(--forecast);
+.weight-outlook-segment {
   stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 2.4;
+  stroke-width: 2.8;
+}
+
+.weight-outlook-segment.is-down {
+  stroke: var(--outlook-down);
+}
+
+.weight-outlook-segment.is-up {
+  stroke: var(--outlook-up);
+}
+
+.weight-outlook-segment.is-flat {
+  stroke: var(--outlook-flat);
 }
 
 .weight-chart-wrap .weight-trend-label {
   fill: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 820;
   letter-spacing: 0.09em;
 }
 
-.weight-prediction-point {
+.weight-outlook-point {
   fill: var(--surface);
-  stroke: var(--forecast);
   stroke-width: 2;
 }
 
-.weight-prediction-point.is-current {
-  fill: var(--forecast);
+.weight-outlook-point.is-down {
+  stroke: var(--outlook-down);
+}
+
+.weight-outlook-point.is-up {
+  stroke: var(--outlook-up);
+}
+
+.weight-outlook-point.is-flat {
+  stroke: var(--outlook-flat);
+}
+
+.weight-outlook-point.is-current {
+  fill: var(--surface);
   stroke: var(--surface);
-  stroke-width: 2.25;
+  stroke-width: 2.5;
+  paint-order: stroke fill;
+}
+
+.weight-outlook-point.is-current.is-down {
+  fill: var(--outlook-down);
+}
+
+.weight-outlook-point.is-current.is-up {
+  fill: var(--outlook-up);
+}
+
+.weight-outlook-point.is-current.is-flat {
+  fill: var(--outlook-flat);
 }
 
 .weight-point {
@@ -736,6 +737,32 @@ noscript {
   fill: var(--accent);
   stroke: var(--surface);
   stroke-width: 2.75;
+}
+
+.weight-chart-wrap .weight-current-label,
+.weight-chart-wrap .weight-outlook-endpoint-label {
+  font-size: 13px;
+  font-weight: 860;
+  paint-order: stroke;
+  stroke: rgba(255, 253, 249, 0.96);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+
+.weight-chart-wrap .weight-current-label {
+  fill: var(--accent-strong);
+}
+
+.weight-chart-wrap .weight-outlook-endpoint-label.is-down {
+  fill: var(--outlook-down);
+}
+
+.weight-chart-wrap .weight-outlook-endpoint-label.is-up {
+  fill: var(--outlook-up);
+}
+
+.weight-chart-wrap .weight-outlook-endpoint-label.is-flat {
+  fill: var(--outlook-flat);
 }
 
 .weight-list {
