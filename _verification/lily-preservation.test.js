@@ -50,19 +50,21 @@ assert.ok(
 );
 
 assert.ok(app.includes('].join(" · ")'), "the visible forecast values must stay compact and scannable");
-assert.ok(app.includes('`1 yr ${trimWeight(forecast.oneYearWeight)} lb`'), "the primary card must show a direct one-year forecast");
-assert.ok(app.includes('id="weightVerdict"'), "the primary card must show a standalone current verdict");
-assert.ok(app.includes('id="weightCoach"'), "the primary card must carry the live coach analysis");
-assert.match(styles, /\.panel-head p\.weight-verdict/, "the verdict must have a distinct first-read treatment");
-assert.match(styles, /weight-verdict\[data-tone="positive"\]/, "approved results must expose a positive status treatment");
-assert.match(styles, /weight-verdict\[data-tone="negative"\]/, "disapproved results must expose a negative status treatment");
-assert.match(styles, /\.panel-head p\.weight-coach/, "coach copy must have an intentional readable treatment");
+assert.ok(app.includes('`about ${Math.round(exact)} lb in 1 yr`'), "an uncalibrated outlook must use a rounded about-value");
+assert.equal((app.match(/id="weightCoach"/g) || []).length, 1, "the primary card must contain exactly one coach paragraph");
+assert.ok(!app.includes('id="weightVerdict"'), "the rejected standalone verdict paragraph must stay removed");
+assert.match(styles, /\.panel-head p\.weight-coach\s*\{[\s\S]*?font-weight:\s*700;/, "coach copy must have an intentional first-read treatment");
 assert.ok(
-  app.indexOf('id="weightVerdict"') < app.indexOf('id="weightCoach"'),
-  "the current verdict must render before broader trend analysis"
+  app.indexOf('id="weightLatest"') < app.indexOf('id="weightEstimate"') &&
+    app.indexOf('id="weightEstimate"') < app.indexOf('id="weightCoach"'),
+  "latest weight, forecast line, and one coach paragraph must lead the card in that order"
 );
-assert.ok(app.includes("WEIGHT_COACH.verdict(read)"), "the visible verdict must come from the tested coach state");
-assert.ok(app.includes("WEIGHT_COACH.composeDetail(read)"), "the broader analysis must stay separate from the verdict");
+assert.ok(app.includes("state.latestCoach = normalizeLatestCoach(weightResult.latestCoach)"), "initial loading must retain the persisted coach paragraph");
+assert.ok(app.includes("state.latestCoach = normalizeLatestCoach(result.latestCoach)"), "weight refreshes and saves must retain the returned coach paragraph");
+assert.ok(app.includes("pollCoachReplacement(result.weight?.id, result.latestCoach?.text)"), "the open page must retrieve a critic-approved replacement without a manual refresh");
+assert.ok(app.includes("for (const waitMs of [1200, 1800, 2500, 4000, 6000, 9000, 10000])"), "coach replacement polling must cover the bounded background generation window");
+assert.ok(app.includes("asOfDay: dailyPoints[dailyPoints.length - 1].day"), "the headline and endpoint must stay anchored to the latest measured calendar day");
+assert.ok(app.includes("String(saved.weightId) === String(newest.id)"), "a persisted coach paragraph must match the latest weight before display");
 assert.doesNotMatch(app, /Not a reliable|Only .* of data|does not mean her weight will stay constant|This is an estimate, not a guarantee/i);
 assert.doesNotMatch(app, /1-yr baseline|uncalibrated baseline|historically evaluated baseline/i);
 assert.ok(!app.includes("completed 1-year outcomes"), "validation plumbing must not crowd the visible weight summary");
@@ -71,31 +73,62 @@ assert.ok(
   "short sequential errors must not be mislabeled as annual rolling-backtest evidence"
 );
 assert.ok(app.includes('id="weightActualChartWrap"'), "actual weight must have its own chart");
-assert.ok(app.includes('id="weightForecastChartWrap"'), "one-year prediction history must have its own chart");
+assert.ok(app.includes('id="weightForecastChartWrap"'), "one-year trend outlook must have its own chart");
+assert.ok(app.includes("actual weight vs time"), "the actual chart must use the screenshot-ready visible name");
+assert.ok(app.includes("1-year trend outlook vs time"), "the outlook chart must use the screenshot-ready visible name");
+assert.doesNotMatch(app, /one-year prediction history|prediction history/i, "public chart copy must use trend outlook language");
 assert.ok(
   app.indexOf('id="weightActualChartWrap"') < app.indexOf('id="weightForecastChartWrap"'),
-  "actual weight must remain visually primary above prediction history"
+  "actual weight must remain visually primary above the trend outlook"
+);
+assert.ok(
+  app.indexOf('id="weightForecastChartWrap"') < app.indexOf('id="weightForm"'),
+  "both charts must appear before the weight-entry form"
 );
 assert.ok(app.includes('id="weightActualChartValue"'), "the actual chart must label the current saved weight");
-assert.ok(app.includes('id="weightForecastChartValue"'), "the prediction chart must label its current endpoint");
+assert.ok(app.includes('id="weightForecastChartValue"'), "the outlook chart must label its current endpoint");
 assert.ok(app.includes('data-chart-kind", options.kind'), "each chart must identify its independent data domain");
-assert.ok(app.includes('data-annual-calibrated'), "prediction-history points must expose annual-calibration state");
-assert.ok(app.includes('data-continuity-bounded'), "prediction-history points must expose the continuity gate");
+assert.ok(app.includes('data-annual-calibrated'), "outlook points must expose annual-calibration state");
+assert.ok(app.includes('data-continuity-bounded'), "outlook points must expose the continuity gate");
+assert.ok(app.includes('data-outlook-direction'), "each outlook segment must expose its direction without relying on color");
+assert.ok(app.includes('data-current-one-year-outlook'), "the SVG must retain the exact current outlook value");
+assert.ok(app.includes('≈${Math.round(endpoint.weight)} lb ${arrow} ${signedChange}'), "the endpoint must directly label its rounded value, arrow, and change");
 assert.ok(!app.includes("Validated from"), "the page must not overclaim annual validation");
 assert.ok(
-  index.indexOf("/weight-forecast.js") < index.indexOf("/weight-coach.js") && index.indexOf("/weight-coach.js") < index.indexOf("/app.js"),
-  "forecast and coach logic must load before the app"
+  index.indexOf("/weight-forecast.js") < index.indexOf("/app.js"),
+  "forecast logic must load before the app"
 );
+assert.ok(!index.includes("/weight-coach.js"), "the retired browser-generated coach path must not ship beside persisted server coaching");
 const actualChartStart = app.indexOf("function createActualWeightChart");
-const forecastChartStart = app.indexOf("function createOneYearForecastChart");
+const forecastChartStart = app.indexOf("function createOneYearOutlookChart");
 const actualChart = app.slice(actualChartStart, forecastChartStart);
 const forecastChart = app.slice(forecastChartStart, app.indexOf("function createWeightRow", forecastChartStart));
 assert.ok(actualChartStart > 0 && forecastChartStart > actualChartStart, "the two chart renderers must stay separate and actual-first");
-assert.doesNotMatch(actualChart, /buildOneYearHistory|weight-prediction/, "forecast values must never enter the actual chart or its y-domain");
-assert.doesNotMatch(forecastChart, /weight-history-line|weight-trend-line/, "actual weights and their trend must never enter the prediction chart");
+assert.doesNotMatch(actualChart, /buildOneYearHistory|weight-outlook-segment/, "outlook values must never enter the actual chart or its y-domain");
+assert.doesNotMatch(forecastChart, /weight-history-line|weight-trend-line/, "actual weights and their trend must never enter the outlook chart");
+assert.match(forecastChart, /minSpan:\s*10,[\s\S]*?minPadding:\s*2,[\s\S]*?roundStep:\s*5,/, "the outlook must keep its independent padded five-pound-rounded scale");
+assert.ok(forecastChart.includes('document.createElementNS(frame.ns, "line")'), "outlook points must be joined by straight non-overshooting segments");
 assert.ok(!app.includes("one-year forecast history overlay"), "the rejected combined-overlay rendering path must stay removed");
 assert.match(styles, /\.weight-chart-stack\s*\{[\s\S]*?display:\s*grid;/, "the two charts must render as a deliberate stack");
 assert.match(styles, /\.weight-point\.is-current/, "the latest actual weight point must be visibly emphasized");
-assert.ok(index.includes("20260720-weight-verdict-v4"), "the live bundle must carry the verdict-first cache key");
+assert.ok(actualChart.includes("weight-current-label"), "the latest measured point must carry its exact direct label");
+assert.match(styles, /\.weight-outlook-segment\.is-down\s*\{[\s\S]*?var\(--outlook-down\)/, "downward outlook segments must use dark sage");
+assert.match(styles, /\.weight-outlook-segment\.is-up\s*\{[\s\S]*?var\(--outlook-up\)/, "upward outlook segments must use cranberry");
+assert.match(styles, /\.weight-outlook-segment\.is-flat\s*\{[\s\S]*?var\(--outlook-flat\)/, "flat outlook segments must use taupe");
+assert.match(styles, /\.weight-chart-wrap text\s*\{[\s\S]*?font-size:\s*11px;/, "chart axes must remain at least eleven pixels for screenshots");
+assert.match(styles, /\.weight-chart-caption\s*\{[\s\S]*?font-size:\s*11px;/, "chart captions must remain at least eleven pixels for screenshots");
+assert.match(styles, /weight-outlook-endpoint-label[\s\S]*?font-size:\s*13px;/, "endpoint labels must remain screenshot-readable");
+assert.match(styles, /@media \(max-width:\s*560px\)[\s\S]*?\.suite-topbar,[\s\S]*?\.split-workspace\s*\{[\s\S]*?width:\s*calc\(100% - 20px\);/, "the 390px mobile layout must retain safe side gutters");
+assert.match(styles, /@media \(max-width:\s*560px\)[\s\S]*?\.weight-entry-row\s*\{[\s\S]*?grid-template-columns:\s*1fr;/, "the mobile weight form must not overflow its card");
+assert.match(styles, /body\s*\{[\s\S]*?overflow-x:\s*hidden;/, "the screenshot stack must not introduce horizontal overflow");
+assert.match(styles, /\.weight-chart-card\s*\{[\s\S]*?min-width:\s*0;/, "chart cards must shrink inside the existing desktop rail and 390px mobile card");
+assert.match(index, /\/app\.js\?v=/, "the live bundle must retain explicit cache versioning");
+
+const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
+const weightPostStart = server.indexOf('if (pathname === "/api/weights" && req.method === "POST")');
+const weightPostEnd = server.indexOf('if (pathname === "/api/memories" && req.method === "POST")', weightPostStart);
+const weightPost = server.slice(weightPostStart, weightPostEnd);
+assert.ok(weightPost.indexOf("send(res, 201") < weightPost.indexOf("setImmediate"), "the durable fallback must return before background model generation");
+assert.ok(weightPost.includes("generateAndReplaceCoach(created.id).catch(() => {})"), "background coach generation must not turn a saved weigh-in into an HTTP failure");
 
 console.log("Lily preservation tests passed");

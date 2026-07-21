@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const fsp = require("node:fs/promises");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const weightForecast = require("./public/weight-forecast.js");
 
 const port = Number(process.env.PORT || 3000);
 const publicDir = path.join(__dirname, "public");
@@ -15,6 +16,8 @@ const sessionSecret = process.env.SESSION_SECRET || "local-dev-lily-session-secr
 const openaiApiKey = process.env.OPENAI_API_KEY || "";
 const chatModel = process.env.OPENAI_CHAT_MODEL || "gpt-4o-mini";
 const visionModel = process.env.OPENAI_VISION_MODEL || "gpt-4o-mini";
+const privateCoachGoal = Number(process.env.LILY_INTERNAL_GOAL_LB);
+const coachGenerationTimeoutMs = Math.max(500, Number(process.env.LILY_COACH_TIMEOUT_MS || 8000));
 const trackerTimeZone = process.env.LILY_TRACKER_TIME_ZONE || "America/New_York";
 const defaultPeriodCycleDays = 28;
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || "http://localhost:3000,http://127.0.0.1:3000,https://lily.aolabs.io")
@@ -45,12 +48,19 @@ const videoExtensions = new Set([".mp4", ".m4v", ".mov", ".webm"]);
 
 let writeQueue = Promise.resolve();
 
+const COACH_GENERATION_VERSION = "coach-pipeline-v1";
+const COACH_PROMPT_VERSION = "coach-prompt-v1";
+const COACH_SAFETY_VERSION = "coach-safety-v1";
+const COACH_MIN_WORDS = 35;
+const COACH_MAX_WORDS = 55;
+const KG_TO_LB = 2.2046226218;
+
 async function ensureDataDir() {
   await fsp.mkdir(mediaDir, { recursive: true });
   try {
     await fsp.access(storePath);
   } catch (error) {
-    await fsp.writeFile(storePath, JSON.stringify({ memories: [], weights: [], chats: [], trackerEvents: [] }, null, 2));
+    await fsp.writeFile(storePath, JSON.stringify({ memories: [], weights: [], chats: [], trackerEvents: [], coachMessages: [] }, null, 2));
   }
 }
 
@@ -85,12 +95,13 @@ async function readStore() {
     memories: Array.isArray(parsed.memories) ? parsed.memories : [],
     weights: Array.isArray(parsed.weights) ? parsed.weights : [],
     chats: Array.isArray(parsed.chats) ? parsed.chats : [],
-    trackerEvents: Array.isArray(parsed.trackerEvents) ? parsed.trackerEvents : []
+    trackerEvents: Array.isArray(parsed.trackerEvents) ? parsed.trackerEvents : [],
+    coachMessages: Array.isArray(parsed.coachMessages) ? parsed.coachMessages : []
   };
 }
 
 function writeStore(mutator) {
-  writeQueue = writeQueue.then(async () => {
+  const operation = writeQueue.catch(() => undefined).then(async () => {
     const store = await readStore();
     const nextStore = await mutator(store);
     const tmpPath = `${storePath}.tmp`;
@@ -98,7 +109,8 @@ function writeStore(mutator) {
     await fsp.rename(tmpPath, storePath);
     return nextStore;
   });
-  return writeQueue;
+  writeQueue = operation.catch(() => undefined);
+  return operation;
 }
 
 function readBody(req) {
@@ -302,6 +314,607 @@ function publicWeight(record) {
 
 function publicWeights(weights) {
   return weights.map(publicWeight);
+}
+
+function weightInPounds(record) {
+  const value = Number(record && record.weight);
+  if (!Number.isFinite(value)) return NaN;
+  return String(record.unit || "lb").trim().toLowerCase() === "kg" ? value * KG_TO_LB : value;
+}
+
+function trimCoachNumber(value) {
+  if (!Number.isFinite(Number(value))) return "--";
+  return Number(Number(value).toFixed(1)).toString();
+}
+
+function coachWordCount(text) {
+  return String(text || "").trim().match(/[A-Za-z0-9]+(?:[’'][A-Za-z0-9]+)*/g)?.length || 0;
+}
+
+function normalizeCoachParagraph(text) {
+  return String(text || "")
+    .replace(/^```(?:text)?\s*|\s*```$/gi, "")
+    .replace(/^(["'])|(["'])$/g, "")
+    .replace(/[\r\n]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function causalWeightRows(store, weightId) {
+  const rows = Array.isArray(store && store.weights) ? store.weights : [];
+  const current = rows.find((record) => record.id === weightId) || null;
+  if (!current) return { current: null, rows: [], points: [] };
+  const cutoff = Date.parse(current.createdAt);
+  const causalRows = rows
+    .filter((record) => Number.isFinite(Date.parse(record.createdAt)) && Date.parse(record.createdAt) <= cutoff)
+    .sort((left, right) => String(left.createdAt).localeCompare(String(right.createdAt)) || String(left.id).localeCompare(String(right.id)));
+  const points = weightForecast.normalizePoints(causalRows.map((record) => ({
+    time: Date.parse(record.createdAt),
+    weight: weightInPounds(record)
+  })));
+  return { current, rows: causalRows, points };
+}
+
+function robustWindowMovement(points, windowDays) {
+  if (!Array.isArray(points) || points.length < 2) return null;
+  const latestDay = points[points.length - 1].day;
+  const rows = points.filter((point) => point.day >= latestDay - windowDays);
+  if (rows.length < 2) return null;
+  const clusterSize = Math.max(1, Math.floor(rows.length / 3));
+  const start = median(rows.slice(0, clusterSize).map((point) => point.weight));
+  const end = median(rows.slice(-clusterSize).map((point) => point.weight));
+  return Number.isFinite(start) && Number.isFinite(end) ? end - start : null;
+}
+
+function recentWeightStreak(points) {
+  if (!Array.isArray(points) || points.length < 2) return { direction: "flat", count: 1, movement: 0, reversal: false };
+  const changes = [];
+  for (let index = 1; index < points.length; index += 1) {
+    const change = points[index].weight - points[index - 1].weight;
+    changes.push(Math.abs(change) < 0.05 ? 0 : Math.sign(change));
+  }
+  const latestDirection = changes[changes.length - 1];
+  let count = 1;
+  if (latestDirection) {
+    for (let index = changes.length - 1; index >= 0 && changes[index] === latestDirection; index -= 1) count += 1;
+  }
+  let previousDirection = 0;
+  for (let index = changes.length - count; index >= 0; index -= 1) {
+    if (changes[index]) {
+      previousDirection = changes[index];
+      break;
+    }
+  }
+  const startIndex = Math.max(0, points.length - count);
+  return {
+    direction: latestDirection < 0 ? "down" : latestDirection > 0 ? "up" : "flat",
+    count,
+    movement: points[points.length - 1].weight - points[startIndex].weight,
+    reversal: Boolean(latestDirection && previousDirection && latestDirection !== previousDirection)
+  };
+}
+
+function isWeightOutlier(points) {
+  if (!Array.isArray(points) || points.length < 2) return false;
+  const changes = [];
+  for (let index = 1; index < points.length; index += 1) changes.push(points[index].weight - points[index - 1].weight);
+  const latest = Math.abs(changes[changes.length - 1]);
+  if (latest >= 3.5) return true;
+  const historical = changes.slice(0, -1).map(Math.abs);
+  if (historical.length < 4) return latest >= 2.5;
+  const typical = median(historical);
+  const deviations = historical.map((value) => Math.abs(value - typical));
+  const mad = median(deviations);
+  return latest > Math.max(2.5, typical + Math.max(0.35, mad * 4));
+}
+
+function foodPreferenceSignal(text, topicPattern) {
+  const clauses = String(text || "").split(/\bbut\b|[.;!?]/i);
+  let signal = 0;
+  let topicSeen = false;
+  for (const clause of clauses) {
+    const topicHere = topicPattern.test(clause);
+    const pronounReference = topicSeen && /\b(?:it|them)\b/i.test(clause);
+    if (!topicHere && !pronounReference) continue;
+    if (topicHere) topicSeen = true;
+    const negative = /\b(?:hate|hates|hated|dislike|dislikes|disliked|does\s+not\s+like|doesn't\s+like|do\s+not\s+like|don't\s+like|avoid|avoids|allergic\w*)\b/i.test(clause);
+    const positive = /\b(?:love|loves|loved|like|likes|liked|enjoy|enjoys|enjoyed|want|wants|wanted|prefer|prefers|preferred|favorite|favourite)\b/i.test(clause);
+    if (negative) signal = -1;
+    else if (positive) signal = 1;
+  }
+  return signal;
+}
+
+function selectSavedPreference(memories, cutoff) {
+  const blocked = /\b(?:sex|horn|ovulat|conflict|address|phone|diagnos|depress|body image|appearance|relationship)\b/i;
+  const rows = (Array.isArray(memories) ? memories : [])
+    .filter((memory) => memory && memory.kind === "note")
+    .filter((memory) => !memory.sourceId && !memory.derivedFact && !memory.factIndex)
+    .filter((memory) => !Number.isFinite(cutoff) || !Number.isFinite(Date.parse(memory.createdAt)) || Date.parse(memory.createdAt) <= cutoff)
+    .map((memory) => ({ memory, text: String(memory.text || "").trim() }))
+    .filter((item) => item.text && !blocked.test(item.text))
+    .sort((left, right) => String(right.memory.updatedAt || right.memory.createdAt || "").localeCompare(String(left.memory.updatedAt || left.memory.createdAt || "")));
+
+  for (const item of rows) {
+    const korean = foodPreferenceSignal(item.text, /\b(?:korean|spicy)\b/i) > 0;
+    const vegetables = foodPreferenceSignal(item.text, /\b(?:vegetable|veggie)\w*\b/i) > 0;
+    const fruit = foodPreferenceSignal(item.text, /\b(?:peach|fruit|berries|apple)\w*\b/i) > 0;
+    if (korean && vegetables) {
+      return {
+        id: item.memory.id,
+        kind: "food-preference",
+        action: "Make the next meal work harder: keep the Korean flavor and add the vegetables you said you want."
+      };
+    }
+    if (vegetables) {
+      return {
+        id: item.memory.id,
+        kind: "food-preference",
+        action: "Make the next meal count by adding the vegetables you said you want."
+      };
+    }
+    if (korean) {
+      return {
+        id: item.memory.id,
+        kind: "food-preference",
+        action: "Build the next balanced meal around the Korean flavors you already like."
+      };
+    }
+    if (fruit) {
+      return {
+        id: item.memory.id,
+        kind: "food-preference",
+        action: "Choose the fruit you already enjoy for the next planned snack."
+      };
+    }
+  }
+  return null;
+}
+
+function selectTrackerModifier(events, dateKey) {
+  const rows = Array.isArray(events) ? events : [];
+  const activePeriod = rows.find((event) => {
+    if (!event || event.type !== "period") return false;
+    const start = validTrackerDateKey(event.dateKey || trackerDateKey(event.createdAt));
+    const end = validTrackerDateKey(event.periodEndDateKey);
+    return Boolean(start && start <= dateKey && (end ? dateKey <= end : start === dateKey));
+  });
+  if (activePeriod) {
+    return {
+      id: activePeriod.id,
+      type: "active-logged-period",
+      text: "Logged-period noise is possible; the verdict stays unchanged."
+    };
+  }
+  return null;
+}
+
+function selectRecentConflict(events, dateKey) {
+  return (Array.isArray(events) ? events : []).find((event) => {
+    if (!event || event.type !== "conflict") return false;
+    const conflictKey = validTrackerDateKey(event.dateKey || trackerDateKey(event.createdAt));
+    const days = daysBetweenDateKeys(conflictKey, dateKey);
+    return Number.isFinite(days) && days >= 0 && days <= 2;
+  });
+}
+
+function hiddenStrategyState(goal, currentWeight) {
+  if (!Number.isFinite(goal) || goal <= 0 || !Number.isFinite(currentWeight)) return "steady-safe";
+  if (goal <= 108) return "safety-held";
+  return currentWeight - goal >= 20 ? "high-safe-urgency" : "steady-safe";
+}
+
+function buildCoachContext(store, weightId, options = {}) {
+  const { current, rows, points } = causalWeightRows(store, weightId);
+  if (!current || !points.length) return null;
+  const latestPoint = points[points.length - 1];
+  const previousPoint = points.length > 1 ? points[points.length - 2] : null;
+  const currentTime = Date.parse(current.createdAt);
+  const forecast = weightForecast.calculateForecast(points, { asOfDay: latestPoint.day });
+  const history = weightForecast.buildOneYearHistory(points, forecast, currentTime);
+  const outlookPoint = history[history.length - 1] || null;
+  const previousOutlookPoint = history.length > 1 ? history[history.length - 2] : null;
+  const outlook = Number(outlookPoint && outlookPoint.weight);
+  const previousOutlook = previousOutlookPoint ? Number(previousOutlookPoint.weight) : NaN;
+  const outlookChange = Number.isFinite(outlook) && Number.isFinite(previousOutlook) ? outlook - previousOutlook : 0;
+  const latestDailyChange = previousPoint ? latestPoint.weight - previousPoint.weight : 0;
+  const dateKey = trackerDateKey(currentTime);
+  const includePersonalContext = options.includePersonalContext !== false;
+  const trackerModifier = includePersonalContext ? selectTrackerModifier(store.trackerEvents, dateKey) : null;
+  const recentConflict = includePersonalContext ? selectRecentConflict(store.trackerEvents, dateKey) : null;
+  const preference = includePersonalContext ? selectSavedPreference(store.memories, currentTime) : null;
+  const outlier = isWeightOutlier(points);
+  const streak = recentWeightStreak(points);
+  const outlookDirection = outlookChange > 0.05 ? "worsened" : outlookChange < -0.05 ? "improved" : "held";
+  const changeDirection = latestDailyChange > 0.05 ? "up" : latestDailyChange < -0.05 ? "down" : "unchanged";
+  let verdict = "not-good-enough";
+  if (points.length === 1) verdict = "baseline";
+  else if (outlier) verdict = "verify";
+  else if (changeDirection === "down" && outlookDirection !== "worsened") verdict = "good-progress";
+
+  const action = preference?.action || (outlier
+    ? "Use the same scale conditions for the next confirming weigh-in."
+    : recentConflict
+      ? "Make the next meal a simple balanced plate with protein, vegetables, and a satisfying portion."
+      : "Build the next meal around protein, vegetables, and a satisfying portion.");
+  const evidenceReferences = [
+    { type: "weight", id: current.id, role: "current" },
+    ...(rows.length > 1 ? [{ type: "weight", id: rows[rows.length - 2].id, role: "comparison" }] : []),
+    ...(trackerModifier ? [{ type: "tracker", id: trackerModifier.id, role: trackerModifier.type }] : []),
+    ...(recentConflict ? [{ type: "tracker", id: recentConflict.id, role: "recent-conflict" }] : []),
+    ...(preference ? [{ type: "memory", id: preference.id, role: preference.kind }] : [])
+  ];
+  const privateGoal = Object.prototype.hasOwnProperty.call(options, "privateGoal") ? Number(options.privateGoal) : privateCoachGoal;
+  const context = {
+    weightId: current.id,
+    currentWeight: weightInPounds(current),
+    latestDailyWeight: latestPoint.weight,
+    previousDailyWeight: previousPoint ? previousPoint.weight : null,
+    latestDailyChange,
+    changeDirection,
+    streak,
+    reversal: streak.reversal,
+    outlier,
+    movements: {
+      days3: robustWindowMovement(points, 3),
+      days7: robustWindowMovement(points, 7),
+      days14: robustWindowMovement(points, 14),
+      days28: robustWindowMovement(points, 28)
+    },
+    outlook,
+    previousOutlook: Number.isFinite(previousOutlook) ? previousOutlook : outlook,
+    outlookChange,
+    outlookDirection,
+    verdict,
+    trackerModifier,
+    preference: preference ? { id: preference.id, kind: preference.kind } : null,
+    action,
+    evidenceReferences,
+    hiddenStrategy: hiddenStrategyState(privateGoal, weightInPounds(current)),
+    forecastFingerprint: history.map((point) => ({ day: point.day, weight: point.weight, outlookTargetWeight: point.outlookTargetWeight }))
+  };
+  context.contextHash = crypto.createHash("sha256").update(JSON.stringify(context)).digest("hex");
+  return context;
+}
+
+function changePhrase(context) {
+  if (context.changeDirection === "unchanged") return "is unchanged";
+  return `is ${context.changeDirection} ${trimCoachNumber(Math.abs(context.latestDailyChange))} lb`;
+}
+
+function outlookPhrase(context) {
+  const rounded = Math.round(context.outlook);
+  if (context.outlookDirection === "improved") return `improved to about ${rounded} lb`;
+  if (context.outlookDirection === "worsened") return `turned the wrong way to about ${rounded} lb`;
+  return `is holding at about ${rounded} lb`;
+}
+
+function buildContextualFallback(context) {
+  if (!context) return "WEIGH-IN SAVED—THE DATA IS HERE, AND THE NEXT CONSISTENT CHECK WILL MAKE THE DIRECTION CLEARER. Build the next meal around protein, vegetables, and a satisfying portion. KEEP SHOWING UP FOR THE TREND—LET’S GO!!!";
+  const current = trimCoachNumber(context.currentWeight);
+  const modifier = context.trackerModifier ? ` ${context.trackerModifier.text}` : "";
+  let opening = "NOT GOOD ENOUGH YET";
+  let close = "TURN THIS LINE AROUND—LET’S GO!!!";
+  if (context.verdict === "good-progress") {
+    opening = "YES—THIS IS REAL PROGRESS";
+    close = "KEEP STACKING PROOF—LET’S GO!!!";
+  } else if (context.verdict === "verify") {
+    opening = "PAUSE—THIS READING NEEDS CONFIRMATION";
+    close = "CONFIRM THE SIGNAL, THEN WE ATTACK THE REAL TREND!!!";
+  } else if (context.verdict === "baseline") {
+    opening = "BASELINE LOGGED—THIS IS THE STARTING LINE";
+    close = "THE TREND STARTS HERE—LET’S GO!!!";
+  }
+  const paragraph = `${opening}—${current} lb ${changePhrase(context)}, and the 1-year trend outlook ${outlookPhrase(context)}.${modifier} ${context.action} ${close}`;
+  return normalizeCoachParagraph(paragraph);
+}
+
+function similarityScore(left, right) {
+  const tokens = (value) => new Set(String(value || "").toLowerCase().match(/[a-z0-9]+/g) || []);
+  const a = tokens(left);
+  const b = tokens(right);
+  if (!a.size || !b.size) return 0;
+  let overlap = 0;
+  for (const token of a) if (b.has(token)) overlap += 1;
+  return overlap / (a.size + b.size - overlap);
+}
+
+function numericTokens(text) {
+  return (String(text || "").match(/[-+]?\d+(?:\.\d+)?/g) || []).map(Number).filter(Number.isFinite);
+}
+
+function validateCoachParagraph(text, context, previousMessages = [], options = {}) {
+  const paragraph = normalizeCoachParagraph(text);
+  const errors = [];
+  const words = coachWordCount(paragraph);
+  if (/[\r\n]/.test(String(text || ""))) errors.push("multiline");
+  if (words < COACH_MIN_WORDS || words > COACH_MAX_WORDS) errors.push("word-count");
+  const unsafe = /\b(?:obese|fat|body|lazy|disgusting|failure|worthless|worth|bmi|jyp|korean idol|fast|fasting|starve|starving|skip(?:ping)? meals?|purge|purging|compensat\w*|punish\w*|restrict\w*|under-?eat\w*|overexercis\w*|excessive exercise|depriv\w*|guilt|shame|diagnos\w*|depress\w*)\b/i;
+  if (unsafe.test(paragraph)) errors.push("unsafe-language");
+  if (/\b(?:horn\w*|sex(?:ual)?|ovulat\w*|conflict|phone|address|relationship|appearance)\b/i.test(paragraph)) errors.push("private-context-leak");
+  if (/[\u00e2\u00c3\u00c2\ufffd]/.test(paragraph)) errors.push("mojibake");
+  if (/\b(?:safety-held|high-safe-urgency|steady-safe)\b/i.test(paragraph)) errors.push("private-strategy-leak");
+  if (/\b(?:goal|goal weight|internal target|target weight)\b/i.test(paragraph)) errors.push("goal-reference");
+  if (/\b(?:period|cycle|menstrual)\b.{0,35}\b(?:caused?|made|explains?)\b|\b(?:caused?|made|explains?)\b.{0,35}\b(?:period|cycle|menstrual)\b/i.test(paragraph)) errors.push("period-causality");
+  if (!context || !paragraph.includes(`${trimCoachNumber(context.currentWeight)} lb`)) errors.push("current-weight");
+  if (context && !paragraph.includes(`about ${Math.round(context.outlook)} lb`)) errors.push("outlook-weight");
+  if (context && !paragraph.includes(context.action)) errors.push("required-action");
+  if (context) {
+    const withoutSelectedAction = paragraph
+      .replace(context.action, "")
+      .replace(context.trackerModifier?.text || "", "");
+    if (/\b(?:plan|choose|build|make|add|eat|walk|exercise|repeat|use|weigh|track|log)\b/i.test(withoutSelectedAction)) errors.push("extra-action");
+  }
+  if (context && context.changeDirection === "unchanged" && !/\b(?:unchanged|same|flat)\b/i.test(paragraph)) errors.push("change-direction");
+  if (context && context.changeDirection === "up" && !new RegExp(`\\bup\\s+${trimCoachNumber(Math.abs(context.latestDailyChange)).replace(".", "\\.")}\\s+lb`, "i").test(paragraph)) errors.push("change-direction");
+  if (context && context.changeDirection === "down" && !new RegExp(`\\bdown\\s+${trimCoachNumber(Math.abs(context.latestDailyChange)).replace(".", "\\.")}\\s+lb`, "i").test(paragraph)) errors.push("change-direction");
+  if (context && context.outlookDirection === "worsened" && !/\b(?:wrong way|worsen\w*)\b/i.test(paragraph)) errors.push("outlook-direction");
+  if (context && context.outlookDirection === "improved" && !/\b(?:improv\w*|better)\b/i.test(paragraph)) errors.push("outlook-direction");
+  const verdictPattern = context && {
+    "not-good-enough": /^(?:not good enough|today needs? a response|this needs? a response|not approved|wrong way)/i,
+    "good-progress": /^(?:yes|that['’]s real movement|real progress|good progress|this is a win|strong work|right way)/i,
+    verify: /^(?:pause|verify|confirm|this reading needs? confirmation)/i,
+    baseline: /^(?:baseline|first number|starting point|starting line)/i
+  }[context.verdict];
+  if (verdictPattern && !verdictPattern.test(paragraph)) errors.push("verdict");
+  if (context?.verdict === "not-good-enough" && /\b(?:amazing|awesome|great job|a win|approved)\b/i.test(paragraph)) errors.push("verdict-conflict");
+  if (context?.verdict === "good-progress" && /\b(?:not good enough|not approved|failure|bad result)\b/i.test(paragraph)) errors.push("verdict-conflict");
+  const allowedNumbers = context ? [
+    1,
+    3,
+    7,
+    14,
+    28,
+    Number(trimCoachNumber(context.currentWeight)),
+    Math.round(context.outlook),
+    Number(trimCoachNumber(Math.abs(context.latestDailyChange))),
+    Number(context.streak?.count),
+    ...Object.values(context.movements || {}).map((movement) => Number(trimCoachNumber(Math.abs(movement))))
+  ] : [];
+  for (const number of numericTokens(paragraph)) {
+    if (!allowedNumbers.some((allowed) => Math.abs(allowed - number) < 0.001)) {
+      errors.push("unsupported-number");
+      break;
+    }
+  }
+  const hiddenGoal = Number(options.privateGoal);
+  if (Number.isFinite(hiddenGoal) && numericTokens(paragraph).some((number) => Math.abs(number - hiddenGoal) < 0.001)) errors.push("goal-leak");
+  if ((previousMessages || []).slice(0, 10).some((previous) => similarityScore(paragraph, previous.text || previous) >= 0.78)) errors.push("repetition");
+  return { ok: errors.length === 0, errors: Array.from(new Set(errors)), text: paragraph, wordCount: words };
+}
+
+function parseCriticResult(text) {
+  try {
+    const parsed = JSON.parse(String(text || "").replace(/^```json\s*|\s*```$/gi, "").trim());
+    return { approved: parsed.approved === true, reason: String(parsed.reason || "") };
+  } catch (error) {
+    return { approved: false, reason: "invalid critic response" };
+  }
+}
+
+async function requestCoachResponse(input, options = {}) {
+  const apiKey = Object.prototype.hasOwnProperty.call(options, "apiKey") ? options.apiKey : openaiApiKey;
+  if (!apiKey) throw new Error("coach model unavailable");
+  const fetchImpl = options.fetchImpl || fetch;
+  const controller = new AbortController();
+  const timeoutMs = Math.max(25, Number(options.timeoutMs || coachGenerationTimeoutMs));
+  let timeoutId;
+  try {
+    const timeout = new Promise((resolve, reject) => {
+      timeoutId = setTimeout(() => {
+        controller.abort();
+        reject(new Error("coach model timeout"));
+      }, timeoutMs);
+    });
+    const request = fetchImpl("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: options.model || chatModel,
+        input,
+        max_output_tokens: 260
+      })
+    });
+    const response = await Promise.race([request, timeout]);
+    if (!response.ok) throw new Error("coach model request failed");
+    return responseText(await response.json());
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+function publicCoachFacts(context) {
+  return {
+    currentWeight: trimCoachNumber(context.currentWeight),
+    change: context.changeDirection === "unchanged" ? "unchanged" : `${context.changeDirection} ${trimCoachNumber(Math.abs(context.latestDailyChange))} lb`,
+    streak: context.streak,
+    reversal: context.reversal,
+    outlier: context.outlier,
+    movements: context.movements,
+    outlook: Math.round(context.outlook),
+    outlookDirection: context.outlookDirection,
+    verdict: context.verdict,
+    trackerModifier: context.trackerModifier ? context.trackerModifier.text : null,
+    savedPreferenceUsed: Boolean(context.preference),
+    action: context.action,
+    hiddenStrategy: context.hiddenStrategy
+  };
+}
+
+async function generateCoachParagraph(context, previousMessages, options = {}) {
+  const fallback = buildContextualFallback(context);
+  if (!(Object.prototype.hasOwnProperty.call(options, "apiKey") ? options.apiKey : openaiApiKey)) {
+    return { text: fallback, status: "fallback-no-model" };
+  }
+  let rejection = "";
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const facts = publicCoachFacts(context);
+      const system = [
+        "Write one energetic, human fitness-coach paragraph for Lily.",
+        "Use only the supplied facts; do not invent causes, numbers, health claims, or promises.",
+        `Return ${COACH_MIN_WORDS}-${COACH_MAX_WORDS} words in one paragraph with an unmistakable verdict.`,
+        "Include the current weight, exact change, rounded 1-year trend outlook and its direction.",
+        "Include the supplied action sentence verbatim and no other instruction or action.",
+        "Never mention a goal, target weight, private strategy, BMI, diagnosis, appearance, worth, fasting, skipped meals, restriction, compensation, punishment, JYP, or idol training.",
+        "A period modifier can caution about one noisy point but cannot alter the verdict, outlook, or claim causation.",
+        "Do not reuse stock phrasing from recent messages. Output only the paragraph."
+      ].join(" ");
+      const draft = await requestCoachResponse([
+        { role: "system", content: system },
+        { role: "user", content: `FACTS: ${JSON.stringify(facts)}\nRECENT OPENINGS TO AVOID: ${JSON.stringify((previousMessages || []).slice(0, 10).map((message) => String(message.text || message).split(/[.!?]/)[0]))}\n${rejection ? `FIX THESE REJECTION REASONS: ${rejection}` : ""}` }
+      ], options);
+      const validation = validateCoachParagraph(draft, context, previousMessages, {
+        privateGoal: Object.prototype.hasOwnProperty.call(options, "privateGoal") ? options.privateGoal : privateCoachGoal
+      });
+      if (!validation.ok) {
+        rejection = validation.errors.join(", ");
+        continue;
+      }
+      const criticText = await requestCoachResponse([
+        {
+          role: "system",
+          content: "Audit the proposed coach paragraph for numerical accuracy, usefulness, one-action compliance, privacy, safety, period causality, and originality. Approve only if every requirement passes. Return JSON only: {\"approved\":true|false,\"reason\":\"short reason\"}."
+        },
+        { role: "user", content: `FACTS: ${JSON.stringify(publicCoachFacts(context))}\nPROPOSED: ${validation.text}\nRECENT: ${JSON.stringify((previousMessages || []).slice(0, 10).map((message) => message.text || message))}` }
+      ], options);
+      const critic = parseCriticResult(criticText);
+      if (!critic.approved) {
+        rejection = critic.reason || "critic rejected";
+        continue;
+      }
+      return { text: validation.text, status: "generated-and-critic-approved" };
+    } catch (error) {
+      rejection = error.message || "generation failed";
+      if (/timeout/.test(rejection)) break;
+    }
+  }
+  return { text: fallback, status: rejection && /timeout/.test(rejection) ? "fallback-timeout" : "fallback-validation" };
+}
+
+function createCoachMessageRecord(context, text, status, now = new Date().toISOString(), existing = null) {
+  return {
+    id: existing?.id || createId("coach"),
+    weightId: context.weightId,
+    text: normalizeCoachParagraph(text),
+    verdict: context.verdict,
+    evidenceReferences: context.evidenceReferences,
+    contextHash: context.contextHash,
+    generationVersion: COACH_GENERATION_VERSION,
+    modelVersion: chatModel,
+    promptVersion: COACH_PROMPT_VERSION,
+    safetyVersion: COACH_SAFETY_VERSION,
+    status,
+    createdAt: existing?.createdAt || now,
+    updatedAt: now
+  };
+}
+
+function coachForWeight(store, weightId) {
+  return (Array.isArray(store.coachMessages) ? store.coachMessages : [])
+    .filter((message) => message.weightId === weightId)
+    .sort((left, right) => String(right.updatedAt || right.createdAt).localeCompare(String(left.updatedAt || left.createdAt)))[0] || null;
+}
+
+function publicCoach(message) {
+  if (!message) return null;
+  return { weightId: message.weightId, text: message.text, createdAt: message.createdAt };
+}
+
+function latestCoachPayload(store) {
+  const latestWeight = (Array.isArray(store.weights) ? store.weights : [])
+    .slice()
+    .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)))[0];
+  return latestWeight ? publicCoach(coachForWeight(store, latestWeight.id)) : null;
+}
+
+function addFallbackCoachForWeight(store, weightId, status = "fallback-contextual", options = {}) {
+  if (coachForWeight(store, weightId)) return store;
+  const context = buildCoachContext(store, weightId, options);
+  if (!context) return store;
+  const record = createCoachMessageRecord(context, buildContextualFallback(context), status);
+  return { ...store, coachMessages: [record, ...(Array.isArray(store.coachMessages) ? store.coachMessages : [])] };
+}
+
+function refreshLatestWeightOnlyCoach(store, status) {
+  const latestWeight = (Array.isArray(store.weights) ? store.weights : [])
+    .slice()
+    .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)))[0];
+  if (!latestWeight) return store;
+  const context = buildCoachContext(store, latestWeight.id, { includePersonalContext: false, privateGoal: privateCoachGoal });
+  if (!context) return store;
+  const existing = coachForWeight(store, latestWeight.id);
+  const replacement = createCoachMessageRecord(context, buildContextualFallback(context), status, new Date().toISOString(), existing);
+  return {
+    ...store,
+    coachMessages: [replacement, ...(Array.isArray(store.coachMessages) ? store.coachMessages : []).filter((message) => message.id !== existing?.id)]
+  };
+}
+
+function refreshIfLatestCoachReferences(store, referenceType, referenceId, status = "fallback-weight-only-context-removed") {
+  const latest = latestCoachPayload(store);
+  const latestRecord = latest ? coachForWeight(store, latest.weightId) : null;
+  const wasReferenced = latestRecord?.evidenceReferences?.some((reference) => reference.type === referenceType && reference.id === referenceId);
+  return wasReferenced ? refreshLatestWeightOnlyCoach(store, status) : store;
+}
+
+function removeWeightAndCoach(store, weightId) {
+  let next = {
+    ...store,
+    weights: (Array.isArray(store.weights) ? store.weights : []).filter((record) => record.id !== weightId),
+    coachMessages: (Array.isArray(store.coachMessages) ? store.coachMessages : []).filter((message) => message.weightId !== weightId)
+  };
+  next = refreshLatestWeightOnlyCoach(next, "fallback-weight-only-weight-history-changed");
+  return next;
+}
+
+async function backfillCoachMessages() {
+  await writeStore((store) => {
+    let next = store;
+    const weights = (Array.isArray(store.weights) ? store.weights : [])
+      .slice()
+      .sort((left, right) => String(left.createdAt).localeCompare(String(right.createdAt)));
+    for (const record of weights) next = addFallbackCoachForWeight(next, record.id, "fallback-migrated");
+    return next;
+  });
+}
+
+async function generateAndReplaceCoach(weightId, options = {}) {
+  const snapshot = await readStore();
+  const context = buildCoachContext(snapshot, weightId, {
+    privateGoal: Object.prototype.hasOwnProperty.call(options, "privateGoal") ? options.privateGoal : privateCoachGoal
+  });
+  const fallbackRecord = coachForWeight(snapshot, weightId);
+  if (!context || !fallbackRecord) return publicCoach(fallbackRecord);
+  const previousMessages = (snapshot.coachMessages || []).filter((message) => message.weightId !== weightId).slice(0, 10);
+  const result = await generateCoachParagraph(context, previousMessages, options);
+  if (result.status.startsWith("fallback-")) {
+    let savedFallback = fallbackRecord;
+    await writeStore((store) => {
+      const existing = coachForWeight(store, weightId);
+      const weightStillExists = (store.weights || []).some((weight) => weight.id === weightId);
+      if (!existing || !weightStillExists || existing.contextHash !== context.contextHash) return store;
+      savedFallback = createCoachMessageRecord(context, existing.text, result.status, new Date().toISOString(), existing);
+      return {
+        ...store,
+        coachMessages: [savedFallback, ...(store.coachMessages || []).filter((message) => message.id !== existing.id)]
+      };
+    });
+    return publicCoach(savedFallback);
+  }
+  let saved = fallbackRecord;
+  await writeStore((store) => {
+    const existing = coachForWeight(store, weightId);
+    const weightStillExists = (store.weights || []).some((weight) => weight.id === weightId);
+    if (!existing || !weightStillExists || existing.contextHash !== context.contextHash) return store;
+    saved = createCoachMessageRecord(context, result.text, result.status, new Date().toISOString(), existing);
+    return {
+      ...store,
+      coachMessages: [saved, ...(store.coachMessages || []).filter((message) => message.id !== existing.id)]
+    };
+  });
+  return publicCoach(saved);
 }
 
 function trackerDateKey(value = Date.now()) {
@@ -674,7 +1287,10 @@ async function handleApi(req, res, pathname) {
 
   if (pathname === "/api/weights" && req.method === "GET") {
     const store = await readStore();
-    send(res, 200, { weights: publicWeights(store.weights).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))) });
+    send(res, 200, {
+      weights: publicWeights(store.weights).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))),
+      latestCoach: latestCoachPayload(store)
+    });
     return;
   }
 
@@ -794,8 +1410,14 @@ async function handleApi(req, res, pathname) {
       createdAt: now,
       updatedAt: now
     };
-    await writeStore((store) => ({ ...store, weights: [created, ...(Array.isArray(store.weights) ? store.weights : [])] }));
-    send(res, 201, { weight: publicWeight(created) });
+    const savedStore = await writeStore((store) => {
+      const withWeight = { ...store, weights: [created, ...(Array.isArray(store.weights) ? store.weights : [])] };
+      return addFallbackCoachForWeight(withWeight, created.id, "fallback-contextual");
+    });
+    send(res, 201, { weight: publicWeight(created), latestCoach: publicCoach(coachForWeight(savedStore, created.id)) });
+    setImmediate(() => {
+      generateAndReplaceCoach(created.id).catch(() => {});
+    });
     return;
   }
 
@@ -850,7 +1472,8 @@ async function handleApi(req, res, pathname) {
     let deleted = null;
     await writeStore((store) => {
       deleted = store.memories.find((memory) => memory.id === id) || null;
-      return { ...store, memories: store.memories.filter((memory) => memory.id !== id) };
+      let next = { ...store, memories: store.memories.filter((memory) => memory.id !== id) };
+      return refreshIfLatestCoachReferences(next, "memory", id);
     });
     if (deleted && deleted.file && deleted.file.filename) {
       fsp.unlink(path.join(mediaDir, deleted.file.filename)).catch(() => {});
@@ -862,10 +1485,7 @@ async function handleApi(req, res, pathname) {
   const deleteWeightMatch = /^\/api\/weights\/([^/]+)$/.exec(pathname);
   if (deleteWeightMatch && req.method === "DELETE") {
     const id = decodeURIComponent(deleteWeightMatch[1]);
-    await writeStore((store) => ({
-      ...store,
-      weights: (Array.isArray(store.weights) ? store.weights : []).filter((record) => record.id !== id)
-    }));
+    await writeStore((store) => removeWeightAndCoach(store, id));
     send(res, 200, { ok: true });
     return;
   }
@@ -877,7 +1497,8 @@ async function handleApi(req, res, pathname) {
     await writeStore((store) => {
       const events = Array.isArray(store.trackerEvents) ? store.trackerEvents : [];
       deleted = events.find((event) => event.id === id) || null;
-      return { ...store, trackerEvents: events.filter((event) => event.id !== id) };
+      let next = { ...store, trackerEvents: events.filter((event) => event.id !== id) };
+      return refreshIfLatestCoachReferences(next, "tracker", id);
     });
     if (!deleted) {
       send(res, 404, { error: "Tracker entry not found." });
@@ -1001,8 +1622,40 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-ensureDataDir().then(() => {
-  server.listen(port, () => {
-    console.log(`Lily memory bank running at http://localhost:${port}`);
-  });
-});
+if (require.main === module) {
+  ensureDataDir()
+    .then(backfillCoachMessages)
+    .then(() => {
+      server.listen(port, () => {
+        console.log(`Lily memory bank running at http://localhost:${port}`);
+      });
+    });
+}
+
+if (process.env.NODE_ENV === "test") {
+  module.exports = {
+    COACH_MAX_WORDS,
+    COACH_MIN_WORDS,
+    addFallbackCoachForWeight,
+    backfillCoachMessages,
+    buildCoachContext,
+    buildContextualFallback,
+    coachForWeight,
+    coachWordCount,
+    createCoachMessageRecord,
+    ensureDataDir,
+    generateAndReplaceCoach,
+    generateCoachParagraph,
+    hiddenStrategyState,
+    latestCoachPayload,
+    normalizeCoachParagraph,
+    publicCoach,
+    readStore,
+    refreshLatestWeightOnlyCoach,
+    refreshIfLatestCoachReferences,
+    removeWeightAndCoach,
+    similarityScore,
+    validateCoachParagraph,
+    writeStore
+  };
+}

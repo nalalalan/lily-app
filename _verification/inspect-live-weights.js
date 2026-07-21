@@ -1,6 +1,5 @@
 const API_BASE = "https://lily-api-production.up.railway.app";
 const weightForecast = require("../public/weight-forecast.js");
-const weightCoach = require("../public/weight-coach.js");
 
 async function main() {
   if (!process.env.LILY_PIN) throw new Error("LILY_PIN is unavailable.");
@@ -56,19 +55,23 @@ async function main() {
     if (direction && priorAnnualDirection && direction !== priorAnnualDirection) annualDirectionChanges += 1;
     if (direction) priorAnnualDirection = direction;
   });
-  const coachRead = weightCoach.analyze(dailyPoints, current);
-  const coachVerdict = weightCoach.verdict(coachRead);
-  const coachDetail = weightCoach.composeDetail(coachRead);
-  const coachTone = weightCoach.verdictTone(coachRead);
-  const coachCopy = weightCoach.compose(coachRead);
-  if (!/!{3}/.test(coachCopy) || /bump|warning shot|not a verdict|no panic|no shrug|no shame|no drama/i.test(coachCopy)) {
-    throw new Error(`Live coach copy failed the hype gate: ${coachCopy}`);
+  const latestCoach = payload.latestCoach;
+  const coachText = String(latestCoach?.text || "").trim();
+  const coachWords = coachText.match(/[\p{L}\p{N}]+(?:[’'-][\p{L}\p{N}]+)*/gu) || [];
+  if (!latestCoach || !latestCoach.weightId || !latestCoach.createdAt || !coachText) {
+    throw new Error("Live API did not return a persisted latestCoach payload.");
   }
-  if (!coachCopy.startsWith(`${coachVerdict} `) || /1-year|forecast|previous run|weigh-ins before/i.test(coachVerdict)) {
-    throw new Error(`Live coach verdict is not current-result-first: ${coachVerdict}`);
+  if (coachWords.length < 35 || coachWords.length > 55 || /[\r\n]/.test(coachText)) {
+    throw new Error(`Live coach paragraph failed its one-paragraph word-count gate: ${coachWords.length}`);
   }
-  if (coachRead && coachRead.state === "turning-gain" && (coachTone !== "negative" || !/DON’T LIKE/.test(coachVerdict))) {
-    throw new Error(`Live gain reversal is not unmistakably disapproved: ${coachVerdict}`);
+  if (/goal|target weight|jyp|idol|obese|fasting|skip(?:ping)? meals?|punish|compensat|diagnos|[âÃÂ�]/i.test(coachText)) {
+    throw new Error("Live coach paragraph failed its privacy, safety, or encoding gate.");
+  }
+  if (rows.length && !coachText.includes(`${rows.at(-1).pounds} lb`)) {
+    throw new Error("Live coach paragraph does not contain the latest measured weight.");
+  }
+  if (current && !coachText.includes(`about ${Math.round(current.oneYearWeight)} lb`)) {
+    throw new Error("Live coach paragraph does not match the current rounded trend outlook.");
   }
   console.log(JSON.stringify({
     count: rows.length,
@@ -98,7 +101,7 @@ async function main() {
       rawOneWeekPounds: Math.round(current.rawOneWeekWeight * 10) / 10,
       rawOneMonthPounds: Math.round(current.rawOneMonthWeight * 10) / 10,
       rawOneYearPounds: Math.round(current.rawOneYearWeight * 10) / 10,
-      aggressiveOneYearTargetPounds: Math.round(current.aggressiveOneYearTarget * 10) / 10,
+      causalOneYearOutlookTargetPounds: Math.round(current.causalOneYearOutlookTarget * 10) / 10,
       ensembleWalkForwardMae: Number.isFinite(current.backtestMae)
         ? Math.round(current.backtestMae * 100) / 100
         : null,
@@ -109,15 +112,13 @@ async function main() {
       historyAnnualDirectionChanges: annualDirectionChanges,
       currentMatchesHistory: history.at(-1)?.weight === current.oneYearWeight
     } : null,
-    coach: coachRead ? {
-      state: coachRead.state,
-      verdict: coachVerdict,
-      tone: coachTone,
-      detail: coachDetail,
-      text: coachCopy,
-      hypeGatePassed: true,
-      verdictFirstPassed: true
-    } : null,
+    latestCoach: {
+      weightId: latestCoach.weightId,
+      createdAt: latestCoach.createdAt,
+      words: coachWords.length,
+      text: coachText,
+      persistedParagraphGatePassed: true
+    },
     rows: rows.map((record) => ({
       date: record.createdAt.slice(0, 10),
       pounds: Math.round(record.pounds * 10) / 10

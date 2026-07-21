@@ -60,7 +60,7 @@ assert.equal(coach.verdictTone(todayRead), "negative");
 assert.ok(todayCopy.startsWith(`${todayVerdict} `), "today's judgment must be the first sentence");
 assert.match(todayDetail, /^149\.9 lb is up 1\.4 lb since Jul 19\./);
 assert.match(todayDetail, /four weigh-ins before today dropped 1\.8 lb/i);
-assert.match(todayDetail, /1-year call still points to 141 lb/i);
+assert.match(todayDetail, /1-year call still points to 144\.7 lb/i);
 assert.match(todayDetail, /today does NOT get a win/);
 assert.match(todayCopy, /!{3}/);
 assert.doesNotMatch(todayCopy, /bump|warning shot|not a verdict|next 24 hours/i);

@@ -22,8 +22,8 @@ Set `public/config.js` to an empty API base for same-origin local API testing, o
 - `GET /api/memories` - list shared memories
 - `POST /api/memories` - save notes, image data, and video data
 - `DELETE /api/memories/:id` - delete a saved memory
-- `GET /api/weights` - list saved weight records
-- `POST /api/weights` - save a weight with the server timestamp
+- `GET /api/weights` - list saved weight records plus the latest persisted coach paragraph
+- `POST /api/weights` - save a weight and its persisted coach paragraph with the server timestamp
 - `DELETE /api/weights/:id` - delete a saved weight record
 - `GET /api/tracker` - read conflict, longest streak, and period tracker counts
 - `POST /api/tracker/conflict` - save a conflict event; an authenticated backfill may include a past `dateKey`
@@ -32,15 +32,13 @@ Set `public/config.js` to an empty API base for same-origin local API testing, o
 - `DELETE /api/tracker/:id` - delete a saved conflict or period entry
 - `POST /api/chat` - answer from saved Lily context
 
-## Weight forecast and coach
+## Weight trend outlook and coach
 
-The prediction history calculates a one-year target for every saved daily weigh-in, using only that date and the dates before it. Multiple entries on one local date are reduced to their median. A robust walk-forward ensemble supplies the stable component. A bounded momentum layer then reacts strongly to the current story: Theil-Sen slopes over the latest 3 points and 7/14 calendar days, plus a valid same-direction streak, drive a decaying 48-day adjustment capped at `0.5 lb/day`. Horizon bounds around the latest three-weight median are 4% for a week, 8% for a month, and 20% for a year, with absolute minimum bounds of 4, 8, and 20 lb. A lone implausible jump cannot activate strong momentum.
+The one-year trend outlook calculates one point for every calendar-day median using only the measurements available through that date. The existing causal annual target remains bounded by the robust walk-forward model and momentum diagnostics. The displayed annual series has no retained velocity: confirmed multi-reading evidence moves 30% toward the current target with a 2 lb cap, while weak, flat, isolated, or reversal evidence moves 25% with a 0.75 lb cap. Every step moves toward its current target without overshoot. The current headline exactly matches the final plotted point.
 
-The visible predictions keep those aggressive raw targets but reach them through a causal velocity layer. The robust 3/7/14-day direction is smoothed, the annual target can still swing by as much as 35 lb inside the existing horizon bounds, and retained velocity makes the displayed line bend before reversing. Per-weigh-in desired velocity is capped at 1.5 lb for one week, 2.5 lb for one month, and 4 lb for one year. Sustained evidence can keep driving the call toward an extreme; one noisy point cannot teleport it by 20–30 lb. The final displayed annual value is shared exactly by the headline and the last prediction-history point.
+Every weigh-in first persists a deterministic, contextual 35–55-word fallback paragraph. Model generation happens outside the write lock, uses only selected source facts, and is accepted only after deterministic validation plus a second critic pass. Invalid numbers, unsafe advice, sensitive tracker context, repetition, multiline output, timeouts, and private-strategy leakage retain the safe fallback. Public weight responses expose only `latestCoach: { weightId, text, createdAt }`; evidence references and generation metadata stay in the private store.
 
-The primary card shows one direct `1 wk · 1 mo · 1 yr` line, then a standalone current verdict before the broader coach analysis. Every saved weigh-in gets unmistakable, data-specific energy and judgment: improving direction earns clear approval; worsening direction gets clear disapproval plus a fired-up comeback; flat or noisy direction is explicitly not approved yet; and a first entry or extreme outlier is identified as a baseline or confirmation case instead of being misjudged. The next sentence carries the latest measurement and change, and broader streak or forecast context follows without hiding whether today's number went the right way. The coach remembers the run immediately preceding a reversal and varies its sentence structure as the saved pattern changes. It does not shame Lily, invent behavior, imply clinical credentials, recommend extreme restriction, or infer obesity or health status from pounds alone.
-
-Actual weight and one-year prediction history render in two separate charts with independent y-domains. The actual chart comes first, labels and emphasizes the latest saved weight, and includes only measured weights plus their trend; prediction values cannot flatten it. The second chart contains only the connected, causal annual prediction history. Walk-forward errors, annual outcomes, raw targets, base-model values, momentum diagnostics, and continuity state remain available to tests and diagnostics without becoming a caveat wall in the card.
+The weight card is ordered for one screenshot: latest weight and compact outlook, one coach paragraph, actual weight versus time, one-year trend outlook versus time, then the entry form. The actual chart uses only measured weights and their robust trend. The outlook chart has its own scale and directly labels its current value and direction. Photos, videos, tracker history, bottom weight history, delete controls, and the centered media/right-rail layout remain separate and preserved.
 
 Method references: [damped-trend forecasting](https://doi.org/10.1287/mnsc.31.10.1237), [robust Holt-Winters filtering](https://doi.org/10.1002/for.1125), [rolling-origin forecast evaluation](https://doi.org/10.1016/S0169-2070(00)00065-0), and the [NIDDK body-weight model research](https://www.niddk.nih.gov/research-funding/at-niddk/labs-branches/laboratory-biological-modeling/integrative-physiology-section/research/body-weight-planner).
 
@@ -50,6 +48,7 @@ Railway variables:
 - `LILY_PIN=<private PIN>`
 - `SESSION_SECRET`
 - `OPENAI_API_KEY`
+- `LILY_INTERNAL_GOAL_LB=<private server-only value>`
 - `ALLOWED_ORIGINS=https://lily.aolabs.io,http://localhost:3000,http://127.0.0.1:3000`
 
 ## Deploy To GitHub Pages

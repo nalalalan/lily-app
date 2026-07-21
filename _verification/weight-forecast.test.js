@@ -22,6 +22,47 @@ function median(values) {
   return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
+function assertOutlookTrajectory(inputPoints, message) {
+  const normalized = forecast.normalizePoints(inputPoints);
+  const trajectory = forecast.buildForecastHistory(inputPoints);
+  assert.equal(trajectory.length, normalized.length, `${message}: one outlook point per daily median`);
+  assert.equal(trajectory[0].oneYearWeight, normalized[0].weight, `${message}: outlook starts at the first daily median`);
+  for (let index = 1; index < trajectory.length; index += 1) {
+    const previous = trajectory[index - 1].oneYearWeight;
+    const current = trajectory[index];
+    const target = current.causalOneYearOutlookTarget;
+    const strong = forecast.momentumDiagnostics(normalized, index).strong;
+    const alpha = strong ? 0.30 : 0.25;
+    const maximumMovement = strong ? 2.00 : 0.75;
+    const expectedStep = Math.max(
+      -maximumMovement,
+      Math.min(maximumMovement, alpha * (target - previous))
+    );
+    assert.ok(
+      Math.abs(current.oneYearWeight - (previous + expectedStep)) < 1e-9,
+      `${message}: point ${index} must apply the exact causal smoother`
+    );
+    assert.ok(
+      Math.abs(current.oneYearOutlookStep) <= maximumMovement + 1e-9,
+      `${message}: point ${index} must obey its ${maximumMovement}-lb cap`
+    );
+    assert.equal(
+      Math.sign(current.oneYearOutlookStep),
+      Math.sign(target - previous),
+      `${message}: point ${index} must move toward current evidence`
+    );
+    if (target >= previous) {
+      assert.ok(current.oneYearWeight >= previous && current.oneYearWeight <= target + 1e-9, `${message}: upward point ${index} cannot overshoot`);
+    } else {
+      assert.ok(current.oneYearWeight <= previous && current.oneYearWeight >= target - 1e-9, `${message}: downward point ${index} cannot overshoot`);
+    }
+    assert.equal(current.oneYearOutlookAlpha, alpha, `${message}: point ${index} must expose the applied alpha`);
+    assert.equal(current.oneYearOutlookMaximumMovement, maximumMovement, `${message}: point ${index} must expose the applied cap`);
+    assert.ok(!("oneYearVelocity" in current), `${message}: annual outlook must not retain velocity`);
+  }
+  return trajectory;
+}
+
 const constant = dailySeries("2026-01-01", 20, () => 150);
 const constantForecast = forecast.calculateForecast(constant);
 assert.equal(constantForecast.oneYearWeight, 150, "constant history should stay constant");
@@ -38,6 +79,21 @@ for (const row of constantForecast.model.validationRows || []) {
 const sparse = forecast.calculateForecast([point("2026-01-01", 142)]);
 assert.equal(sparse.method, "persistence", "one point should use the stable baseline");
 assert.equal(sparse.oneYearWeight, 142, "one point should still return a finite forecast");
+
+const easternEvening = Date.parse("2026-07-21T01:30:00.000Z");
+assert.equal(
+  forecast.calendarDay(easternEvening),
+  Math.floor(Date.UTC(2026, 6, 20) / forecast.DAY_MS),
+  "calendar-day medians must use Lily's America/New_York date on every host"
+);
+assert.equal(
+  forecast.normalizePoints([
+    { time: Date.parse("2026-07-20T16:00:00.000Z"), weight: 149 },
+    { time: easternEvening, weight: 151 }
+  ]).length,
+  1,
+  "two Eastern-calendar weigh-ins must share one daily median even when UTC dates differ"
+);
 
 const shortHistory = dailySeries("2026-02-01", 8, (index) => 150 + Math.sin(index) * 0.4);
 const shortForecast = forecast.calculateForecast(shortHistory);
@@ -96,6 +152,15 @@ assert.deepEqual(
   forecast.normalizePoints(duplicateB),
   "same-day duplicate order must not affect daily medians"
 );
+const duplicateForecast = forecast.calculateForecast(duplicateA);
+const duplicateOutlook = forecast.buildOneYearHistory(
+  duplicateA,
+  duplicateForecast,
+  point("2026-05-10", 150).time
+);
+assert.equal(duplicateOutlook.length, 2, "same-day entries must produce only one outlook point and one jump");
+assert.equal(duplicateOutlook[0].day, forecast.normalizePoints(duplicateA)[0].day, "the first outlook point must use the median's calendar day");
+assert.equal(duplicateOutlook.at(-1).weight, duplicateForecast.oneYearWeight, "a later current time must not add a synthetic non-weigh-in point");
 
 const beforeDst = new Date("2026-03-07T12:00:00-05:00").getTime();
 const afterDst = new Date("2026-03-08T12:00:00-04:00").getTime();
@@ -127,48 +192,105 @@ assert.equal(lilyForecast.annualValidationCount, 0, "the live-shaped record has 
 assert.equal(lilyForecast.annualCalibrationReady, false, "the live-shaped one-year endpoint is an uncalibrated baseline");
 assert.equal(Number(lilyForecast.oneWeekWeight.toFixed(1)), 148.4, "the one-week forecast must move toward the raw target without teleporting");
 assert.equal(Number(lilyForecast.oneMonthWeight.toFixed(1)), 147.8, "the one-month forecast must move toward the raw target without teleporting");
-assert.equal(Number(lilyForecast.oneYearWeight.toFixed(1)), 144.5, "three improving weigh-ins must push the annual call hard without a one-day cliff");
-assert.equal(Number(lilyForecast.rawOneYearWeight.toFixed(1)), 123.5, "the aggressive raw annual target must remain available behind the continuity layer");
+assert.equal(Number(lilyForecast.oneYearWeight.toFixed(1)), 145.4, "three improving weigh-ins must push the outlook hard without a one-day cliff");
+assert.equal(Number(lilyForecast.rawOneYearWeight.toFixed(1)), 123.5, "the raw annual model output must remain available behind the outlook layer");
 assert.equal(lilyForecast.momentum.momentumRate, -0.5, "the current three-drop run should reach the bounded celebratory momentum rate");
 assert.equal(lilyForecastHistory.at(-1).weight, lilyForecast.oneYearWeight, "live-shaped headline and overlay must match exactly");
 assert.equal(lilyForecastHistory.at(-1).annualCalibrated, false, "the current overlay point must carry its uncalibrated state");
 
 const lilyToday = lilyHistory.concat(point("2026-07-20", 149.9));
 const lilyTodayForecast = forecast.calculateForecast(lilyToday, { asOfDay: lilyAsOfDay });
-const lilyTrajectory = forecast.buildForecastHistory(lilyToday);
+const lilyTrajectory = assertOutlookTrajectory(lilyToday, "live history through July 20");
 assert.equal(Number(lilyTodayForecast.oneWeekWeight.toFixed(1)), 148.4, "one bump must not jerk the one-week call around");
 assert.equal(Number(lilyTodayForecast.oneMonthWeight.toFixed(1)), 147.8, "one bump must not jerk the one-month call around");
-assert.equal(Number(lilyTodayForecast.oneYearWeight.toFixed(1)), 141, "the annual signal should keep bending with the prior run instead of teleporting to the raw 150.6 lb target");
-assert.equal(Number(lilyTodayForecast.rawOneYearWeight.toFixed(1)), 150.6, "the raw annual target should still react aggressively to today's bump");
-assert.equal(Number(lilyTrajectory.at(-1).oneYearWeight.toFixed(1)), 141, "the final trajectory point must equal today's headline");
-for (const [key, limit] of [["oneWeekWeight", 1.5], ["oneMonthWeight", 2.5], ["oneYearWeight", 4]]) {
+assert.equal(Number(lilyTodayForecast.oneYearWeight.toFixed(1)), 144.7, "a broken run must slow the annual move to the weak-evidence cap");
+assert.equal(Number(lilyTodayForecast.rawOneYearWeight.toFixed(1)), 150.6, "the raw annual model output should still react to today's bump");
+assert.equal(Number(lilyTrajectory.at(-1).oneYearWeight.toFixed(1)), 144.7, "the final trajectory point must equal today's headline");
+assert.equal(lilyTodayForecast.forecastContinuity.oneYearOutlook.alpha, 0.25, "the July 20 reversal must use weak-evidence smoothing");
+assert.equal(lilyTodayForecast.forecastContinuity.oneYearOutlook.maximumMovement, 0.75, "the July 20 reversal must be capped at 0.75 lb");
+assert.ok(!("oneYearVelocity" in lilyTodayForecast.forecastContinuity), "the public diagnostics must not carry obsolete annual velocity");
+for (const [key, limit] of [["oneWeekWeight", 1.5], ["oneMonthWeight", 2.5]]) {
   const jumps = lilyTrajectory.slice(1).map((row, index) => Math.abs(row[key] - lilyTrajectory[index][key]));
   assert.ok(Math.max(...jumps) <= limit + 1e-9, `${key} must stay inside its causal continuity step limit`);
 }
-let annualDirectionChanges = 0;
-let priorAnnualDirection = 0;
-for (let index = 1; index < lilyTrajectory.length; index += 1) {
-  const direction = Math.sign(lilyTrajectory[index].oneYearWeight - lilyTrajectory[index - 1].oneYearWeight);
-  if (direction && priorAnnualDirection && direction !== priorAnnualDirection) annualDirectionChanges += 1;
-  if (direction) priorAnnualDirection = direction;
-}
-assert.ok(annualDirectionChanges <= 3, "the annual history must bend rather than randomly reverse on nearly every weigh-in");
 
-const lilyFuture = lilyToday.concat(point("2026-07-21", 150.4));
+const lilyFuture = lilyToday.concat(point("2026-07-21", 149.9));
+const lilyFutureForecast = forecast.calculateForecast(lilyFuture);
+const lilyFutureTrajectory = assertOutlookTrajectory(lilyFuture, "live history through July 21");
 assert.deepEqual(
-  forecast.buildForecastHistory(lilyFuture).slice(0, lilyTrajectory.length),
+  lilyFutureTrajectory.slice(0, lilyTrajectory.length),
   lilyTrajectory,
   "future weigh-ins must not rewrite any prior week, month, or year forecast state"
 );
+assert.deepEqual(
+  lilyFutureTrajectory.slice(-5).map((row) => Number(row.oneYearWeight.toFixed(1))),
+  [149.2, 147.4, 145.4, 144.7, 145.4],
+  "the current live fixture must reproduce the approved final five outlooks"
+);
+assert.equal(Number(lilyFutureForecast.oneYearWeight.toFixed(1)), 145.4, "the July 21 headline must be about 145 lb");
+assert.equal(lilyFutureForecast.oneYearWeight, lilyFutureTrajectory.at(-1).oneYearWeight, "the headline annual value must exactly equal the final plotted point");
+assert.ok(
+  lilyFutureTrajectory.at(-1).oneYearWeight > lilyFutureTrajectory.at(-2).oneYearWeight,
+  "the flat July 21 weigh-in must turn the outlook upward rather than retain obsolete downward velocity"
+);
+assert.equal(lilyFutureTrajectory.at(-1).oneYearOutlookStep, 0.75, "the July 21 weak-evidence reversal must move exactly to its 0.75-lb cap");
 
 const symmetricGain = dailySeries("2026-10-01", 21, (index) => 150 + index * 0.15);
 const symmetricGainForecast = forecast.calculateForecast(symmetricGain);
+const symmetricGainTrajectory = assertOutlookTrajectory(symmetricGain, "sustained gain");
 assert.ok(symmetricGainForecast.oneYearWeight > symmetricGain.at(-1).weight + 15, "a sustained gain must move the annual forecast strongly upward");
+assert.ok(
+  symmetricGainTrajectory.some((row) => Math.abs(row.oneYearOutlookStep - 2) < 1e-9),
+  "confirmed sustained gain evidence must be allowed to use the 2-lb cap"
+);
+
+const symmetricLoss = dailySeries("2026-10-01", 21, (index) => 160 - index * 0.15);
+const symmetricLossForecast = forecast.calculateForecast(symmetricLoss);
+const symmetricLossTrajectory = assertOutlookTrajectory(symmetricLoss, "sustained loss");
+assert.ok(symmetricLossForecast.oneYearWeight < symmetricLoss.at(-1).weight - 15, "a sustained loss must move the annual outlook strongly downward");
+assert.ok(
+  symmetricLossTrajectory.some((row) => Math.abs(row.oneYearOutlookStep + 2) < 1e-9),
+  "confirmed sustained loss evidence must be allowed to use the 2-lb cap"
+);
+
+const flatNoise = dailySeries("2026-10-01", 21, (index) => 150 + (index % 2 ? 0.1 : -0.1));
+const flatNoiseTrajectory = assertOutlookTrajectory(flatNoise, "flat noise");
+assert.ok(
+  flatNoiseTrajectory.slice(1).every((row) => Math.abs(row.oneYearOutlookStep) <= 0.75 + 1e-9),
+  "flat noise must never receive a strong-evidence jump"
+);
 
 const isolatedHigh = dailySeries("2026-11-01", 21, (index) => index === 20 ? 170 : 150);
 const isolatedHighForecast = forecast.calculateForecast(isolatedHigh);
+const isolatedHighTrajectory = assertOutlookTrajectory(isolatedHigh, "isolated spike");
 assert.equal(isolatedHighForecast.momentum.strong, false, "one isolated high value must not activate amplified momentum");
 assert.ok(isolatedHighForecast.oneYearWeight < 155, "one isolated high value must not create a runaway annual forecast");
+assert.ok(Math.abs(isolatedHighTrajectory.at(-1).oneYearOutlookStep) <= 0.75, "one isolated spike must use the weak-evidence cap");
+
+const mutationBase = [
+  point("2026-12-01", 150),
+  point("2026-12-02", 149),
+  point("2026-12-04", 148),
+  point("2026-12-05", 147)
+];
+const backdatedPoint = point("2026-12-03", 155);
+const mutationBaseTrajectory = forecast.buildForecastHistory(mutationBase);
+const insertedTrajectory = forecast.buildForecastHistory(mutationBase.concat(backdatedPoint));
+const insertedDay = backdatedPoint.day;
+assert.deepEqual(
+  insertedTrajectory.filter((row) => row.day < insertedDay),
+  mutationBaseTrajectory.filter((row) => row.day < insertedDay),
+  "a backdated insertion must preserve every outlook point before the affected date"
+);
+assert.ok(
+  insertedTrajectory.some((row) => row.day > insertedDay && row.oneYearWeight !== mutationBaseTrajectory.find((base) => base.day === row.day)?.oneYearWeight),
+  "a backdated insertion must recompute the affected date forward"
+);
+assert.deepEqual(
+  forecast.buildForecastHistory(mutationBase.concat(backdatedPoint).filter((row) => row.day !== insertedDay)),
+  mutationBaseTrajectory,
+  "deleting a backdated entry must restore the causal trajectory from that date forward"
+);
 
 const annualHistory = dailySeries("2023-01-01", 930, (index) => 145 + index * 0.005 + Math.sin(index / 9) * 0.6);
 const annualStarted = Date.now();
