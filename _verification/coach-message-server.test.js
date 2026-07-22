@@ -206,7 +206,7 @@ async function run() {
   assert.match(finalFallback.text, /up 2\.5 lb/);
   assert.match(finalFallback.text, /accelerat/i);
   assert.match(finalFallback.text, /about 146 lb/);
-  for (const weight of productionWeights.slice(-5)) {
+  for (const weight of productionWeights) {
     const context = coach.buildCoachContext(fullFallbackRun.store, weight.id, { privateGoal: 117 });
     const previous = coach.causalPreviousCoachMessages(fullFallbackRun.store, weight, 10);
     const pool = coach.buildContextualFallbackCandidates(context, previous, 3, { writerSafe: true });
