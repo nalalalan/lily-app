@@ -209,10 +209,19 @@ async function run() {
   for (const weight of productionWeights.slice(-5)) {
     const context = coach.buildCoachContext(fullFallbackRun.store, weight.id, { privateGoal: 117 });
     const previous = coach.causalPreviousCoachMessages(fullFallbackRun.store, weight, 10);
-    const pool = coach.buildContextualFallbackCandidates(context, previous, 3);
+    const pool = coach.buildContextualFallbackCandidates(context, previous, 3, { writerSafe: true });
     assert.equal(pool.length, 3, `the live ${weight.createdAt.slice(0, 10)} writer pool has three critic-ready options`);
     for (const candidate of pool) assert.equal(coach.validateCoachParagraph(candidate.text, context, previous, { privateGoal: 117 }).ok, true);
   }
+  const sixSafeClosingPriors = coach.WRITER_SAFE_CLOSINGS["not-good-enough"].slice(0, 6).map((closing, index) => ({
+    id: `safe-closing-prior-${index}`,
+    text: `Earlier evidence story ${index + 1} used a different argument and action. ${closing}`,
+    actionSemantic: `historical-action-${index}`,
+    actionText: `Historical action ${index}`
+  }));
+  const postCooldownWriterPool = coach.buildContextualFallbackCandidates(july22, sixSafeClosingPriors, 3, { writerSafe: true });
+  assert.equal(postCooldownWriterPool.length, 3, "six recent writer-safe closings cannot exhaust the three-candidate writer pool");
+  assert(postCooldownWriterPool.every((candidate) => coach.validateCoachParagraph(candidate.text, july22, sixSafeClosingPriors, { privateGoal: 117 }).ok), "post-cooldown writer candidates remain independently valid");
 
   const equivalentRows = productionWeights.slice(0, 8);
   const equivalentA = addAllFallbacks(baseStore(equivalentRows)).store.coachMessages
@@ -238,7 +247,7 @@ async function run() {
   assert.equal(coach.identifyApprovedAction(fallback, july22)?.semantic, july22.actionSemantic);
 
   const acceptanceAction = july22.actionRealizations.slice().sort((left, right) => coach.coachWordCount(left.text) - coach.coachWordCount(right.text))[0].text;
-  const acceptanceExample = `THIS IS MOVING THE WRONG WAY—151 lb is up 1.1 lb today. The 3-day move is up 2.5 lb and accelerated from the prior read. The 1-year trend outlook worsened to about 146 lb. ${acceptanceAction} THE RESPONSE STARTS NOW!!!`;
+  const acceptanceExample = `THIS IS MOVING THE WRONG WAY—151 lb is up 1.1 lb today. The 3-day weight change is up 2.5 lb and accelerated from the prior read. The 1-year trend outlook worsened to about 146 lb. ${acceptanceAction} THE RESPONSE STARTS NOW!!!`;
   const acceptanceValidation = coach.validateCoachParagraph(acceptanceExample, july22, [], { privateGoal: 117 });
   assert.equal(acceptanceValidation.ok, true, `a fresh semantic verdict must not be rejected as non-template copy: ${acceptanceValidation.errors.join(", ")}`);
   assertParagraph(acceptanceExample, "July 22 acceptance example");
@@ -280,8 +289,8 @@ async function run() {
   }
 
   const falseEvidenceRelation = acceptanceExample.replace(
-    "The 3-day move is up 2.5 lb and accelerated from the prior read.",
-    "The 3-day move is up 2.5 lb and weaker than before. A worsened 1-year trend outlook reads about 146 lb."
+    "The 3-day weight change is up 2.5 lb and accelerated from the prior read.",
+    "The 3-day weight change is up 2.5 lb and weaker than before. A worsened 1-year trend outlook reads about 146 lb."
   );
   assert(coach.validateCoachParagraph(falseEvidenceRelation, july22, [], { privateGoal: 117 }).errors.includes("evidence-claim"), "the outlook cannot satisfy a contradictory broader-evidence relation");
 
@@ -298,7 +307,7 @@ async function run() {
     acceptanceExample.replace("today. The 3-day", "today because the 3-day"),
     acceptanceExample.replace("prior read. The 1-year", "prior read, so the 1-year"),
     acceptanceExample.replace("151 lb is up 1.1 lb today.", "151 lb is up 1.1 lb today?"),
-    `THIS IS MOVING THE WRONG WAY—${acceptanceAction}. 151 lb is up 1.1 lb today. The 3-day move is up 2.5 lb and accelerated from the prior read. The 1-year trend outlook worsened to about 146 lb. THE RESPONSE STARTS NOW!!!`
+    `THIS IS MOVING THE WRONG WAY—${acceptanceAction}. 151 lb is up 1.1 lb today. The 3-day weight change is up 2.5 lb and accelerated from the prior read. The 1-year trend outlook worsened to about 146 lb. THE RESPONSE STARTS NOW!!!`
   ]) {
     const result = coach.validateCoachParagraph(falseArgument, july22, [], { privateGoal: 117 });
     assert(result.errors.some((error) => error.startsWith("closed-")), "causal joins, factual questions, and action-first fragments are rejected");
@@ -308,7 +317,7 @@ async function run() {
   const structureB = "WRONG WAY—149 lb is up 0.7 lb. The 3-day move is up 1.2 lb.";
   assert.equal(coach.structuralFingerprint(structureA, july22), coach.structuralFingerprint(structureB, july22), "changing numbers inside a repeated argument is not original analysis");
 
-  const writerRows = coach.buildContextualFallbackCandidates(july22, [], 3);
+  const writerRows = coach.buildContextualFallbackCandidates(july22, [], 3, { writerSafe: true });
   assert.equal(writerRows.length, 3, "the schema-enforced writer pool supplies several vetted paragraphs");
   assert.equal(new Set(writerRows.map((candidate) => coach.openingFingerprint(candidate.text))).size, 3, "writer-pool openings are distinct");
   assert.equal(new Set(writerRows.map((candidate) => coach.closingFingerprint(candidate.text))).size, 3, "writer-pool closings are distinct");
@@ -322,6 +331,7 @@ async function run() {
   assert.equal(approvedGeneration.status, "generated-and-critic-approved");
   assert.equal(approvedGeneration.text, writerRows[1].text);
   assert.equal(approvedGeneration.criticResult.checks.originality, true);
+  assert.equal(approvedGeneration.criticResult.reasonCode, "approved");
 
   const invalidWriter = await coach.generateCoachParagraph(july22, [], {
     apiKey: "test-key",
@@ -433,7 +443,7 @@ async function run() {
 
   const persistedContext = coach.buildCoachContext(migrated, "weight-5", { privateGoal: 117 });
   const persistedPrevious = coach.causalPreviousCoachMessages(migrated, fixtureWeights.at(-1), 10);
-  const persistedWriterRows = coach.buildContextualFallbackCandidates(persistedContext, persistedPrevious, 3);
+  const persistedWriterRows = coach.buildContextualFallbackCandidates(persistedContext, persistedPrevious, 3, { writerSafe: true });
   const persistedWriterPayload = JSON.stringify({ candidates: persistedWriterRows.map((candidate) => ({ text: candidate.text })) });
   const beforeGenerated = coach.coachForWeight(migrated, "weight-5");
   await coach.generateAndReplaceCoach("weight-5", {
@@ -448,8 +458,10 @@ async function run() {
   assert.equal(generatedRecord.id, beforeGenerated.id);
   assert.equal(generatedRecord.createdAt, beforeGenerated.createdAt);
   assert.equal(generatedRecord.criticResult.approved, true);
+  assert.equal(generatedRecord.criticResult.reasonCode, "approved");
   assert.equal(generatedStore.coachMessages.filter((message) => message.weightId === "weight-5").length, 1);
-  assert(!JSON.stringify(generatedRecord).includes("999"), "rejected drafts are never persisted");
+  assert(!generatedRecord.text.includes("999 lb"), "rejected draft copy is never persisted");
+  assert(!Object.keys(generatedRecord).some((key) => /draft|raw/i.test(key)), "raw rejected draft fields are never persisted");
 
   const withoutPeriod = { ...generatedStore, trackerEvents: generatedStore.trackerEvents.filter((event) => event.id !== "period-current") };
   const refreshed = coach.refreshIfLatestCoachReferences(withoutPeriod, "tracker", "period-current");

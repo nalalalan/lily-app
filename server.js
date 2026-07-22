@@ -48,13 +48,13 @@ const videoExtensions = new Set([".mp4", ".m4v", ".mov", ".webm"]);
 
 let writeQueue = Promise.resolve();
 
-const COACH_GENERATION_VERSION = "coach-pipeline-v2";
+const COACH_GENERATION_VERSION = "coach-pipeline-v3";
 const COACH_ANALYSIS_VERSION = "coach-analysis-v2";
-const COACH_WRITER_PROMPT_VERSION = "coach-writer-v2";
-const COACH_CRITIC_PROMPT_VERSION = "coach-critic-v2";
+const COACH_WRITER_PROMPT_VERSION = "coach-writer-v3";
+const COACH_CRITIC_PROMPT_VERSION = "coach-critic-v3";
 const COACH_VALIDATOR_VERSION = "coach-validator-v2";
-const COACH_FALLBACK_VERSION = "coach-fallback-v2";
-const COACH_ACTION_VERSION = "coach-action-v2";
+const COACH_FALLBACK_VERSION = "coach-fallback-v3";
+const COACH_ACTION_VERSION = "coach-action-v3";
 const COACH_PROMPT_VERSION = COACH_WRITER_PROMPT_VERSION;
 const COACH_SAFETY_VERSION = "coach-safety-v2";
 const COACH_MIN_WORDS = 35;
@@ -520,8 +520,8 @@ const COACH_ACTION_CATALOG = Object.freeze([
 ]);
 
 const PREFERENCE_ACTIONS = Object.freeze([
-  { id: "preference-korean-vegetables", preferenceKey: "preference-korean-vegetables", semantic: "preferred-balanced-meal", text: "Bring the vegetables you wanted into the next Korean-flavored meal." },
-  { id: "preference-korean-vegetables-alt", preferenceKey: "preference-korean-vegetables", semantic: "preferred-balanced-meal", text: "Keep Korean flavor and the vegetables you wanted in the next meal." },
+  { id: "preference-korean-vegetables", preferenceKey: "preference-korean-vegetables", semantic: "preferred-balanced-meal", text: "Choose one Korean-style vegetable plate for the next meal." },
+  { id: "preference-korean-vegetables-alt", preferenceKey: "preference-korean-vegetables", semantic: "preferred-balanced-meal", text: "Make the next meal one Korean-style vegetable plate." },
   { id: "preference-vegetables", preferenceKey: "preference-vegetables", semantic: "preferred-vegetable-meal", text: "Bring the vegetables you wanted into the next meal." },
   { id: "preference-vegetables-alt", preferenceKey: "preference-vegetables", semantic: "preferred-vegetable-meal", text: "Add the vegetables you wanted to the next meal." },
   { id: "preference-korean", preferenceKey: "preference-korean", semantic: "preferred-balanced-meal", text: "Build the next balanced meal with the Korean flavors you like." },
@@ -959,27 +959,54 @@ const FALLBACK_OPENINGS = Object.freeze({
   ]
 });
 
+const WRITER_SAFE_CLOSINGS = Object.freeze({
+  "not-good-enough": [
+    "THE COMEBACK ENERGY IS HERE!!!", "THIS STORY IS READY FOR A TURNAROUND!!!", "A BETTER DIRECTION IS ABSOLUTELY POSSIBLE!!!", "THIS WRONG-WAY MOMENT IS NOT THE WHOLE STORY!!!",
+    "THE TURNAROUND WINDOW IS WIDE OPEN!!!", "THE FIGHT IS STILL VERY MUCH ALIVE!!!", "THIS SETBACK IS ONLY ONE CHAPTER!!!", "BETTER MOMENTUM IS STILL AVAILABLE!!!",
+    "THE RESPONSE ENERGY IS FULLY HERE!!!", "THIS LINE IS NOT STUCK HERE!!!", "THE BETTER TREND IS STILL WITHIN REACH!!!", "THE COMEBACK STORY IS STILL ALIVE!!!",
+    "ONE BAD MOMENT DOES NOT OWN THIS RUN!!!", "THE ROAD BACK IS COMPLETELY OPEN!!!", "THIS SIGNAL IS NOT PERMANENT!!!", "THE TURNAROUND HAS REAL ROOM TO HAPPEN!!!"
+  ],
+  "good-progress": [
+    "THIS MOMENTUM IS REAL!!!", "THE RIGHT DIRECTION IS SHOWING!!!", "THIS PROGRESS DESERVES FULL ENERGY!!!", "THE DOWNWARD SIGNAL IS GETTING LOUDER!!!",
+    "THIS LINE HAS REAL MOMENTUM!!!", "THIS WIN IS WORTH CELEBRATING!!!", "THE BETTER TREND IS TAKING SHAPE!!!", "THE PROGRESS IS GETTING HARDER TO IGNORE!!!",
+    "THIS IS A GENUINE WIN!!!", "THE LINE IS EARNING REAL CONFIDENCE!!!", "THE MOMENTUM IS ABSOLUTELY ALIVE!!!", "THE GOOD DIRECTION HAS ARRIVED!!!",
+    "THIS RESULT IS PURE FORWARD MOTION!!!", "THE TREND IS FINALLY ANSWERING BACK!!!", "THIS STEP IS A BIG DEAL!!!", "THE ENERGY HERE IS ALL EARNED!!!"
+  ],
+  verify: [
+    "THIS READING IS STILL A QUESTION MARK!!!", "THE VERDICT IS STILL OPEN!!!", "THIS OUTLIER IS NOT THE WHOLE STORY!!!", "THE REAL DIRECTION IS STILL UNCLEAR!!!",
+    "THIS SWING HAS NOT EARNED A VERDICT!!!", "THE TREND DESERVES A FAIR CONFIRMATION!!!", "THIS NUMBER IS ON HOLD!!!", "THE STORY REMAINS UNDECIDED!!!",
+    "THE SIGNAL IS WAITING FOR CLARITY!!!", "THIS JUMP IS NOT YET THE TREND!!!", "THE REAL STORY IS STILL UNDER THE NOISE!!!", "ONE POINT CANNOT OWN THE VERDICT!!!",
+    "THE DIRECTION IS STILL UNSETTLED!!!", "THIS SWING IS ONLY A QUESTION!!!", "THE TREND HAS NOT SPOKEN CLEARLY YET!!!", "THE FAIR VERDICT IS STILL PENDING!!!"
+  ],
+  baseline: [
+    "THE STARTING LINE IS OFFICIALLY HERE!!!", "THIS STORY NOW HAS ITS FIRST POINT!!!", "THE BASELINE IS ON THE BOARD!!!", "THE DIRECTION IS STILL WIDE OPEN!!!",
+    "THE TREND NOW HAS AN ANCHOR!!!", "THIS IS THE FIRST HONEST MARK!!!", "THE WEIGHT STORY HAS BEGUN!!!", "THE FIRST POINT IS REAL!!!",
+    "THE SIGNAL HAS ITS STARTING PLACE!!!", "THE RUN HAS AN OFFICIAL BEGINNING!!!", "THIS BASELINE IS READY FOR CONTEXT!!!", "THE STORY HAS A CLEAN START!!!",
+    "THE DATA NOW HAS A FIRST CHAPTER!!!", "THE LINE EXISTS NOW!!!", "THIS IS WHERE THE TREND BEGINS!!!", "THE FIRST NUMBER HAS LANDED!!!"
+  ]
+});
+
 const FALLBACK_CLOSINGS = Object.freeze({
   "not-good-enough": [
     "TURN THE NEXT ARROW DOWN—LET’S GO!!!", "ANSWER THIS WITH THE NEXT CHECK!!!", "MAKE THE NEXT NUMBER PUSH BACK!!!", "THE COMEBACK STARTS WITH THIS MOVE!!!",
     "NOW FIGHT FOR THE TURN!!!", "PUT THE NEXT POINT BACK ON TRACK!!!", "THIS LINE CAN TURN—GO GET IT!!!", "THE RESPONSE STARTS NOW!!!",
     "MAKE THE NEXT WEIGH-IN ANSWER!!!", "RESET THE DIRECTION—COME ON!!!", "GO EARN THE DOWNWARD ARROW!!!", "THE NEXT POINT IS THE COMEBACK CHANCE!!!",
-    "WE KNOW WHAT NEEDS TO CHANGE—COME ON!!!"
+    "WE KNOW WHAT NEEDS TO CHANGE—COME ON!!!", ...WRITER_SAFE_CLOSINGS["not-good-enough"]
   ],
   "good-progress": [
     "KEEP STACKING DOWNWARD PROOF!!!", "PROTECT THIS DIRECTION—LET’S GO!!!", "MAKE THE NEXT POINT AGREE!!!", "PRESS THIS ADVANTAGE!!!",
     "KEEP THE GOOD SIGNAL MOVING!!!", "STACK ANOTHER RIGHT-WAY ARROW!!!", "THIS IS MOMENTUM—USE IT!!!", "GO COLLECT THE NEXT WIN!!!",
-    "KEEP THE LINE WORKING FOR YOU!!!", "BUILD ON THIS RIGHT NOW!!!", "ONE MORE GOOD POINT—LET’S GO!!!", "HOLD THE RHYTHM AND KEEP PRESSING!!!"
+    "KEEP THE LINE WORKING FOR YOU!!!", "BUILD ON THIS RIGHT NOW!!!", "ONE MORE GOOD POINT—LET’S GO!!!", "HOLD THE RHYTHM AND KEEP PRESSING!!!", ...WRITER_SAFE_CLOSINGS["good-progress"]
   ],
   verify: [
     "CONFIRM IT, THEN WE JUDGE THE TREND!!!", "LET THE NEXT CLEAN CHECK SETTLE IT!!!", "VERIFY FIRST, THEN ATTACK THE REAL SIGNAL!!!", "ONE FAIR RECHECK COMES NEXT!!!",
     "MAKE THE NEXT READING THE TIEBREAKER!!!", "CONFIRM THE NUMBER BEFORE THE HYPE!!!", "THE NEXT CLEAN POINT GETS THE VERDICT!!!", "CHECK IT ONCE, THEN WE MOVE!!!",
-    "ONE CONFIRMING POINT WILL CLEAR THIS UP!!!", "VERIFY THE SWING AND BRING THE REAL STORY!!!", "THE TREND WAITS FOR ONE CLEAN ANSWER!!!", "CONFIRMATION FIRST—THEN FULL ENERGY!!!"
+    "ONE CONFIRMING POINT WILL CLEAR THIS UP!!!", "VERIFY THE SWING AND BRING THE REAL STORY!!!", "THE TREND WAITS FOR ONE CLEAN ANSWER!!!", "CONFIRMATION FIRST—THEN FULL ENERGY!!!", ...WRITER_SAFE_CLOSINGS.verify
   ],
   baseline: [
     "THE NEXT POINT GIVES THIS LINE DIRECTION!!!", "NOW GIVE THE BASELINE A STRONG FOLLOW-UP!!!", "THE TREND STARTS WITH THE NEXT CHECK!!!", "COME BACK AND MAKE THE DIRECTION LOUD!!!",
     "ONE MORE POINT TURNS DATA INTO MOMENTUM!!!", "THE NEXT WEIGH-IN STARTS THE REAL READ!!!", "BUILD THE LINE ONE HONEST POINT AT A TIME!!!", "NOW LET THE NEXT NUMBER MOVE THE STORY!!!",
-    "THE FOLLOW-UP IS WHERE MOMENTUM BEGINS!!!", "BRING THE NEXT POINT AND WE READ THE TURN!!!", "THE START IS SET—NOW BUILD ON IT!!!", "NEXT CHECK, NEXT SIGNAL—LET’S GO!!!"
+    "THE FOLLOW-UP IS WHERE MOMENTUM BEGINS!!!", "BRING THE NEXT POINT AND WE READ THE TURN!!!", "THE START IS SET—NOW BUILD ON IT!!!", "NEXT CHECK, NEXT SIGNAL—LET’S GO!!!", ...WRITER_SAFE_CLOSINGS.baseline
   ]
 });
 
@@ -1072,10 +1099,10 @@ function fallbackFactClauseVariants(context) {
     ];
   } else {
     evidenceText = relation.map((phrase, index) => [
-      `The ${evidence.windowDays}-day move is ${evidence.direction} ${movement} lb and ${phrase}`,
-      `Across the ${evidence.windowDays}-day window, weight moved ${evidence.direction} ${movement} lb and the signal is ${phrase}`,
-      `${evidence.windowDays}-day evidence shows a ${evidence.direction} ${movement} lb move and the signal is ${phrase}`,
-      `The ${evidence.windowDays}-day read moved ${evidence.direction} ${movement} lb and is ${phrase}`
+      `The ${evidence.windowDays}-day weight change is ${evidence.direction} ${movement} lb and ${phrase}`,
+      `Across the ${evidence.windowDays}-day window, weight is ${evidence.direction} ${movement} lb and the signal is ${phrase}`,
+      `${evidence.windowDays}-day evidence is ${evidence.direction} ${movement} lb and the signal is ${phrase}`,
+      `The ${evidence.windowDays}-day result is ${evidence.direction} ${movement} lb and is ${phrase}`
     ][index % 4]);
   }
   const roundedOutlook = Math.round(context.outlook);
@@ -1243,14 +1270,16 @@ function noveltyErrors(text, context, previousMessages = [], selectedAction = id
   return Array.from(new Set(errors));
 }
 
-function buildContextualFallbackCandidates(context, previousMessages = [], limit = 1) {
+function buildContextualFallbackCandidates(context, previousMessages = [], limit = 1, options = {}) {
   const requestedLimit = Math.max(1, Math.min(24, Number(limit) || 1));
   if (!context) {
     const text = "WEIGH-IN SAVED—THE DATA IS HERE, AND THE NEXT CONSISTENT CHECK WILL MAKE THE DIRECTION CLEARER. Build the next meal around protein, vegetables, and a satisfying portion. KEEP SHOWING UP FOR THE TREND—LET’S GO!!!";
     return [{ text, structureId: "empty", errors: [], wordCount: coachWordCount(text) }];
   }
   const openings = FALLBACK_OPENINGS[context.verdict] || FALLBACK_OPENINGS["not-good-enough"];
-  const closings = FALLBACK_CLOSINGS[context.verdict] || FALLBACK_CLOSINGS["not-good-enough"];
+  const closings = options.writerSafe
+    ? (WRITER_SAFE_CLOSINGS[context.verdict] || WRITER_SAFE_CLOSINGS["not-good-enough"])
+    : (FALLBACK_CLOSINGS[context.verdict] || FALLBACK_CLOSINGS["not-good-enough"]);
   const facts = fallbackFactClauseVariants(context);
   const presentationSeed = coachPresentationSeed(context);
   const start = stableIndex(`${presentationSeed}|fallback`, FALLBACK_STRUCTURES.length);
@@ -1258,14 +1287,18 @@ function buildContextualFallbackCandidates(context, previousMessages = [], limit
   const recentOpeningFingerprints = new Set(previousMessages.slice(0, 6).map((message) => openingFingerprint(message.text || message)));
   const recentClosingFingerprints = new Set(previousMessages.slice(0, 6).map((message) => closingFingerprint(message.text || message)));
   const actionRows = context.actionRealizations || [{ id: context.actionId, text: context.action }];
-  const eligibleOpenings = openings
+  const allEligibleOpenings = rotateCandidates(openings
     .map((text, index) => ({ text, index }))
-    .filter((entry) => !recentOpeningFingerprints.has(openingFingerprint(entry.text)));
-  const eligibleClosings = closings
+    .filter((entry) => !recentOpeningFingerprints.has(openingFingerprint(entry.text))), `${presentationSeed}|opening-axis`);
+  const allEligibleClosings = rotateCandidates(closings
     .map((text, index) => ({ text, index }))
-    .filter((entry) => !recentClosingFingerprints.has(closingFingerprint(entry.text)));
+    .filter((entry) => !recentClosingFingerprints.has(closingFingerprint(entry.text))), `${presentationSeed}|closing-axis`);
+  const axisLimit = Math.max(6, Number(options.axisLimit) || 6);
+  const eligibleOpenings = allEligibleOpenings.slice(0, axisLimit);
+  const eligibleClosings = allEligibleClosings.slice(0, axisLimit);
   const scheduled = [];
-  for (let structureOffset = 0; structureOffset < FALLBACK_STRUCTURES.length; structureOffset += 1) {
+  const structureCount = FALLBACK_STRUCTURES.length;
+  for (let structureOffset = 0; structureOffset < structureCount; structureOffset += 1) {
     const structureIndex = (start + structureOffset) % FALLBACK_STRUCTURES.length;
     for (const openingEntry of eligibleOpenings) {
       for (const closingEntry of eligibleClosings) {
@@ -1342,6 +1375,13 @@ function buildContextualFallbackCandidates(context, previousMessages = [], limit
       selectedStructures.add(structure);
       if (selectedCandidates.length >= requestedLimit) return selectedCandidates;
     }
+  }
+  const maxAxisLimit = Math.max(allEligibleOpenings.length, allEligibleClosings.length);
+  if (selectedCandidates.length < requestedLimit && axisLimit < maxAxisLimit) {
+    return buildContextualFallbackCandidates(context, previousMessages, requestedLimit, {
+      ...options,
+      axisLimit: Math.min(maxAxisLimit, axisLimit + 4)
+    });
   }
   if (selectedCandidates.length) return selectedCandidates;
   throw new Error(`no compliant contextual fallback invariant: ${Object.entries(rejectionCounts).sort((left, right) => right[1] - left[1]).slice(0, 5).map(([key, count]) => `${key}=${count}`).join(",")}`);
@@ -1645,7 +1685,7 @@ const COACH_CRITIC_SCHEMA = Object.freeze({
         facts: { type: "boolean" },
         evidence: { type: "boolean" },
         verdict: { type: "boolean" },
-        oneAction: { type: "boolean" },
+        oneAction: { type: "boolean", description: "True when the candidate contains its one approvedAction sentence and no additional concrete behavior instruction; factual movement words and declarative hype are not actions." },
         privacySafety: { type: "boolean" },
         originality: { type: "boolean" }
       }
@@ -1680,11 +1720,12 @@ function parseCriticResult(text, candidateCount = COACH_CANDIDATE_COUNT) {
   const requiredChecks = ["facts", "evidence", "verdict", "oneAction", "privacySafety", "originality"];
   const checksPass = requiredChecks.every((key) => parsed.checks[key] === true);
   const selectedValid = parsed.selectedIndex >= 0 && parsed.selectedIndex < candidateCount;
+  const approved = parsed.approved === true && checksPass && selectedValid;
   return {
     valid: true,
-    approved: parsed.approved === true && checksPass && selectedValid,
+    approved,
     selectedIndex: selectedValid ? parsed.selectedIndex : -1,
-    reasonCode: safeDiagnosticCode(parsed.reasonCode, checksPass ? "critic-rejected" : "critic-check-failed"),
+    reasonCode: safeDiagnosticCode(parsed.reasonCode, approved ? "approved" : (checksPass ? "critic-rejected" : "critic-check-failed")),
     checks: Object.fromEntries(requiredChecks.map((key) => [key, parsed.checks[key] === true]))
   };
 }
@@ -1782,7 +1823,7 @@ async function generateCoachParagraph(context, previousMessages = [], options = 
     };
   }
 
-  const writerCandidatePool = buildContextualFallbackCandidates(context, previousMessages, 12);
+  const writerCandidatePool = buildContextualFallbackCandidates(context, previousMessages, COACH_CANDIDATE_COUNT, { writerSafe: true });
   if (writerCandidatePool.length < COACH_CANDIDATE_COUNT) {
     return {
       text: fallback.text,
@@ -1858,9 +1899,9 @@ async function generateCoachParagraph(context, previousMessages = [], options = 
       const criticText = await requestCoachResponse([
         {
           role: "system",
-          content: "Select one candidate only if every structured check passes. Required facts and the selected action are expected repetition; judge originality from framing, opening, closing, sentence order, and non-required wording. Return only the required JSON."
+          content: "Select exactly one of the three alternatives that makes the strongest new story clearest, then independently evaluate all six critic checks for that selected candidate only. Never combine the alternatives or count language from an unselected candidate; they are separate paragraph choices. Every candidate has already passed deterministic fact, evidence, verdict, one-action, privacy, safety, and originality checks against the supplied FACTS and AVOID data. Approve only if every check passes for the selected candidate; reject with a concrete reason for any failed check. For verdict, FACTS.verdict is an internal classification, not required copy: not-good-enough passes when the selected candidate clearly treats the adverse result as corrective rather than praising it, and every supplied opening was built from that verdict's approved family. Do not demand harsher wording or the literal label. For oneAction, locate the selected candidate's single exact approvedAction; set oneAction true when that selected paragraph contains it once and has no other concrete food, movement, measurement, or behavior instruction. Ingredients and flavor inside that realization are one meal action, not separate actions. Declarative hype about the arrow, line, turn, point, comeback, response, or momentum is motivational framing, not another action. Energetic uppercase wording is not itself a safety or originality failure. Required facts and the selected action are expected repetition. Return only the required JSON."
         },
-        { role: "user", content: `FACTS: ${JSON.stringify(publicCoachFacts(context))}\nCANDIDATES: ${JSON.stringify(validCandidates.map((candidate) => candidate.text))}\nAVOID: ${JSON.stringify(recentCoachAvoidance(previousMessages))}` }
+        { role: "user", content: `FACTS: ${JSON.stringify(publicCoachFacts(context))}\nCANDIDATES: ${JSON.stringify(validCandidates.map((candidate) => ({ text: candidate.text, approvedAction: candidate.action.text })))}\nAVOID: ${JSON.stringify(recentCoachAvoidance(previousMessages))}` }
       ], { ...options, timeoutMs: remainingTimeoutMs(), schema: COACH_CRITIC_SCHEMA, schemaName: "lily_coach_critic_v2", maxOutputTokens: 260 });
       const critic = parseCriticResult(criticText, validCandidates.length);
       lastCritic = critic;
@@ -2848,6 +2889,7 @@ if (process.env.NODE_ENV === "test" || process.env.LILY_COACH_CLI === "1") {
     FALLBACK_OPENINGS,
     FALLBACK_STRUCTURES,
     PREFERENCE_ACTIONS,
+    WRITER_SAFE_CLOSINGS,
     addFallbackCoachForWeight,
     backfillCoachMessages,
     buildCoachContext,
