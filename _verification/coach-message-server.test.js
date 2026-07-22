@@ -467,7 +467,7 @@ async function run() {
   assert.equal(generatedRecord.createdAt, beforeGenerated.createdAt);
   assert.equal(generatedRecord.criticResult.approved, true);
   assert.equal(generatedRecord.criticResult.reasonCode, "approved");
-  assert.equal(generatedRecord.modelVersion, "writer:gpt-4.1-mini;critic:gpt-4.1-mini");
+  assert.equal(generatedRecord.modelVersion, "writer:gpt-4.1-nano;critic:gpt-4.1-mini");
   assert.equal(generatedStore.coachMessages.filter((message) => message.weightId === "weight-5").length, 1);
   assert(!generatedRecord.text.includes("999 lb"), "rejected draft copy is never persisted");
   assert(!Object.keys(generatedRecord).some((key) => /draft|raw/i.test(key)), "raw rejected draft fields are never persisted");

@@ -15,7 +15,7 @@ const pin = process.env.LILY_PIN || "local-dev-pin-required";
 const sessionSecret = process.env.SESSION_SECRET || "local-dev-lily-session-secret";
 const openaiApiKey = process.env.OPENAI_API_KEY || "";
 const chatModel = process.env.OPENAI_CHAT_MODEL || "gpt-4o-mini";
-const coachWriterModel = process.env.OPENAI_COACH_WRITER_MODEL || "gpt-4.1-mini";
+const coachWriterModel = process.env.OPENAI_COACH_WRITER_MODEL || "gpt-4.1-nano";
 const coachCriticModel = process.env.OPENAI_CRITIC_MODEL || "gpt-4.1-mini";
 const visionModel = process.env.OPENAI_VISION_MODEL || "gpt-4o-mini";
 const privateCoachGoal = Number(process.env.LILY_INTERNAL_GOAL_LB);
@@ -54,9 +54,9 @@ function coachModelVersion(options = {}) {
   return `writer:${options.model || coachWriterModel};critic:${options.criticModel || coachCriticModel}`;
 }
 
-const COACH_GENERATION_VERSION = "coach-pipeline-v4";
+const COACH_GENERATION_VERSION = "coach-pipeline-v5";
 const COACH_ANALYSIS_VERSION = "coach-analysis-v2";
-const COACH_WRITER_PROMPT_VERSION = "coach-writer-v4";
+const COACH_WRITER_PROMPT_VERSION = "coach-writer-v5";
 const COACH_CRITIC_PROMPT_VERSION = "coach-critic-v4";
 const COACH_VALIDATOR_VERSION = "coach-validator-v2";
 const COACH_FALLBACK_VERSION = "coach-fallback-v4";
@@ -1938,13 +1938,13 @@ async function generateCoachParagraph(context, previousMessages = [], options = 
         "Copy each selected candidate exactly. Every pool entry has already passed the factual, one-action, privacy, safety, originality, and closed-grammar checks.",
         "Prefer candidates whose framing makes the strongest new evidence and its relationship to the prior read immediately clear.",
         "Use three different openings, closings, structures, and action realizations when the pool permits.",
-        "Do not reuse supplied recent openings, closings, structures, or ordered three-word runs.",
+        "Every pool entry already satisfies the recent-message originality and action-cooldown gates.",
         "Never mention a goal, target weight, private strategy, BMI, diagnosis, appearance, worth, fasting, skipped meals, restriction, compensation, punishment, JYP, or idol training."
       ].join(" ");
       const writerText = await requestCoachResponse([
         { role: "system", content: system },
-        { role: "user", content: `FACTS: ${JSON.stringify(publicCoachFacts(context))}\nAPPROVED CANDIDATE POOL: ${JSON.stringify(writerPoolTexts)}\nAVOID: ${JSON.stringify(recentCoachAvoidance(previousMessages))}\nPRIOR REJECTION CODES: ${JSON.stringify(rejectionCodes.slice(-12))}` }
-      ], { ...options, model: options.model || coachWriterModel, timeoutMs: remainingTimeoutMs(), schema: writerSchema, schemaName: "lily_coach_candidates_v2", maxOutputTokens: 720 });
+        { role: "user", content: `FACTS: ${JSON.stringify(criticCoachFacts(context))}\nAPPROVED CANDIDATE POOL: ${JSON.stringify(writerPoolTexts)}` }
+      ], { ...options, model: options.model || coachWriterModel, timeoutMs: remainingTimeoutMs(), schema: writerSchema, schemaName: "lily_coach_candidates_v3", maxOutputTokens: 520 });
       const candidates = parseWriterCandidates(writerText);
       if (candidates.length !== COACH_CANDIDATE_COUNT) {
         lastStatus = "fallback-writer-format";
