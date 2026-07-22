@@ -206,6 +206,11 @@ async function run() {
   assert.match(finalFallback.text, /up 2\.5 lb/);
   assert.match(finalFallback.text, /accelerat/i);
   assert.match(finalFallback.text, /about 146 lb/);
+  const liveLatestFiveActions = productionWeights.slice(-5).map((weight) => {
+    const message = coach.coachForWeight(fullFallbackRun.store, weight.id);
+    return `${message.actionSemantic}|${message.actionText}`;
+  });
+  assert.equal(new Set(liveLatestFiveActions).size, 5, "the latest five causal messages use five distinct actions when valid alternatives exist");
   for (const weight of productionWeights) {
     const context = coach.buildCoachContext(fullFallbackRun.store, weight.id, { privateGoal: 117 });
     const previous = coach.causalPreviousCoachMessages(fullFallbackRun.store, weight, 10);

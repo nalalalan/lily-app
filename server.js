@@ -54,13 +54,13 @@ function coachModelVersion(options = {}) {
   return `writer:${options.model || coachWriterModel};critic:${options.criticModel || coachCriticModel}`;
 }
 
-const COACH_GENERATION_VERSION = "coach-pipeline-v5";
+const COACH_GENERATION_VERSION = "coach-pipeline-v6";
 const COACH_ANALYSIS_VERSION = "coach-analysis-v2";
 const COACH_WRITER_PROMPT_VERSION = "coach-writer-v5";
 const COACH_CRITIC_PROMPT_VERSION = "coach-critic-v4";
 const COACH_VALIDATOR_VERSION = "coach-validator-v2";
 const COACH_FALLBACK_VERSION = "coach-fallback-v4";
-const COACH_ACTION_VERSION = "coach-action-v3";
+const COACH_ACTION_VERSION = "coach-action-v4";
 const COACH_PROMPT_VERSION = COACH_WRITER_PROMPT_VERSION;
 const COACH_SAFETY_VERSION = "coach-safety-v2";
 const COACH_MIN_WORDS = 35;
@@ -571,10 +571,14 @@ function rotateCandidates(rows, seed) {
 }
 
 function selectCoachAction(store, currentWeight, preference, outlier, recentConflict) {
-  const recent = causalPreviousCoachMessages(store, currentWeight, COACH_COOLDOWN_COUNT).map(inferActionMetadata).filter(Boolean);
+  const recentForDiversity = causalPreviousCoachMessages(store, currentWeight, 5).map(inferActionMetadata).filter(Boolean);
+  const recent = recentForDiversity.slice(0, COACH_COOLDOWN_COUNT);
   const usedIds = new Set(recent.map((action) => action.id));
   const usedSemantics = new Set(recent.map((action) => action.semantic));
   const usedTexts = new Set(recent.map((action) => action.text).filter(Boolean));
+  const diversityIds = new Set(recentForDiversity.map((action) => action.id));
+  const diversitySemantics = new Set(recentForDiversity.map((action) => action.semantic));
+  const diversityTexts = new Set(recentForDiversity.map((action) => action.text).filter(Boolean));
   const allActions = [...PREFERENCE_ACTIONS, ...COACH_ACTION_CATALOG];
   const familyKey = (action) => action.preferenceKey ? `preference:${action.preferenceKey}` : `semantic:${action.semantic}`;
   const families = new Map();
@@ -605,11 +609,14 @@ function selectCoachAction(store, currentWeight, preference, outlier, recentConf
   const familyCandidates = orderedKeys
     .map((key) => ({ key, rows: families.get(key) || [] }))
     .filter((family) => family.rows.length >= 2);
-  const selectedFamily = familyCandidates.find((family) => !usedSemantics.has(family.rows[0].semantic))
+  const selectedFamily = familyCandidates.find((family) => !diversitySemantics.has(family.rows[0].semantic))
+    || familyCandidates.find((family) => !usedSemantics.has(family.rows[0].semantic))
     || familyCandidates[0]
     || { key: "semantic:balanced-meal", rows: COACH_ACTION_CATALOG.filter((action) => action.semantic === "balanced-meal") };
   const realizations = rotateCandidates(selectedFamily.rows, `${causalSeed}|realization`);
-  const selected = realizations.find((action) => !usedIds.has(action.id) && !usedTexts.has(action.text)) || realizations[0];
+  const selected = realizations.find((action) => !diversityIds.has(action.id) && !diversityTexts.has(action.text))
+    || realizations.find((action) => !usedIds.has(action.id) && !usedTexts.has(action.text))
+    || realizations[0];
   return {
     ...selected,
     realizations: realizations.map((action) => ({ id: action.id, text: action.text })),
