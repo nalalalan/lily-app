@@ -1243,10 +1243,11 @@ function noveltyErrors(text, context, previousMessages = [], selectedAction = id
   return Array.from(new Set(errors));
 }
 
-function buildContextualFallbackResult(context, previousMessages = []) {
+function buildContextualFallbackCandidates(context, previousMessages = [], limit = 1) {
+  const requestedLimit = Math.max(1, Math.min(24, Number(limit) || 1));
   if (!context) {
     const text = "WEIGH-IN SAVED—THE DATA IS HERE, AND THE NEXT CONSISTENT CHECK WILL MAKE THE DIRECTION CLEARER. Build the next meal around protein, vegetables, and a satisfying portion. KEEP SHOWING UP FOR THE TREND—LET’S GO!!!";
-    return { text, structureId: "empty", errors: [], wordCount: coachWordCount(text) };
+    return [{ text, structureId: "empty", errors: [], wordCount: coachWordCount(text) }];
   }
   const openings = FALLBACK_OPENINGS[context.verdict] || FALLBACK_OPENINGS["not-good-enough"];
   const closings = FALLBACK_CLOSINGS[context.verdict] || FALLBACK_CLOSINGS["not-good-enough"];
@@ -1300,6 +1301,10 @@ function buildContextualFallbackResult(context, previousMessages = []) {
   }
   scheduled.sort((left, right) => left.scheduleRank - right.scheduleRank || left.structureId.localeCompare(right.structureId));
   const validationBatchSize = 192;
+  const selectedCandidates = [];
+  const selectedOpenings = new Set();
+  const selectedClosings = new Set();
+  const selectedStructures = new Set();
   for (let batchStart = 0; batchStart < scheduled.length; batchStart += validationBatchSize) {
     const validCandidates = [];
     for (const candidate of scheduled.slice(batchStart, batchStart + validationBatchSize)) {
@@ -1319,9 +1324,31 @@ function buildContextualFallbackResult(context, previousMessages = []) {
       });
     }
     validCandidates.sort((left, right) => left.maxPriorSimilarity - right.maxPriorSimilarity || left.structureId.localeCompare(right.structureId) || left.text.localeCompare(right.text));
-    if (validCandidates[0]) return validCandidates[0];
+    for (const candidate of validCandidates) {
+      const opening = openingFingerprint(candidate.text);
+      const closing = closingFingerprint(candidate.text);
+      const structure = structuralFingerprint(candidate.text, context);
+      if (selectedOpenings.has(opening) || selectedClosings.has(closing) || selectedStructures.has(structure)) continue;
+      const siblingErrors = noveltyErrors(candidate.text, context, selectedCandidates.map((entry) => ({
+        text: entry.text,
+        actionId: entry.action?.id,
+        actionSemantic: entry.action?.semantic,
+        actionText: entry.action?.text
+      })), candidate.action).filter((error) => error !== "action-cooldown" && error !== "action-semantic-cooldown");
+      if (siblingErrors.length) continue;
+      selectedCandidates.push(candidate);
+      selectedOpenings.add(opening);
+      selectedClosings.add(closing);
+      selectedStructures.add(structure);
+      if (selectedCandidates.length >= requestedLimit) return selectedCandidates;
+    }
   }
+  if (selectedCandidates.length) return selectedCandidates;
   throw new Error(`no compliant contextual fallback invariant: ${Object.entries(rejectionCounts).sort((left, right) => right[1] - left[1]).slice(0, 5).map(([key, count]) => `${key}=${count}`).join(",")}`);
+}
+
+function buildContextualFallbackResult(context, previousMessages = []) {
+  return buildContextualFallbackCandidates(context, previousMessages, 1)[0];
 }
 
 function buildContextualFallback(context, previousMessages = []) {
@@ -1580,24 +1607,27 @@ async function requestCoachResponse(input, options = {}) {
   }
 }
 
-const COACH_WRITER_SCHEMA = Object.freeze({
-  type: "object",
-  additionalProperties: false,
-  required: ["candidates"],
-  properties: {
-    candidates: {
-      type: "array",
-      minItems: COACH_CANDIDATE_COUNT,
-      maxItems: COACH_CANDIDATE_COUNT,
-      items: {
-        type: "object",
-        additionalProperties: false,
-        required: ["text"],
-        properties: { text: { type: "string" } }
+function coachWriterSchema(candidatePool) {
+  const allowedTexts = Array.from(new Set((candidatePool || []).map((candidate) => candidate.text || candidate).filter(Boolean)));
+  return {
+    type: "object",
+    additionalProperties: false,
+    required: ["candidates"],
+    properties: {
+      candidates: {
+        type: "array",
+        minItems: COACH_CANDIDATE_COUNT,
+        maxItems: COACH_CANDIDATE_COUNT,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["text"],
+          properties: { text: { type: "string", enum: allowedTexts } }
+        }
       }
     }
-  }
-});
+  };
+}
 
 const COACH_CRITIC_SCHEMA = Object.freeze({
   type: "object",
@@ -1752,6 +1782,20 @@ async function generateCoachParagraph(context, previousMessages = [], options = 
     };
   }
 
+  const writerCandidatePool = buildContextualFallbackCandidates(context, previousMessages, 12);
+  if (writerCandidatePool.length < COACH_CANDIDATE_COUNT) {
+    return {
+      text: fallback.text,
+      status: "fallback-writer-pool",
+      structureId: fallback.structureId,
+      action: fallback.action,
+      diagnostics: generationDiagnostics("writer-pool", 0, ["writer-pool-too-small"], startedAt, { candidateCount: writerCandidatePool.length })
+    };
+  }
+  const writerPoolTexts = writerCandidatePool.map((candidate) => candidate.text);
+  const normalizedWriterPool = new Set(writerPoolTexts.map((text) => normalizeCoachParagraph(text)));
+  const writerSchema = coachWriterSchema(writerCandidatePool);
+
   const rejectionCodes = [];
   let lastStatus = "fallback-writer-validation";
   let lastCritic = null;
@@ -1760,25 +1804,32 @@ async function generateCoachParagraph(context, previousMessages = [], options = 
     attempts += 1;
     try {
       const system = [
-        "Write three genuinely different evidence-first fitness-coach paragraphs for Lily and return only the required JSON.",
+        "Select three genuinely different evidence-first fitness-coach paragraphs for Lily from the supplied approved candidate pool and return only the required JSON.",
         `Each candidate must be ${COACH_MIN_WORDS}-${COACH_MAX_WORDS} words in one paragraph.`,
-        "Each must state the current weight and exact daily change, lead with the supplied strongest evidence and its relation to prior context, and include the outlook only when the analysis object includes one.",
-        "The action object gives one approved meaning and multiple natural approved realizations. Use exactly one listed realization as the paragraph’s only food, movement, measurement, or behavior instruction; do not invent or paraphrase another action.",
-        "Outside that one exact action realization, build the paragraph only from one exact opening, currentFact, evidenceFact, optional outlookFact, optional modifier, and closing in approvedCopyComponents. Do not alter component wording.",
-        "Use this exact slot order: opening, currentFact, evidenceFact, optional outlookFact, optional modifier, action, closing. Use only a period, semicolon, or em dash between fact slots; use a period before the action and before the closing. Never join facts with because, so, while, or another causal connector. Never turn a fact into a question.",
-        "Use an unmistakable verdict matching the facts. Change sentence order, opening, closing, and rhythm across all three candidates.",
+        "Copy each selected candidate exactly. Every pool entry has already passed the factual, one-action, privacy, safety, originality, and closed-grammar checks.",
+        "Prefer candidates whose framing makes the strongest new evidence and its relationship to the prior read immediately clear.",
+        "Use three different openings, closings, structures, and action realizations when the pool permits.",
         "Do not reuse supplied recent openings, closings, structures, or ordered three-word runs.",
-        "Never mention a goal, target weight, private strategy, BMI, diagnosis, appearance, worth, fasting, skipped meals, restriction, compensation, punishment, JYP, or idol training.",
-        "A period modifier may caution about noise but may not change the verdict or claim causation."
+        "Never mention a goal, target weight, private strategy, BMI, diagnosis, appearance, worth, fasting, skipped meals, restriction, compensation, punishment, JYP, or idol training."
       ].join(" ");
       const writerText = await requestCoachResponse([
         { role: "system", content: system },
-        { role: "user", content: `FACTS: ${JSON.stringify(publicCoachFacts(context))}\nAVOID: ${JSON.stringify(recentCoachAvoidance(previousMessages))}\nPRIOR REJECTION CODES: ${JSON.stringify(rejectionCodes.slice(-12))}` }
-      ], { ...options, timeoutMs: remainingTimeoutMs(), schema: COACH_WRITER_SCHEMA, schemaName: "lily_coach_candidates_v2", maxOutputTokens: 720 });
+        { role: "user", content: `FACTS: ${JSON.stringify(publicCoachFacts(context))}\nAPPROVED CANDIDATE POOL: ${JSON.stringify(writerPoolTexts)}\nAVOID: ${JSON.stringify(recentCoachAvoidance(previousMessages))}\nPRIOR REJECTION CODES: ${JSON.stringify(rejectionCodes.slice(-12))}` }
+      ], { ...options, timeoutMs: remainingTimeoutMs(), schema: writerSchema, schemaName: "lily_coach_candidates_v2", maxOutputTokens: 720 });
       const candidates = parseWriterCandidates(writerText);
       if (candidates.length !== COACH_CANDIDATE_COUNT) {
         lastStatus = "fallback-writer-format";
         rejectionCodes.push("writer-format");
+        continue;
+      }
+      if (new Set(candidates).size !== COACH_CANDIDATE_COUNT) {
+        lastStatus = "fallback-writer-validation";
+        rejectionCodes.push("writer-duplicate-candidates");
+        continue;
+      }
+      if (candidates.some((candidate) => !normalizedWriterPool.has(candidate))) {
+        lastStatus = "fallback-writer-validation";
+        rejectionCodes.push("writer-outside-pool");
         continue;
       }
       const validCandidates = [];
@@ -1798,9 +1849,9 @@ async function generateCoachParagraph(context, previousMessages = [], options = 
         }
         validCandidates.push({ text: validation.text, action: validation.action });
       }
-      if (!validCandidates.length) {
+      if (validCandidates.length !== COACH_CANDIDATE_COUNT) {
         lastStatus = "fallback-writer-validation";
-        rejectionCodes.push("writer-no-valid-candidates");
+        rejectionCodes.push("writer-incomplete-valid-candidates");
         continue;
       }
 
@@ -2801,6 +2852,7 @@ if (process.env.NODE_ENV === "test" || process.env.LILY_COACH_CLI === "1") {
     backfillCoachMessages,
     buildCoachContext,
     buildContextualFallback,
+    buildContextualFallbackCandidates,
     buildContextualFallbackResult,
     causalPreviousCoachMessages,
     coachForWeight,

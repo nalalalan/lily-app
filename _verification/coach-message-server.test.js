@@ -112,46 +112,6 @@ function assertParagraph(text, label = "coach paragraph") {
   assert(!/goal|target weight|jyp|idol|obese|fasting|skip(?:ping)? meals?|punish|compensat|diagnos/i.test(text), `${label} stays private and safe`);
 }
 
-function buildWriterCandidates(context, previousMessages = []) {
-  const facts = coach.fallbackFactClauseVariants(context);
-  const openings = coach.FALLBACK_OPENINGS[context.verdict];
-  const closings = coach.FALLBACK_CLOSINGS[context.verdict];
-  const selected = [];
-  outer:
-  for (let structureIndex = 0; structureIndex < coach.FALLBACK_STRUCTURES.length; structureIndex += 1) {
-    for (let factIndex = 0; factIndex < 4; factIndex += 1) {
-      for (let openingIndex = 0; openingIndex < openings.length; openingIndex += 1) {
-        for (let closingIndex = 0; closingIndex < closings.length; closingIndex += 1) {
-          const action = context.actionRealizations[factIndex % context.actionRealizations.length];
-          const text = coach.normalizeCoachParagraph(coach.FALLBACK_STRUCTURES[structureIndex](
-            openings[openingIndex],
-            facts.current[factIndex % facts.current.length],
-            facts.evidence[(factIndex + structureIndex) % facts.evidence.length],
-            facts.outlook[(factIndex * 3 + structureIndex) % facts.outlook.length],
-            action.text,
-            closings[closingIndex]
-          ));
-          const validation = coach.validateCoachParagraph(text, context, previousMessages);
-          if (!validation.ok) continue;
-          const siblingMessages = selected.map((entry) => ({
-            text: entry.text,
-            actionId: entry.action.id,
-            actionSemantic: entry.action.semantic,
-            actionText: entry.action.text
-          }));
-          const siblingErrors = coach.noveltyErrors(validation.text, context, siblingMessages, validation.action)
-            .filter((error) => error !== "action-cooldown" && error !== "action-semantic-cooldown");
-          if (siblingErrors.length) continue;
-          selected.push({ text: validation.text, action: validation.action });
-          if (selected.length === 3) break outer;
-        }
-      }
-    }
-  }
-  assert.equal(selected.length, 3, "test fixture can supply three valid, structurally distinct writer candidates");
-  return selected;
-}
-
 function addAllFallbacks(store) {
   let next = store;
   const ordered = store.weights.slice().sort((left, right) => String(left.createdAt).localeCompare(String(right.createdAt)) || String(left.id).localeCompare(String(right.id)));
@@ -246,6 +206,13 @@ async function run() {
   assert.match(finalFallback.text, /up 2\.5 lb/);
   assert.match(finalFallback.text, /accelerat/i);
   assert.match(finalFallback.text, /about 146 lb/);
+  for (const weight of productionWeights.slice(-5)) {
+    const context = coach.buildCoachContext(fullFallbackRun.store, weight.id, { privateGoal: 117 });
+    const previous = coach.causalPreviousCoachMessages(fullFallbackRun.store, weight, 10);
+    const pool = coach.buildContextualFallbackCandidates(context, previous, 3);
+    assert.equal(pool.length, 3, `the live ${weight.createdAt.slice(0, 10)} writer pool has three critic-ready options`);
+    for (const candidate of pool) assert.equal(coach.validateCoachParagraph(candidate.text, context, previous, { privateGoal: 117 }).ok, true);
+  }
 
   const equivalentRows = productionWeights.slice(0, 8);
   const equivalentA = addAllFallbacks(baseStore(equivalentRows)).store.coachMessages
@@ -341,7 +308,10 @@ async function run() {
   const structureB = "WRONG WAY—149 lb is up 0.7 lb. The 3-day move is up 1.2 lb.";
   assert.equal(coach.structuralFingerprint(structureA, july22), coach.structuralFingerprint(structureB, july22), "changing numbers inside a repeated argument is not original analysis");
 
-  const writerRows = buildWriterCandidates(july22, []);
+  const writerRows = coach.buildContextualFallbackCandidates(july22, [], 3);
+  assert.equal(writerRows.length, 3, "the schema-enforced writer pool supplies several vetted paragraphs");
+  assert.equal(new Set(writerRows.map((candidate) => coach.openingFingerprint(candidate.text))).size, 3, "writer-pool openings are distinct");
+  assert.equal(new Set(writerRows.map((candidate) => coach.closingFingerprint(candidate.text))).size, 3, "writer-pool closings are distinct");
   const writerPayload = JSON.stringify({ candidates: writerRows.map((candidate) => ({ text: candidate.text })) });
   const approvedGeneration = await coach.generateCoachParagraph(july22, [], {
     apiKey: "test-key",
@@ -356,12 +326,22 @@ async function run() {
   const invalidWriter = await coach.generateCoachParagraph(july22, [], {
     apiKey: "test-key",
     privateGoal: 117,
-    fetchImpl: queuedFetch([JSON.stringify({ candidates: [{ text: wrongNumber }, { text: wrongNumber }, { text: wrongNumber }] }), JSON.stringify({ candidates: [] })]),
+    fetchImpl: queuedFetch([JSON.stringify({ candidates: [wrongNumber, wrongNumber.replace("999 lb", "998 lb"), wrongNumber.replace("999 lb", "997 lb")].map((text) => ({ text })) }), JSON.stringify({ candidates: [] })]),
     timeoutMs: 3000
   });
   assert.match(invalidWriter.status, /^fallback-writer-/);
   assert.equal(invalidWriter.text, fallback);
-  assert(invalidWriter.diagnostics.rejectionCodes.includes("unsupported-number"));
+  assert(invalidWriter.diagnostics.rejectionCodes.includes("writer-outside-pool"));
+
+  const duplicateWriterPayload = JSON.stringify({ candidates: [writerRows[0], writerRows[0], writerRows[0]].map((candidate) => ({ text: candidate.text })) });
+  const duplicateWriter = await coach.generateCoachParagraph(july22, [], {
+    apiKey: "test-key",
+    privateGoal: 117,
+    fetchImpl: queuedFetch([duplicateWriterPayload, duplicateWriterPayload]),
+    timeoutMs: 3000
+  });
+  assert.equal(duplicateWriter.status, "fallback-writer-validation");
+  assert(duplicateWriter.diagnostics.rejectionCodes.includes("writer-duplicate-candidates"));
 
   const rejectedCritic = await coach.generateCoachParagraph(july22, [], {
     apiKey: "test-key",
@@ -453,7 +433,7 @@ async function run() {
 
   const persistedContext = coach.buildCoachContext(migrated, "weight-5", { privateGoal: 117 });
   const persistedPrevious = coach.causalPreviousCoachMessages(migrated, fixtureWeights.at(-1), 10);
-  const persistedWriterRows = buildWriterCandidates(persistedContext, persistedPrevious);
+  const persistedWriterRows = coach.buildContextualFallbackCandidates(persistedContext, persistedPrevious, 3);
   const persistedWriterPayload = JSON.stringify({ candidates: persistedWriterRows.map((candidate) => ({ text: candidate.text })) });
   const beforeGenerated = coach.coachForWeight(migrated, "weight-5");
   await coach.generateAndReplaceCoach("weight-5", {
