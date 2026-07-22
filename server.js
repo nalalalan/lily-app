@@ -15,6 +15,8 @@ const pin = process.env.LILY_PIN || "local-dev-pin-required";
 const sessionSecret = process.env.SESSION_SECRET || "local-dev-lily-session-secret";
 const openaiApiKey = process.env.OPENAI_API_KEY || "";
 const chatModel = process.env.OPENAI_CHAT_MODEL || "gpt-4o-mini";
+const coachWriterModel = process.env.OPENAI_COACH_WRITER_MODEL || "gpt-4.1-mini";
+const coachCriticModel = process.env.OPENAI_CRITIC_MODEL || "gpt-4.1-mini";
 const visionModel = process.env.OPENAI_VISION_MODEL || "gpt-4o-mini";
 const privateCoachGoal = Number(process.env.LILY_INTERNAL_GOAL_LB);
 const coachGenerationTimeoutMs = Math.max(500, Number(process.env.LILY_COACH_TIMEOUT_MS || 8000));
@@ -48,12 +50,16 @@ const videoExtensions = new Set([".mp4", ".m4v", ".mov", ".webm"]);
 
 let writeQueue = Promise.resolve();
 
-const COACH_GENERATION_VERSION = "coach-pipeline-v3";
+function coachModelVersion(options = {}) {
+  return `writer:${options.model || coachWriterModel};critic:${options.criticModel || coachCriticModel}`;
+}
+
+const COACH_GENERATION_VERSION = "coach-pipeline-v4";
 const COACH_ANALYSIS_VERSION = "coach-analysis-v2";
-const COACH_WRITER_PROMPT_VERSION = "coach-writer-v3";
-const COACH_CRITIC_PROMPT_VERSION = "coach-critic-v3";
+const COACH_WRITER_PROMPT_VERSION = "coach-writer-v4";
+const COACH_CRITIC_PROMPT_VERSION = "coach-critic-v4";
 const COACH_VALIDATOR_VERSION = "coach-validator-v2";
-const COACH_FALLBACK_VERSION = "coach-fallback-v3";
+const COACH_FALLBACK_VERSION = "coach-fallback-v4";
 const COACH_ACTION_VERSION = "coach-action-v3";
 const COACH_PROMPT_VERSION = COACH_WRITER_PROMPT_VERSION;
 const COACH_SAFETY_VERSION = "coach-safety-v2";
@@ -935,27 +941,54 @@ function outlookPhrase(context) {
   return `is holding at about ${rounded} lb`;
 }
 
+const WRITER_SAFE_OPENINGS = Object.freeze({
+  "not-good-enough": [
+    "THE LATEST RESULT IS NOT GOOD ENOUGH", "THIS RESULT IS MOVING THE WRONG WAY", "TODAY'S SIGNAL IS A SETBACK", "THE TREND JUST TOOK A WRONG-WAY STEP",
+    "THIS WEIGH-IN IS NOT A WIN", "THE CURRENT DIRECTION IS NOT GOOD ENOUGH", "THIS NUMBER IS A CLEAR WARNING", "THE LATEST SIGNAL HAS WORSENED",
+    "TODAY'S READ IS OFF TRACK", "THE SHORT-TERM STORY IS GETTING WORSE", "THIS IS A REAL SETBACK", "THE SCALE STORY TURNED THE WRONG WAY",
+    "TODAY'S DATA IS A WARNING", "THE LINE IS HEADING THE WRONG WAY", "THIS RESULT MISSED THE MARK", "THE CURRENT MOMENTUM IS NOT WORKING"
+  ],
+  "good-progress": [
+    "THIS IS REAL PROGRESS", "TODAY'S SIGNAL IS A WIN", "THE TREND JUST GOT BETTER", "THIS WEIGH-IN MOVED THE RIGHT WAY",
+    "THE WORK IS SHOWING IN THE DATA", "THE LATEST RESULT IS STRONG", "THIS DIRECTION DESERVES A CHEER", "THE WEIGHT LINE IS MOVING OUR WAY",
+    "TODAY'S READ IS ON TRACK", "THE SHORT-TERM STORY IS IMPROVING", "THIS IS A GENUINE WEIGH-IN WIN", "THE SCALE STORY TURNED THE RIGHT WAY",
+    "TODAY'S DATA IS ENCOURAGING", "THE MOMENTUM IS LEANING FORWARD", "THIS RESULT LANDED WELL", "THE CURRENT DIRECTION IS WORKING"
+  ],
+  verify: [
+    "THIS READING IS STILL UNCONFIRMED", "THIS SWING IS AN OUTLIER", "THE CURRENT SIGNAL IS TOO EXTREME TO JUDGE", "THIS NUMBER IS NOT A VERDICT",
+    "THE LATEST READING REMAINS UNCONFIRMED", "THIS RESULT IS A QUESTION MARK", "THE TREND IS NOT SETTLED YET", "THIS POINT SITS OUTSIDE THE USUAL PATTERN",
+    "THE SCALE JUST PRODUCED AN OUTLIER", "THIS SWING HAS NOT EARNED TRUST", "THE CURRENT STORY IS STILL UNCERTAIN", "THIS DATA POINT IS STILL IN QUESTION",
+    "THE LATEST SIGNAL IS NOT YET RELIABLE", "THIS NUMBER REMAINS ON HOLD", "THE VERDICT IS STILL OPEN", "THE REAL DIRECTION IS STILL UNCLEAR"
+  ],
+  baseline: [
+    "THE BASELINE IS NOW SET", "THIS IS THE STARTING POINT", "THE FIRST WEIGH-IN IS NOW ON THE BOARD", "THE TREND NOW HAS ITS FIRST POINT",
+    "THIS NUMBER OPENS THE STORY", "THE STARTING LINE IS OFFICIAL", "THE DATA NOW HAS A BASELINE", "THIS IS THE FIRST HONEST READ",
+    "THE WEIGHT STORY HAS BEGUN", "THE FIRST SIGNAL IS HERE", "THIS LINE NOW HAS AN ANCHOR", "THE RUN HAS AN OFFICIAL BEGINNING",
+    "THIS IS POINT ONE", "THE TREND STARTS HERE", "THE OPENING NUMBER HAS LANDED", "THE STORY NOW HAS A START"
+  ]
+});
+
 const FALLBACK_OPENINGS = Object.freeze({
   "not-good-enough": [
     "NOT GOOD ENOUGH YET", "WRONG-WAY SIGNAL—TIME TO RESPOND", "TODAY NEEDS A STRONG RESPONSE", "THIS RESULT NEEDS WORK",
     "THE LINE MOVED THE WRONG WAY", "NOT THE RESULT WE WANTED", "THIS SETBACK NEEDS AN ANSWER", "THE TREND IS ASKING FOR A COMEBACK",
     "COURSE CORRECTION STARTS NOW", "TODAY PUSHED BACK", "THIS NUMBER DOES NOT GET A PASS", "THE NEXT TURN MATTERS NOW",
-    "THIS IS MOVING THE WRONG WAY"
+    "THIS IS MOVING THE WRONG WAY", ...WRITER_SAFE_OPENINGS["not-good-enough"]
   ],
   "good-progress": [
     "YES—THIS IS REAL PROGRESS", "RIGHT WAY—KEEP IT MOVING", "THIS WEIGH-IN IS A WIN", "THE WORK IS SHOWING UP",
     "STRONG PROGRESS IS ON THE BOARD", "THIS LINE IS MOVING OUR WAY", "GOOD—THE SIGNAL GOT BETTER", "MOMENTUM JUST LEANED FORWARD",
-    "THAT IS THE RESPONSE WE WANTED", "THE TREND JUST EARNED A CHEER", "LOWER AND MOVING—YES", "THIS STEP LANDED THE RIGHT WAY"
+    "THAT IS THE RESPONSE WE WANTED", "THE TREND JUST EARNED A CHEER", "LOWER AND MOVING—YES", "THIS STEP LANDED THE RIGHT WAY", ...WRITER_SAFE_OPENINGS["good-progress"]
   ],
   verify: [
     "PAUSE—THIS READING NEEDS CONFIRMATION", "VERIFY THIS BEFORE WE JUDGE IT", "THIS SWING NEEDS ONE CLEAN CHECK", "CONFIRMATION COMES BEFORE THE VERDICT",
     "THE SIGNAL IS TOO EXTREME TO TRUST YET", "CHECK THIS NUMBER BEFORE REACTING", "ONE OUTLIER DOES NOT OWN THE STORY", "THIS READING IS ON HOLD",
-    "THE SCALE JUST THREW A CURVEBALL", "FIRST WE CONFIRM THE SIGNAL", "THIS JUMP NEEDS A FAIR RECHECK", "NO PRAISE OR PANIC UNTIL CONFIRMED"
+    "THE SCALE JUST THREW A CURVEBALL", "FIRST WE CONFIRM THE SIGNAL", "THIS JUMP NEEDS A FAIR RECHECK", "NO PRAISE OR PANIC UNTIL CONFIRMED", ...WRITER_SAFE_OPENINGS.verify
   ],
   baseline: [
     "BASELINE LOGGED—THIS IS THE STARTING LINE", "FIRST NUMBER DOWN—NOW THE TREND CAN START", "THE STARTING POINT IS OFFICIALLY HERE", "ONE HONEST NUMBER OPENS THE STORY",
     "THE FIRST WEIGH-IN IS ON THE BOARD", "STARTING LINE SET—LET’S BUILD", "THE BASELINE IS READY", "THIS IS WHERE THE LINE BEGINS",
-    "FIRST DATA POINT—FULL ATTENTION", "THE TREND HAS ITS FIRST ANCHOR", "WE HAVE THE STARTING NUMBER", "DAY ONE OF THE WEIGHT STORY IS HERE"
+    "FIRST DATA POINT—FULL ATTENTION", "THE TREND HAS ITS FIRST ANCHOR", "WE HAVE THE STARTING NUMBER", "DAY ONE OF THE WEIGHT STORY IS HERE", ...WRITER_SAFE_OPENINGS.baseline
   ]
 });
 
@@ -1276,7 +1309,9 @@ function buildContextualFallbackCandidates(context, previousMessages = [], limit
     const text = "WEIGH-IN SAVED—THE DATA IS HERE, AND THE NEXT CONSISTENT CHECK WILL MAKE THE DIRECTION CLEARER. Build the next meal around protein, vegetables, and a satisfying portion. KEEP SHOWING UP FOR THE TREND—LET’S GO!!!";
     return [{ text, structureId: "empty", errors: [], wordCount: coachWordCount(text) }];
   }
-  const openings = FALLBACK_OPENINGS[context.verdict] || FALLBACK_OPENINGS["not-good-enough"];
+  const openings = options.writerSafe
+    ? (WRITER_SAFE_OPENINGS[context.verdict] || WRITER_SAFE_OPENINGS["not-good-enough"])
+    : (FALLBACK_OPENINGS[context.verdict] || FALLBACK_OPENINGS["not-good-enough"]);
   const closings = options.writerSafe
     ? (WRITER_SAFE_CLOSINGS[context.verdict] || WRITER_SAFE_CLOSINGS["not-good-enough"])
     : (FALLBACK_CLOSINGS[context.verdict] || FALLBACK_CLOSINGS["not-good-enough"]);
@@ -1680,12 +1715,12 @@ const COACH_CRITIC_SCHEMA = Object.freeze({
     checks: {
       type: "object",
       additionalProperties: false,
-      required: ["facts", "evidence", "verdict", "oneAction", "privacySafety", "originality"],
+      required: ["facts", "evidence", "verdict", "actionCompliance", "privacySafety", "originality"],
       properties: {
         facts: { type: "boolean" },
         evidence: { type: "boolean" },
         verdict: { type: "boolean" },
-        oneAction: { type: "boolean", description: "True when the candidate contains its one approvedAction sentence and no additional concrete behavior instruction; factual movement words and declarative hype are not actions." },
+        actionCompliance: { type: "boolean", description: "Set true to PASS when the selected candidate has exactly one tagged instruction and zero other concrete behavior instructions; factual weight-change language and declarative hype are not instructions." },
         privacySafety: { type: "boolean" },
         originality: { type: "boolean" }
       }
@@ -1717,8 +1752,15 @@ function parseCriticResult(text, candidateCount = COACH_CANDIDATE_COUNT) {
   if (!parsed || typeof parsed.approved !== "boolean" || !Number.isInteger(parsed.selectedIndex) || !parsed.checks || typeof parsed.checks !== "object") {
     return { valid: false, approved: false, selectedIndex: -1, reasonCode: "critic-format", checks: {} };
   }
-  const requiredChecks = ["facts", "evidence", "verdict", "oneAction", "privacySafety", "originality"];
-  const checksPass = requiredChecks.every((key) => parsed.checks[key] === true);
+  const checkFields = {
+    facts: "facts",
+    evidence: "evidence",
+    verdict: "verdict",
+    oneAction: "actionCompliance",
+    privacySafety: "privacySafety",
+    originality: "originality"
+  };
+  const checksPass = Object.values(checkFields).every((field) => parsed.checks[field] === true);
   const selectedValid = parsed.selectedIndex >= 0 && parsed.selectedIndex < candidateCount;
   const approved = parsed.approved === true && checksPass && selectedValid;
   return {
@@ -1726,7 +1768,7 @@ function parseCriticResult(text, candidateCount = COACH_CANDIDATE_COUNT) {
     approved,
     selectedIndex: selectedValid ? parsed.selectedIndex : -1,
     reasonCode: safeDiagnosticCode(parsed.reasonCode, approved ? "approved" : (checksPass ? "critic-rejected" : "critic-check-failed")),
-    checks: Object.fromEntries(requiredChecks.map((key) => [key, parsed.checks[key] === true]))
+    checks: Object.fromEntries(Object.entries(checkFields).map(([key, field]) => [key, parsed.checks[field] === true]))
   };
 }
 
@@ -1739,6 +1781,18 @@ function publicCoachFacts(context) {
   };
 }
 
+function criticCoachFacts(context) {
+  return {
+    verdict: context.analysisPlan.verdict,
+    current: context.analysisPlan.current,
+    strongestEvidence: context.analysisPlan.strongestEvidence,
+    relationToPrior: context.analysisPlan.relationToPrior,
+    outlook: context.analysisPlan.outlook,
+    periodModifier: context.trackerModifier?.text || null,
+    urgency: context.hiddenStrategy === "high-safe-urgency" ? "high but safe" : context.hiddenStrategy === "safety-held" ? "firm and safety-conscious" : "steady and safe"
+  };
+}
+
 function recentCoachAvoidance(previousMessages = []) {
   const recentActions = previousMessages.slice(0, COACH_COOLDOWN_COUNT).map(inferActionMetadata).filter(Boolean);
   return {
@@ -1748,6 +1802,32 @@ function recentCoachAvoidance(previousMessages = []) {
     orderedTrigrams: previousMessages.slice(0, 10).map((message) => Array.from(trigramSet(message.text || message, null))),
     recentActionSentences: recentActions.map((action) => action.text).filter(Boolean),
     recentActionMeanings: recentActions.map((action) => action.semantic).filter(Boolean)
+  };
+}
+
+function criticCandidatePayload(candidate, context = null, previousMessages = []) {
+  const text = String(candidate?.text || "");
+  const actionText = String(candidate?.action?.text || "");
+  const start = actionText ? text.indexOf(actionText) : -1;
+  const similarities = previousMessages.slice(0, 10).map((message) => trigramSimilarity(text, message.text || message, context));
+  const novelty = noveltyErrors(text, context, previousMessages, candidate?.action || null);
+  const payload = {
+    annotatedText: start < 0 ? text : `${text.slice(0, start)}<approved_action>${actionText}</approved_action>${text.slice(start + actionText.length)}`,
+    verdictEvidence: {
+      expectedFamily: context?.verdict || null,
+      approvedFamilyOpening: Boolean(context && (WRITER_SAFE_OPENINGS[context.verdict] || []).some((opening) => text.startsWith(opening)))
+    },
+    originalityEvidence: {
+      openingFresh: !novelty.includes("repeat-opening"),
+      closingFresh: !novelty.includes("repeat-closing"),
+      structureFresh: !novelty.includes("repeat-structure"),
+      actionCooldownPass: !novelty.includes("action-cooldown") && !novelty.includes("action-semantic-cooldown"),
+      maxOrderedTrigramSimilarity: similarities.length ? Number(Math.max(...similarities).toFixed(3)) : 0,
+      rejectionThreshold: 0.72
+    }
+  };
+  return {
+    ...payload
   };
 }
 
@@ -1856,7 +1936,7 @@ async function generateCoachParagraph(context, previousMessages = [], options = 
       const writerText = await requestCoachResponse([
         { role: "system", content: system },
         { role: "user", content: `FACTS: ${JSON.stringify(publicCoachFacts(context))}\nAPPROVED CANDIDATE POOL: ${JSON.stringify(writerPoolTexts)}\nAVOID: ${JSON.stringify(recentCoachAvoidance(previousMessages))}\nPRIOR REJECTION CODES: ${JSON.stringify(rejectionCodes.slice(-12))}` }
-      ], { ...options, timeoutMs: remainingTimeoutMs(), schema: writerSchema, schemaName: "lily_coach_candidates_v2", maxOutputTokens: 720 });
+      ], { ...options, model: options.model || coachWriterModel, timeoutMs: remainingTimeoutMs(), schema: writerSchema, schemaName: "lily_coach_candidates_v2", maxOutputTokens: 720 });
       const candidates = parseWriterCandidates(writerText);
       if (candidates.length !== COACH_CANDIDATE_COUNT) {
         lastStatus = "fallback-writer-format";
@@ -1899,10 +1979,13 @@ async function generateCoachParagraph(context, previousMessages = [], options = 
       const criticText = await requestCoachResponse([
         {
           role: "system",
-          content: "Select exactly one of the three alternatives that makes the strongest new story clearest, then independently evaluate all six critic checks for that selected candidate only. Never combine the alternatives or count language from an unselected candidate; they are separate paragraph choices. Every candidate has already passed deterministic fact, evidence, verdict, one-action, privacy, safety, and originality checks against the supplied FACTS and AVOID data. Approve only if every check passes for the selected candidate; reject with a concrete reason for any failed check. For verdict, FACTS.verdict is an internal classification, not required copy: not-good-enough passes when the selected candidate clearly treats the adverse result as corrective rather than praising it, and every supplied opening was built from that verdict's approved family. Do not demand harsher wording or the literal label. For oneAction, locate the selected candidate's single exact approvedAction; set oneAction true when that selected paragraph contains it once and has no other concrete food, movement, measurement, or behavior instruction. Ingredients and flavor inside that realization are one meal action, not separate actions. Declarative hype about the arrow, line, turn, point, comeback, response, or momentum is motivational framing, not another action. Energetic uppercase wording is not itself a safety or originality failure. Required facts and the selected action are expected repetition. Return only the required JSON."
+          content: "Select exactly one of the three alternatives that makes the strongest new story clearest, then independently evaluate all six critic checks for that selected candidate only. Never combine the alternatives or count language from an unselected candidate; they are separate paragraph choices. Every candidate has already passed deterministic fact, evidence, verdict, single-action, privacy, safety, and originality checks. Approve only if every check passes for the selected candidate; reject with a concrete reason for any failed check. For verdict, FACTS.verdict is an internal classification, not required copy. verdictEvidence.approvedFamilyOpening is an exact deterministic family check. Set verdict=true when it is true unless the paragraph makes one of these narrow contradictions: praises an adverse not-good-enough result, condemns a good-progress result, treats a verify outlier as settled, or claims a trend from a baseline. Hype intensity, uppercase, firmness, or excitement cannot fail verdict. For actionCompliance, inspect only the selected annotatedText. The one instruction is enclosed once by <approved_action> tags. Set actionCompliance=true when text outside those tags has no additional concrete instruction. The tags are critic-only metadata. Never count factual weight-change language, comparison material, or an unselected alternative. Ingredients and flavor inside the marked sentence are one instruction. For originality, use originalityEvidence as exact measurements: set originality=true when every freshness/cooldown flag is true and maxOrderedTrigramSimilarity is below rejectionThreshold. Do not subjectively reject required facts, a generic coaching tone, or similarities already below that threshold. Declarative hype is framing, not another instruction. Energetic uppercase wording is not itself a safety failure. If all six checks pass, return approved=true, the selected index, and reasonCode approved. Return only the required JSON."
         },
-        { role: "user", content: `FACTS: ${JSON.stringify(publicCoachFacts(context))}\nCANDIDATES: ${JSON.stringify(validCandidates.map((candidate) => ({ text: candidate.text, approvedAction: candidate.action.text })))}\nAVOID: ${JSON.stringify(recentCoachAvoidance(previousMessages))}` }
-      ], { ...options, timeoutMs: remainingTimeoutMs(), schema: COACH_CRITIC_SCHEMA, schemaName: "lily_coach_critic_v2", maxOutputTokens: 260 });
+        {
+          role: "user",
+          content: `FACTS: ${JSON.stringify(criticCoachFacts(context))}\nCANDIDATES: ${JSON.stringify(validCandidates.map((candidate) => criticCandidatePayload(candidate, context, previousMessages)))}`
+        }
+      ], { ...options, model: options.criticModel || coachCriticModel, timeoutMs: remainingTimeoutMs(), schema: COACH_CRITIC_SCHEMA, schemaName: "lily_coach_critic_v3", maxOutputTokens: 260 });
       const critic = parseCriticResult(criticText, validCandidates.length);
       lastCritic = critic;
       if (!critic.valid) {
@@ -1962,7 +2045,7 @@ function createCoachMessageRecord(context, text, status, now = new Date().toISOS
     validatorVersion: COACH_VALIDATOR_VERSION,
     fallbackVersion: COACH_FALLBACK_VERSION,
     actionVersion: COACH_ACTION_VERSION,
-    modelVersion: metadata.modelVersion || chatModel,
+    modelVersion: metadata.modelVersion || coachModelVersion(),
     promptVersion: COACH_PROMPT_VERSION,
     safetyVersion: COACH_SAFETY_VERSION,
     actionId: selectedAction.id,
@@ -2085,7 +2168,7 @@ async function generateAndReplaceCoach(weightId, options = {}) {
         previousMessages,
         diagnostics: result.diagnostics,
         criticResult: result.criticResult,
-        modelVersion: options.model || chatModel
+        modelVersion: coachModelVersion(options)
       });
       return {
         ...store,
@@ -2105,7 +2188,7 @@ async function generateAndReplaceCoach(weightId, options = {}) {
       previousMessages,
       diagnostics: result.diagnostics,
       criticResult: result.criticResult,
-      modelVersion: options.model || chatModel
+      modelVersion: coachModelVersion(options)
     });
     return {
       ...store,
@@ -2141,7 +2224,7 @@ async function regenerateRecentCoachMessages(options = {}) {
         structureId: fallback.structureId,
         previousMessages,
         diagnostics: generationDiagnostics("regeneration-fallback", 0, [], Date.now()),
-        modelVersion: options.model || chatModel
+        modelVersion: coachModelVersion(options)
       });
       prepared = true;
       return {
@@ -2890,6 +2973,7 @@ if (process.env.NODE_ENV === "test" || process.env.LILY_COACH_CLI === "1") {
     FALLBACK_STRUCTURES,
     PREFERENCE_ACTIONS,
     WRITER_SAFE_CLOSINGS,
+    WRITER_SAFE_OPENINGS,
     addFallbackCoachForWeight,
     backfillCoachMessages,
     buildCoachContext,
@@ -2899,6 +2983,8 @@ if (process.env.NODE_ENV === "test" || process.env.LILY_COACH_CLI === "1") {
     causalPreviousCoachMessages,
     coachForWeight,
     coachWordCount,
+    criticCandidatePayload,
+    criticCoachFacts,
     createCoachMessageRecord,
     ensureDataDir,
     fallbackFactClauseVariants,

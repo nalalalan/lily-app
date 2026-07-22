@@ -29,7 +29,7 @@ function criticPayload(approved, selectedIndex = approved ? 0 : -1, reasonCode =
       facts: approved,
       evidence: approved,
       verdict: approved,
-      oneAction: approved,
+      actionCompliance: approved,
       privacySafety: approved,
       originality: approved
     }
@@ -222,6 +222,14 @@ async function run() {
   const postCooldownWriterPool = coach.buildContextualFallbackCandidates(july22, sixSafeClosingPriors, 3, { writerSafe: true });
   assert.equal(postCooldownWriterPool.length, 3, "six recent writer-safe closings cannot exhaust the three-candidate writer pool");
   assert(postCooldownWriterPool.every((candidate) => coach.validateCoachParagraph(candidate.text, july22, sixSafeClosingPriors, { privateGoal: 117 }).ok), "post-cooldown writer candidates remain independently valid");
+  const criticFacts = coach.criticCoachFacts(july22);
+  assert(!JSON.stringify(criticFacts).toLowerCase().includes("snack"), "critic facts contain evidence but no duplicate action catalogs");
+  assert(!JSON.stringify(criticFacts).includes("approvedRealizations"), "critic facts cannot duplicate candidate action sentences");
+  assert.equal(new Set(coach.WRITER_SAFE_OPENINGS["not-good-enough"]).size, coach.WRITER_SAFE_OPENINGS["not-good-enough"].length, "writer-safe openings are unique");
+  assert(coach.buildContextualFallbackCandidates(july22, [], 3, { writerSafe: true }).every((candidate) => coach.WRITER_SAFE_OPENINGS["not-good-enough"].some((opening) => candidate.text.startsWith(opening))), "writer candidates use declarative-only openings");
+  const taggedCriticCandidate = coach.criticCandidatePayload(coach.buildContextualFallbackCandidates(july22, [], 1, { writerSafe: true })[0]);
+  assert.equal((taggedCriticCandidate.annotatedText.match(/<approved_action>/g) || []).length, 1, "critic input marks one action exactly once without duplicating it");
+  assert.equal((taggedCriticCandidate.annotatedText.match(/<\/approved_action>/g) || []).length, 1, "critic action annotation is balanced");
 
   const equivalentRows = productionWeights.slice(0, 8);
   const equivalentA = addAllFallbacks(baseStore(equivalentRows)).store.coachMessages
@@ -459,6 +467,7 @@ async function run() {
   assert.equal(generatedRecord.createdAt, beforeGenerated.createdAt);
   assert.equal(generatedRecord.criticResult.approved, true);
   assert.equal(generatedRecord.criticResult.reasonCode, "approved");
+  assert.equal(generatedRecord.modelVersion, "writer:gpt-4.1-mini;critic:gpt-4.1-mini");
   assert.equal(generatedStore.coachMessages.filter((message) => message.weightId === "weight-5").length, 1);
   assert(!generatedRecord.text.includes("999 lb"), "rejected draft copy is never persisted");
   assert(!Object.keys(generatedRecord).some((key) => /draft|raw/i.test(key)), "raw rejected draft fields are never persisted");
