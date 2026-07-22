@@ -7,7 +7,8 @@
     "start": "node server.js",
     "dev": "node server.js",
     "check": "node --check server.js && node --check public/weight-forecast.js && node --check public/weight-coach.js && node --check public/app.js && node _verification/weight-forecast.test.js && node _verification/weight-coach.test.js && node _verification/coach-message-server.test.js && node _verification/lily-preservation.test.js",
-    "verify:live-weights": "node _verification/inspect-live-weights.js"
+    "verify:live-weights": "node _verification/inspect-live-weights.js",
+    "coach:regenerate-recent": "node regenerate-recent-coaches.js"
   },
   "engines": {
     "node": ">=20"

@@ -62,10 +62,38 @@ assert.ok(
 );
 assert.ok(app.includes("state.latestCoach = normalizeLatestCoach(weightResult.latestCoach)"), "initial loading must retain the persisted coach paragraph");
 assert.ok(app.includes("state.latestCoach = normalizeLatestCoach(result.latestCoach)"), "weight refreshes and saves must retain the returned coach paragraph");
-assert.ok(app.includes("pollCoachReplacement(result.weight?.id, result.latestCoach?.text)"), "the open page must retrieve a critic-approved replacement without a manual refresh");
-assert.ok(app.includes("for (const waitMs of [1200, 1800, 2500, 4000, 6000, 9000, 10000])"), "coach replacement polling must cover the bounded background generation window");
+assert.equal((app.match(/Analyzing today’s weigh-in…/g) || []).length, 1, "a saved weigh-in must use exactly one analyzing message");
+assert.ok(app.includes("const COACH_ANALYSIS_WINDOW_MS = 8000;"), "the analyzing state must end at the eight-second deadline");
+const coachCheckpointsMatch = app.match(/const COACH_POLL_CHECKPOINTS_MS = Object\.freeze\(\[([^\]]+)\]\);/);
+assert.ok(coachCheckpointsMatch, "coach polling must use explicit bounded checkpoints");
+const coachCheckpoints = coachCheckpointsMatch[1].split(",").map((value) => Number(value.trim()));
+assert.ok(coachCheckpoints.length >= 2 && coachCheckpoints.every((value) => Number.isFinite(value) && value > 0 && value < 8000), "every coach poll must occur inside the eight-second window");
+assert.deepEqual(coachCheckpoints, coachCheckpoints.slice().sort((a, b) => a - b), "coach polling checkpoints must move forward without cumulative runaway waits");
+
+const saveWeightStart = app.indexOf("async function saveWeight(event)");
+const saveWeightEnd = app.indexOf("function mergeSavedWeight", saveWeightStart);
+const saveWeight = app.slice(saveWeightStart, saveWeightEnd);
+assert.ok(saveWeightStart > 0 && saveWeightEnd > saveWeightStart, "the save path must remain independently auditable");
+assert.ok(saveWeight.includes("state.weights = mergeSavedWeight(state.weights, result.weight)"), "the POST response must update the weight and charts without a second fetch");
+assert.ok(saveWeight.includes("const analysis = beginCoachAnalysis(result.weight?.id, fallbackCoach)"), "the saved weight must enter the bounded analyzing state");
+assert.ok(saveWeight.indexOf("renderWeights()") < saveWeight.indexOf("pollCoachReplacement(analysis)"), "the saved weight and charts must render before background polling begins");
+assert.ok(!saveWeight.includes("await loadWeights()"), "the immediate saved-weight render must not wait for a follow-up GET");
+
+const coachPollStart = app.indexOf("async function pollCoachReplacement(analysis)");
+const coachPollEnd = app.indexOf("async function saveTrackerEvent", coachPollStart);
+const coachPoll = app.slice(coachPollStart, coachPollEnd);
+assert.ok(coachPoll.includes("for (const elapsedMs of COACH_POLL_CHECKPOINTS_MS)"), "replacement polling must follow the bounded absolute checkpoints");
+assert.ok(coachPoll.includes("latestCoach.text !== analysis.initialText"), "changed persisted copy must be revealed before the deadline");
+assert.ok(app.includes("analysis.latestPersistedCoach || analysis.fallbackCoach"), "the deadline must reveal the latest persisted fallback when copy never changes");
 assert.ok(app.includes("asOfDay: dailyPoints[dailyPoints.length - 1].day"), "the headline and endpoint must stay anchored to the latest measured calendar day");
-assert.ok(app.includes("String(saved.weightId) === String(newest.id)"), "a persisted coach paragraph must match the latest weight before display");
+assert.ok(app.includes("saved.weightId === newestId"), "a persisted coach paragraph must match the latest weight before display");
+assert.doesNotMatch(
+  app,
+  /DROP IN A WEIGH-IN|DROP IN THE FIRST WEIGH-IN|FIRST NUMBER IN|TODAY NEEDS A RESPONSE|THAT[’']S REAL MOVEMENT|balanced plate you can repeat|COME ON—LET[’']S GO/i,
+  "the browser must not synthesize emergency coaching when persisted copy is missing"
+);
+assert.ok(app.includes('const COACH_EMPTY_TEXT = "No coach message yet.";'), "an empty history must use compact non-coaching copy");
+assert.ok(app.includes('const COACH_UNAVAILABLE_TEXT = "Coach message unavailable.";'), "a missing persisted record must use compact unavailable copy");
 assert.doesNotMatch(app, /Not a reliable|Only .* of data|does not mean her weight will stay constant|This is an estimate, not a guarantee/i);
 assert.doesNotMatch(app, /1-yr baseline|uncalibrated baseline|historically evaluated baseline/i);
 assert.ok(!app.includes("completed 1-year outcomes"), "validation plumbing must not crowd the visible weight summary");
@@ -133,6 +161,26 @@ assert.match(styles, /@media \(max-width:\s*560px\)[\s\S]*?\.weight-entry-row\s*
 assert.match(styles, /body\s*\{[\s\S]*?overflow-x:\s*hidden;/, "the screenshot stack must not introduce horizontal overflow");
 assert.match(styles, /\.weight-chart-card\s*\{[\s\S]*?min-width:\s*0;/, "chart cards must shrink inside the existing desktop rail and 390px mobile card");
 assert.match(index, /\/app\.js\?v=/, "the live bundle must retain explicit cache versioning");
+
+const coachTextStart = app.indexOf("function normalizeLatestCoach");
+const coachTextEnd = app.indexOf("function dailyWeightPoints", coachTextStart);
+assert.ok(coachTextStart > 0 && coachTextEnd > coachTextStart, "persisted coach display logic must remain independently testable");
+const coachTextSandbox = {};
+vm.runInNewContext(`
+  const COACH_ANALYZING_TEXT = "Analyzing today’s weigh-in…";
+  const COACH_EMPTY_TEXT = "No coach message yet.";
+  const COACH_UNAVAILABLE_TEXT = "Coach message unavailable.";
+  ${app.slice(coachTextStart, coachTextEnd)}
+  this.readCoach = weightCoachText;
+`, coachTextSandbox);
+const readCoach = coachTextSandbox.readCoach;
+const savedCoach = { weightId: "weight-new", text: "Persisted server coach.", createdAt: "2026-07-22T12:00:00Z" };
+const analyzingCoach = { weightId: "weight-new", deadlineAt: 8000 };
+assert.equal(readCoach({ id: "weight-new" }, savedCoach, analyzingCoach, 7999), "Analyzing today’s weigh-in…", "the fallback must stay hidden throughout the analysis window");
+assert.equal(readCoach({ id: "weight-new" }, savedCoach, analyzingCoach, 8000), savedCoach.text, "the persisted fallback must appear exactly at the deadline");
+assert.equal(readCoach({ id: "weight-new" }, savedCoach, null, 0), savedCoach.text, "settled views must render only persisted server copy");
+assert.equal(readCoach({ id: "weight-new" }, { ...savedCoach, weightId: "weight-old" }, null, 0), "Coach message unavailable.", "a coach record for another weight must never be synthesized into a replacement");
+assert.equal(readCoach(null, null, null, 0), "No coach message yet.", "an empty history must not render coaching");
 
 const presentationStart = app.indexOf("function createOneYearOutlookPresentation");
 const presentationEnd = app.indexOf("function createOneYearOutlookChart", presentationStart);

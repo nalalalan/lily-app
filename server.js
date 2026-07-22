@@ -48,11 +48,19 @@ const videoExtensions = new Set([".mp4", ".m4v", ".mov", ".webm"]);
 
 let writeQueue = Promise.resolve();
 
-const COACH_GENERATION_VERSION = "coach-pipeline-v1";
-const COACH_PROMPT_VERSION = "coach-prompt-v1";
-const COACH_SAFETY_VERSION = "coach-safety-v1";
+const COACH_GENERATION_VERSION = "coach-pipeline-v2";
+const COACH_ANALYSIS_VERSION = "coach-analysis-v2";
+const COACH_WRITER_PROMPT_VERSION = "coach-writer-v2";
+const COACH_CRITIC_PROMPT_VERSION = "coach-critic-v2";
+const COACH_VALIDATOR_VERSION = "coach-validator-v2";
+const COACH_FALLBACK_VERSION = "coach-fallback-v2";
+const COACH_ACTION_VERSION = "coach-action-v2";
+const COACH_PROMPT_VERSION = COACH_WRITER_PROMPT_VERSION;
+const COACH_SAFETY_VERSION = "coach-safety-v2";
 const COACH_MIN_WORDS = 35;
 const COACH_MAX_WORDS = 55;
+const COACH_COOLDOWN_COUNT = 3;
+const COACH_CANDIDATE_COUNT = 3;
 const KG_TO_LB = 2.2046226218;
 
 async function ensureDataDir() {
@@ -342,12 +350,15 @@ function normalizeCoachParagraph(text) {
 
 function causalWeightRows(store, weightId) {
   const rows = Array.isArray(store && store.weights) ? store.weights : [];
-  const current = rows.find((record) => record.id === weightId) || null;
+  const currentIndex = rows.findIndex((record) => record.id === weightId);
+  const current = currentIndex >= 0 ? rows[currentIndex] : null;
   if (!current) return { current: null, rows: [], points: [] };
   const cutoff = Date.parse(current.createdAt);
   const causalRows = rows
-    .filter((record) => Number.isFinite(Date.parse(record.createdAt)) && Date.parse(record.createdAt) <= cutoff)
-    .sort((left, right) => String(left.createdAt).localeCompare(String(right.createdAt)) || String(left.id).localeCompare(String(right.id)));
+    .map((record, sourceIndex) => ({ record, sourceIndex, time: Date.parse(record.createdAt) }))
+    .filter((entry) => Number.isFinite(entry.time) && (entry.time < cutoff || (entry.time === cutoff && entry.sourceIndex <= currentIndex)))
+    .sort((left, right) => left.time - right.time || left.sourceIndex - right.sourceIndex)
+    .map((entry) => entry.record);
   const points = weightForecast.normalizePoints(causalRows.map((record) => ({
     time: Date.parse(record.createdAt),
     weight: weightInPounds(record)
@@ -443,6 +454,8 @@ function selectSavedPreference(memories, cutoff) {
       return {
         id: item.memory.id,
         kind: "food-preference",
+        actionId: "preference-korean-vegetables",
+        actionSemantic: "preferred-balanced-meal",
         action: "Make the next meal work harder: keep the Korean flavor and add the vegetables you said you want."
       };
     }
@@ -450,6 +463,8 @@ function selectSavedPreference(memories, cutoff) {
       return {
         id: item.memory.id,
         kind: "food-preference",
+        actionId: "preference-vegetables",
+        actionSemantic: "preferred-vegetable-meal",
         action: "Make the next meal count by adding the vegetables you said you want."
       };
     }
@@ -457,6 +472,8 @@ function selectSavedPreference(memories, cutoff) {
       return {
         id: item.memory.id,
         kind: "food-preference",
+        actionId: "preference-korean",
+        actionSemantic: "preferred-balanced-meal",
         action: "Build the next balanced meal around the Korean flavors you already like."
       };
     }
@@ -464,11 +481,137 @@ function selectSavedPreference(memories, cutoff) {
       return {
         id: item.memory.id,
         kind: "food-preference",
+        actionId: "preference-fruit",
+        actionSemantic: "preferred-planned-snack",
         action: "Choose the fruit you already enjoy for the next planned snack."
       };
     }
   }
   return null;
+}
+
+const COACH_ACTION_CATALOG = Object.freeze([
+  { id: "balanced-plate", semantic: "balanced-meal", text: "Build the next meal around protein, vegetables, and a satisfying portion." },
+  { id: "balanced-plate-alt", semantic: "balanced-meal", text: "Make the next plate a satisfying mix of protein and vegetables." },
+  { id: "easy-walk", semantic: "gentle-movement", text: "Take one comfortable walk after the next meal." },
+  { id: "easy-walk-alt", semantic: "gentle-movement", text: "Give yourself one easy walk after eating next." },
+  { id: "protein-anchor", semantic: "protein-meal", text: "Anchor the next meal with a satisfying protein and vegetables." },
+  { id: "protein-anchor-alt", semantic: "protein-meal", text: "Let protein and vegetables lead the next satisfying meal." },
+  { id: "planned-portion", semantic: "portion-plan", text: "Plate one satisfying portion for the next meal before you start eating." },
+  { id: "planned-portion-alt", semantic: "portion-plan", text: "Set one satisfying portion on the plate before the next meal begins." },
+  { id: "vegetable-add", semantic: "vegetable-meal", text: "Add one vegetable you enjoy to the next meal." },
+  { id: "vegetable-add-alt", semantic: "vegetable-meal", text: "Put one enjoyable vegetable into the next meal." },
+  { id: "planned-snack", semantic: "snack-plan", text: "Choose one planned snack before hunger makes the decision." },
+  { id: "planned-snack-alt", semantic: "snack-plan", text: "Decide on one satisfying snack before you need it." },
+  { id: "water-with-meal", semantic: "meal-hydration", text: "Have a glass of water alongside the next meal." },
+  { id: "water-with-meal-alt", semantic: "meal-hydration", text: "Pair the next meal with one full glass of water." },
+  { id: "repeatable-breakfast", semantic: "repeatable-meal", text: "Choose one balanced breakfast you can repeat tomorrow." },
+  { id: "repeatable-breakfast-alt", semantic: "repeatable-meal", text: "Set up one balanced breakfast that works again tomorrow." },
+  { id: "simple-balanced-plate", semantic: "simple-balanced-meal", text: "Make the next meal a simple plate with protein, vegetables, and a satisfying portion." },
+  { id: "simple-balanced-plate-alt", semantic: "simple-balanced-meal", text: "Keep the next meal simple with protein, vegetables, and a satisfying portion." },
+  { id: "same-scale-conditions", semantic: "measurement-confirmation", text: "Repeat the next weigh-in under the same scale conditions." },
+  { id: "same-scale-conditions-alt", semantic: "measurement-confirmation", text: "Confirm the number with the same scale setup next time." },
+  { id: "steady-scale-check", semantic: "measurement-routine", text: "Use the same scale routine for the next confirming weigh-in." },
+  { id: "steady-scale-check-alt", semantic: "measurement-routine", text: "Keep the scale routine identical for the confirming check." },
+  { id: "confirm-saved-weight", semantic: "entry-confirmation", text: "Confirm the saved number with one normal follow-up weigh-in." },
+  { id: "confirm-saved-weight-alt", semantic: "entry-confirmation", text: "Give this saved number one normal follow-up check." },
+  { id: "calm-recheck", semantic: "measurement-pause", text: "Let one normal follow-up weigh-in settle this swing." },
+  { id: "calm-recheck-alt", semantic: "measurement-pause", text: "Use one normal follow-up reading to settle this swing." }
+]);
+
+const PREFERENCE_ACTIONS = Object.freeze([
+  { id: "preference-korean-vegetables", preferenceKey: "preference-korean-vegetables", semantic: "preferred-balanced-meal", text: "Bring the vegetables you wanted into the next Korean-flavored meal." },
+  { id: "preference-korean-vegetables-alt", preferenceKey: "preference-korean-vegetables", semantic: "preferred-balanced-meal", text: "Keep Korean flavor and the vegetables you wanted in the next meal." },
+  { id: "preference-vegetables", preferenceKey: "preference-vegetables", semantic: "preferred-vegetable-meal", text: "Bring the vegetables you wanted into the next meal." },
+  { id: "preference-vegetables-alt", preferenceKey: "preference-vegetables", semantic: "preferred-vegetable-meal", text: "Add the vegetables you wanted to the next meal." },
+  { id: "preference-korean", preferenceKey: "preference-korean", semantic: "preferred-balanced-meal", text: "Build the next balanced meal with the Korean flavors you like." },
+  { id: "preference-korean-alt", preferenceKey: "preference-korean", semantic: "preferred-balanced-meal", text: "Use the Korean flavors you like in the next balanced meal." },
+  { id: "preference-fruit", preferenceKey: "preference-fruit", semantic: "preferred-planned-snack", text: "Choose a fruit you enjoy for the next planned snack." },
+  { id: "preference-fruit-alt", preferenceKey: "preference-fruit", semantic: "preferred-planned-snack", text: "Make the next planned snack a fruit you enjoy." }
+]);
+
+function stableIndex(value, length) {
+  if (!length) return 0;
+  const hash = crypto.createHash("sha256").update(String(value || "")).digest();
+  return hash.readUInt32BE(0) % length;
+}
+
+function causalPreviousCoachMessages(store, currentWeight, limit = 10) {
+  if (!currentWeight) return [];
+  const allWeights = Array.isArray(store?.weights) ? store.weights : [];
+  const currentIndex = allWeights.findIndex((weight) => weight.id === currentWeight.id);
+  const cutoff = Date.parse(currentWeight.createdAt);
+  const weights = allWeights
+    .map((weight, sourceIndex) => ({ weight, sourceIndex, time: Date.parse(weight.createdAt) }))
+    .filter((entry) => entry.weight.id !== currentWeight.id && Number.isFinite(entry.time) && (entry.time < cutoff || (entry.time === cutoff && entry.sourceIndex < currentIndex)))
+    .sort((left, right) => right.time - left.time || right.sourceIndex - left.sourceIndex)
+    .map((entry) => entry.weight);
+  return weights.map((weight) => coachForWeight(store, weight.id)).filter(Boolean).slice(0, limit);
+}
+
+function inferActionMetadata(message) {
+  if (!message) return null;
+  if (message.actionId && message.actionSemantic) {
+    return { id: message.actionId, semantic: message.actionSemantic, text: message.actionText || "" };
+  }
+  const text = String(message.text || "");
+  return [...PREFERENCE_ACTIONS, ...COACH_ACTION_CATALOG].find((action) => text.includes(action.text)) || null;
+}
+
+function rotateCandidates(rows, seed) {
+  if (!rows.length) return [];
+  const start = stableIndex(seed, rows.length);
+  return rows.slice(start).concat(rows.slice(0, start));
+}
+
+function selectCoachAction(store, currentWeight, preference, outlier, recentConflict) {
+  const recent = causalPreviousCoachMessages(store, currentWeight, COACH_COOLDOWN_COUNT).map(inferActionMetadata).filter(Boolean);
+  const usedIds = new Set(recent.map((action) => action.id));
+  const usedSemantics = new Set(recent.map((action) => action.semantic));
+  const usedTexts = new Set(recent.map((action) => action.text).filter(Boolean));
+  const allActions = [...PREFERENCE_ACTIONS, ...COACH_ACTION_CATALOG];
+  const familyKey = (action) => action.preferenceKey ? `preference:${action.preferenceKey}` : `semantic:${action.semantic}`;
+  const families = new Map();
+  for (const action of allActions) {
+    const key = familyKey(action);
+    if (!families.has(key)) families.set(key, []);
+    families.get(key).push(action);
+  }
+  let contextualKeys = [];
+  if (outlier) {
+    contextualKeys = ["measurement-confirmation", "measurement-routine", "entry-confirmation", "measurement-pause"].map((semantic) => `semantic:${semantic}`);
+  } else if (recentConflict) {
+    contextualKeys = ["semantic:simple-balanced-meal"];
+  } else if (preference) {
+    contextualKeys = [`preference:${preference.actionId}`];
+  }
+  const generalKeys = Array.from(families.keys()).filter((key) => {
+    if (!key.startsWith("semantic:")) return false;
+    const semantic = key.slice("semantic:".length);
+    return !semantic.startsWith("measurement-") && semantic !== "entry-confirmation" && semantic !== "simple-balanced-meal";
+  });
+  const normalizedTime = Number.isFinite(Date.parse(currentWeight?.createdAt)) ? new Date(currentWeight.createdAt).toISOString() : "unknown-time";
+  const causalSeed = `${normalizedTime}|${trimCoachNumber(weightInPounds(currentWeight))}|${outlier ? "outlier" : "ordinary"}|${recentConflict ? "recent-conflict" : "no-conflict"}|${preference?.actionId || "no-preference"}`;
+  const orderedKeys = [
+    ...rotateCandidates(Array.from(new Set(contextualKeys)), `${causalSeed}|contextual-family`),
+    ...rotateCandidates(generalKeys.filter((key) => !contextualKeys.includes(key)), `${causalSeed}|general-family`)
+  ];
+  const familyCandidates = orderedKeys
+    .map((key) => ({ key, rows: families.get(key) || [] }))
+    .filter((family) => family.rows.length >= 2);
+  const selectedFamily = familyCandidates.find((family) => !usedSemantics.has(family.rows[0].semantic))
+    || familyCandidates[0]
+    || { key: "semantic:balanced-meal", rows: COACH_ACTION_CATALOG.filter((action) => action.semantic === "balanced-meal") };
+  const realizations = rotateCandidates(selectedFamily.rows, `${causalSeed}|realization`);
+  const selected = realizations.find((action) => !usedIds.has(action.id) && !usedTexts.has(action.text)) || realizations[0];
+  return {
+    ...selected,
+    realizations: realizations.map((action) => ({ id: action.id, text: action.text })),
+    preferenceId: preference && selected.preferenceKey === preference.actionId ? preference.id : null,
+    recentActionIds: recent.map((action) => action.id),
+    recentActionSemantics: recent.map((action) => action.semantic),
+    recentActionTexts: recent.map((action) => action.text).filter(Boolean)
+  };
 }
 
 function selectTrackerModifier(events, dateKey) {
@@ -504,6 +647,142 @@ function hiddenStrategyState(goal, currentWeight) {
   return currentWeight - goal >= 20 ? "high-safe-urgency" : "steady-safe";
 }
 
+function movementMap(points) {
+  return {
+    days3: robustWindowMovement(points, 3),
+    days7: robustWindowMovement(points, 7),
+    days14: robustWindowMovement(points, 14),
+    days28: robustWindowMovement(points, 28)
+  };
+}
+
+function finiteMovement(value) {
+  return typeof value === "number" && Number.isFinite(value) ? value : NaN;
+}
+
+function strongestChangingEvidence(movements, latestDailyChange = 0) {
+  const rows = [3, 7, 14, 28]
+    .map((windowDays) => ({ windowDays, movement: finiteMovement(movements?.[`days${windowDays}`]) }))
+    .filter((row) => Number.isFinite(row.movement) && Math.abs(row.movement) >= 0.05)
+    .sort((left, right) => Math.abs(right.movement) - Math.abs(left.movement) || left.windowDays - right.windowDays);
+  const selected = rows[0];
+  if (selected) {
+    return {
+      kind: "window-movement",
+      windowDays: selected.windowDays,
+      movement: selected.movement,
+      direction: selected.movement < 0 ? "down" : "up"
+    };
+  }
+  return {
+    kind: "daily-change",
+    windowDays: 1,
+    movement: Number(latestDailyChange) || 0,
+    direction: Math.abs(Number(latestDailyChange) || 0) < 0.05 ? "flat" : latestDailyChange < 0 ? "down" : "up"
+  };
+}
+
+function selectStrongestCoachEvidence({ points, movements, previousMovements, latestDailyChange, outlier, streak }) {
+  if (!Array.isArray(points) || points.length <= 1) {
+    return { kind: "baseline", windowDays: null, movement: 0, direction: "flat", relationKind: "new" };
+  }
+  if (outlier) {
+    return { kind: "outlier", windowDays: 1, movement: latestDailyChange, direction: latestDailyChange < 0 ? "down" : "up", relationKind: "new" };
+  }
+  if (streak?.reversal) {
+    return { kind: "reversal", windowDays: 1, movement: latestDailyChange, direction: latestDailyChange < 0 ? "down" : "up", relationKind: "reversed" };
+  }
+  if (streak?.count >= 3 && Math.abs(streak.movement) >= 0.3) {
+    return { kind: "streak", windowDays: null, movement: streak.movement, direction: streak.direction, count: streak.count, relationKind: "strengthened" };
+  }
+
+  const windowRows = [3, 7, 14, 28].map((windowDays) => {
+    const current = finiteMovement(movements?.[`days${windowDays}`]);
+    const previous = finiteMovement(previousMovements?.[`days${windowDays}`]);
+    const magnitudeChange = Number.isFinite(current) && Number.isFinite(previous) ? Math.abs(current) - Math.abs(previous) : NaN;
+    return { windowDays, current, previous, magnitudeChange };
+  });
+  const changing = windowRows
+    .filter((row) => Number.isFinite(row.current) && Number.isFinite(row.previous) && Math.abs(row.current) >= 0.3 && Math.abs(row.magnitudeChange) >= 0.15)
+    .sort((left, right) => Math.abs(right.magnitudeChange) - Math.abs(left.magnitudeChange) || left.windowDays - right.windowDays)[0];
+  if (changing) {
+    const relation = evidenceRelation(
+      { movement: changing.current },
+      { movement: changing.previous }
+    );
+    return {
+      kind: changing.magnitudeChange >= 0 ? "window-acceleration" : "window-easing",
+      windowDays: changing.windowDays,
+      movement: changing.current,
+      previousMovement: changing.previous,
+      direction: changing.current < 0 ? "down" : "up",
+      relationKind: relation.kind
+    };
+  }
+
+  const short = windowRows.find((row) => row.windowDays === 3);
+  const broad = windowRows.slice().reverse().find((row) => Number.isFinite(row.current) && Math.abs(row.current) >= 0.3);
+  if (short && broad && Number.isFinite(short.current) && Math.abs(short.current) >= 0.3 && Math.sign(short.current) !== Math.sign(broad.current)) {
+    return {
+      kind: "short-broad-contrast",
+      windowDays: 3,
+      movement: short.current,
+      direction: short.current < 0 ? "down" : "up",
+      comparisonWindowDays: broad.windowDays,
+      comparisonMovement: broad.current,
+      relationKind: "contrasts"
+    };
+  }
+
+  const robust = strongestChangingEvidence(movements, latestDailyChange);
+  return robust;
+}
+
+function evidenceRelation(current, previous) {
+  if (!previous) return { kind: "new", phrase: "new versus the prior context" };
+  const currentSign = Math.abs(current.movement) < 0.05 ? 0 : Math.sign(current.movement);
+  const previousSign = Math.abs(previous.movement) < 0.05 ? 0 : Math.sign(previous.movement);
+  if (currentSign && previousSign && currentSign !== previousSign) return { kind: "reversed", phrase: "reversed from the prior context" };
+  if (Math.abs(current.movement) > Math.abs(previous.movement) + 0.05) return { kind: "strengthened", phrase: "stronger than the prior context" };
+  if (Math.abs(current.movement) + 0.05 < Math.abs(previous.movement)) return { kind: "eased", phrase: "easier than the prior context" };
+  return { kind: "held", phrase: "similar to the prior context" };
+}
+
+function buildAnalysisPlan(context) {
+  const evidence = context.strongestEvidence;
+  return {
+    version: COACH_ANALYSIS_VERSION,
+    verdict: context.verdict,
+    current: {
+      weight: Number(trimCoachNumber(context.currentWeight)),
+      change: Number(trimCoachNumber(context.latestDailyChange)),
+      direction: context.changeDirection
+    },
+    strongestEvidence: {
+      kind: evidence.kind,
+      windowDays: evidence.windowDays,
+      movement: Number(trimCoachNumber(evidence.movement)),
+      direction: evidence.direction,
+      previousMovement: Number.isFinite(evidence.previousMovement) ? Number(trimCoachNumber(evidence.previousMovement)) : null,
+      count: Number.isFinite(evidence.count) ? evidence.count : null,
+      comparisonWindowDays: Number.isFinite(evidence.comparisonWindowDays) ? evidence.comparisonWindowDays : null,
+      comparisonMovement: Number.isFinite(evidence.comparisonMovement) ? Number(trimCoachNumber(evidence.comparisonMovement)) : null
+    },
+    relationToPrior: context.evidenceRelation.kind,
+    outlook: context.includeOutlook ? {
+      weight: Number(context.outlook.toFixed(1)),
+      roundedWeight: Math.round(context.outlook),
+      change: Number(context.outlookChange.toFixed(3)),
+      direction: context.outlookDirection,
+      relationToEvidence: context.outlookEvidenceRelation
+    } : null,
+    action: {
+      semantic: context.actionSemantic,
+      approvedRealizations: context.actionRealizations.map((realization) => ({ id: realization.id, text: realization.text }))
+    }
+  };
+}
+
 function buildCoachContext(store, weightId, options = {}) {
   const { current, rows, points } = causalWeightRows(store, weightId);
   if (!current || !points.length) return null;
@@ -525,28 +804,87 @@ function buildCoachContext(store, weightId, options = {}) {
   const preference = includePersonalContext ? selectSavedPreference(store.memories, currentTime) : null;
   const outlier = isWeightOutlier(points);
   const streak = recentWeightStreak(points);
+  const movements = movementMap(points);
+  const previousPoints = points.slice(0, -1);
+  const previousMovements = previousPoints.length ? movementMap(previousPoints) : null;
+  const previousStreak = previousPoints.length ? recentWeightStreak(previousPoints) : null;
+  const strongestEvidence = selectStrongestCoachEvidence({
+    points,
+    movements,
+    previousMovements,
+    latestDailyChange,
+    outlier,
+    streak
+  });
+  const previousEvidenceMovement = ["window-acceleration", "window-easing", "window-movement", "short-broad-contrast"].includes(strongestEvidence.kind)
+    ? finiteMovement(previousMovements?.[`days${strongestEvidence.windowDays}`])
+    : strongestEvidence.kind === "streak"
+      ? finiteMovement(previousStreak?.movement)
+      : (previousPoints.length > 1 ? previousPoints.at(-1).weight - previousPoints.at(-2).weight : NaN);
+  const previousEvidence = Number.isFinite(previousEvidenceMovement) ? {
+    kind: strongestEvidence.kind,
+    windowDays: strongestEvidence.windowDays,
+    movement: previousEvidenceMovement,
+    direction: Math.abs(previousEvidenceMovement) < 0.05 ? "flat" : previousEvidenceMovement < 0 ? "down" : "up"
+  } : null;
+  const computedRelation = evidenceRelation(strongestEvidence, previousEvidence);
+  const relationKind = strongestEvidence.relationKind || computedRelation.kind;
+  const relation = {
+    kind: relationKind,
+    phrase: {
+      strengthened: "stronger than the prior context",
+      eased: "weaker than the prior context",
+      reversed: "reversed from the prior context",
+      contrasts: "contrasts with the broader context",
+      held: "similar to the prior context",
+      new: "new versus the prior context"
+    }[relationKind] || computedRelation.phrase
+  };
   const outlookDirection = outlookChange > 0.05 ? "worsened" : outlookChange < -0.05 ? "improved" : "held";
+  const priorOutlookChange = history.length > 2 ? history.at(-2).weight - history.at(-3).weight : 0;
+  const priorOutlookDirection = priorOutlookChange > 0.05 ? "worsened" : priorOutlookChange < -0.05 ? "improved" : "held";
+  const evidenceBad = strongestEvidence.direction === "up";
+  const evidenceGood = strongestEvidence.direction === "down";
+  const outlookReinforces = (evidenceBad && outlookDirection === "worsened") || (evidenceGood && outlookDirection === "improved");
+  const outlookContradicts = (evidenceBad && outlookDirection === "improved") || (evidenceGood && outlookDirection === "worsened");
+  const outlookDirectionFlip = priorOutlookDirection !== "held" && outlookDirection !== "held" && priorOutlookDirection !== outlookDirection;
+  const includeOutlook = Math.abs(outlookChange) >= 0.5 || outlookDirectionFlip || outlookReinforces || outlookContradicts;
   const changeDirection = latestDailyChange > 0.05 ? "up" : latestDailyChange < -0.05 ? "down" : "unchanged";
   let verdict = "not-good-enough";
   if (points.length === 1) verdict = "baseline";
   else if (outlier) verdict = "verify";
   else if (changeDirection === "down" && outlookDirection !== "worsened") verdict = "good-progress";
 
-  const action = preference?.action || (outlier
-    ? "Use the same scale conditions for the next confirming weigh-in."
-    : recentConflict
-      ? "Make the next meal a simple balanced plate with protein, vegetables, and a satisfying portion."
-      : "Build the next meal around protein, vegetables, and a satisfying portion.");
+  const actionSelection = selectCoachAction(store, current, preference, outlier, recentConflict);
+  const selectedPreference = actionSelection.preferenceId ? preference : null;
+  const comparisonWindowDays = Number.isFinite(strongestEvidence.comparisonWindowDays) ? strongestEvidence.comparisonWindowDays : 0;
+  const selectedWindowDays = Math.max(Number(strongestEvidence.windowDays) || 0, comparisonWindowDays);
+  const selectedEvidenceStartDay = strongestEvidence.kind === "streak" && Number.isFinite(strongestEvidence.count)
+    ? points[Math.max(0, points.length - strongestEvidence.count)]?.day
+    : selectedWindowDays > 1
+      ? latestPoint.day - selectedWindowDays
+      : null;
+  const directReferenceIds = new Set([current.id, rows.length > 1 ? rows[rows.length - 2].id : null].filter(Boolean));
+  const selectedEvidenceReferences = Number.isFinite(selectedEvidenceStartDay)
+    ? rows
+      .filter((record) => {
+        const day = weightForecast.calendarDay(Date.parse(record.createdAt));
+        return Number.isFinite(day) && day >= selectedEvidenceStartDay && day <= latestPoint.day && !directReferenceIds.has(record.id);
+      })
+      .map((record) => ({ type: "weight", id: record.id, role: "selected-evidence-window" }))
+    : [];
   const evidenceReferences = [
     { type: "weight", id: current.id, role: "current" },
     ...(rows.length > 1 ? [{ type: "weight", id: rows[rows.length - 2].id, role: "comparison" }] : []),
+    ...selectedEvidenceReferences,
     ...(trackerModifier ? [{ type: "tracker", id: trackerModifier.id, role: trackerModifier.type }] : []),
     ...(recentConflict ? [{ type: "tracker", id: recentConflict.id, role: "recent-conflict" }] : []),
-    ...(preference ? [{ type: "memory", id: preference.id, role: preference.kind }] : [])
+    ...(selectedPreference ? [{ type: "memory", id: selectedPreference.id, role: selectedPreference.kind }] : [])
   ];
   const privateGoal = Object.prototype.hasOwnProperty.call(options, "privateGoal") ? Number(options.privateGoal) : privateCoachGoal;
   const context = {
     weightId: current.id,
+    measurementAt: new Date(currentTime).toISOString(),
     currentWeight: weightInPounds(current),
     latestDailyWeight: latestPoint.weight,
     previousDailyWeight: previousPoint ? previousPoint.weight : null,
@@ -555,24 +893,32 @@ function buildCoachContext(store, weightId, options = {}) {
     streak,
     reversal: streak.reversal,
     outlier,
-    movements: {
-      days3: robustWindowMovement(points, 3),
-      days7: robustWindowMovement(points, 7),
-      days14: robustWindowMovement(points, 14),
-      days28: robustWindowMovement(points, 28)
-    },
+    movements,
+    strongestEvidence,
+    previousStrongestEvidence: previousEvidence,
+    evidenceRelation: relation,
     outlook,
     previousOutlook: Number.isFinite(previousOutlook) ? previousOutlook : outlook,
     outlookChange,
     outlookDirection,
+    previousOutlookDirection: priorOutlookDirection,
+    includeOutlook,
+    outlookEvidenceRelation: outlookReinforces ? "reinforces" : outlookContradicts ? "contradicts" : outlookDirectionFlip ? "direction-flip" : "material-movement",
     verdict,
     trackerModifier,
-    preference: preference ? { id: preference.id, kind: preference.kind } : null,
-    action,
+    preference: selectedPreference ? { id: selectedPreference.id, kind: selectedPreference.kind } : null,
+    action: actionSelection.text,
+    actionId: actionSelection.id,
+    actionSemantic: actionSelection.semantic,
+    actionRealizations: actionSelection.realizations,
+    recentActionIds: actionSelection.recentActionIds,
+    recentActionSemantics: actionSelection.recentActionSemantics,
+    recentActionTexts: actionSelection.recentActionTexts,
     evidenceReferences,
     hiddenStrategy: hiddenStrategyState(privateGoal, weightInPounds(current)),
     forecastFingerprint: history.map((point) => ({ day: point.day, weight: point.weight, outlookTargetWeight: point.outlookTargetWeight }))
   };
+  context.analysisPlan = buildAnalysisPlan(context);
   context.contextHash = crypto.createHash("sha256").update(JSON.stringify(context)).digest("hex");
   return context;
 }
@@ -589,24 +935,397 @@ function outlookPhrase(context) {
   return `is holding at about ${rounded} lb`;
 }
 
-function buildContextualFallback(context) {
-  if (!context) return "WEIGH-IN SAVED—THE DATA IS HERE, AND THE NEXT CONSISTENT CHECK WILL MAKE THE DIRECTION CLEARER. Build the next meal around protein, vegetables, and a satisfying portion. KEEP SHOWING UP FOR THE TREND—LET’S GO!!!";
-  const current = trimCoachNumber(context.currentWeight);
-  const modifier = context.trackerModifier ? ` ${context.trackerModifier.text}` : "";
-  let opening = "NOT GOOD ENOUGH YET";
-  let close = "TURN THIS LINE AROUND—LET’S GO!!!";
-  if (context.verdict === "good-progress") {
-    opening = "YES—THIS IS REAL PROGRESS";
-    close = "KEEP STACKING PROOF—LET’S GO!!!";
-  } else if (context.verdict === "verify") {
-    opening = "PAUSE—THIS READING NEEDS CONFIRMATION";
-    close = "CONFIRM THE SIGNAL, THEN WE ATTACK THE REAL TREND!!!";
-  } else if (context.verdict === "baseline") {
-    opening = "BASELINE LOGGED—THIS IS THE STARTING LINE";
-    close = "THE TREND STARTS HERE—LET’S GO!!!";
+const FALLBACK_OPENINGS = Object.freeze({
+  "not-good-enough": [
+    "NOT GOOD ENOUGH YET", "WRONG-WAY SIGNAL—TIME TO RESPOND", "TODAY NEEDS A STRONG RESPONSE", "THIS RESULT NEEDS WORK",
+    "THE LINE MOVED THE WRONG WAY", "NOT THE RESULT WE WANTED", "THIS SETBACK NEEDS AN ANSWER", "THE TREND IS ASKING FOR A COMEBACK",
+    "COURSE CORRECTION STARTS NOW", "TODAY PUSHED BACK", "THIS NUMBER DOES NOT GET A PASS", "THE NEXT TURN MATTERS NOW",
+    "THIS IS MOVING THE WRONG WAY"
+  ],
+  "good-progress": [
+    "YES—THIS IS REAL PROGRESS", "RIGHT WAY—KEEP IT MOVING", "THIS WEIGH-IN IS A WIN", "THE WORK IS SHOWING UP",
+    "STRONG PROGRESS IS ON THE BOARD", "THIS LINE IS MOVING OUR WAY", "GOOD—THE SIGNAL GOT BETTER", "MOMENTUM JUST LEANED FORWARD",
+    "THAT IS THE RESPONSE WE WANTED", "THE TREND JUST EARNED A CHEER", "LOWER AND MOVING—YES", "THIS STEP LANDED THE RIGHT WAY"
+  ],
+  verify: [
+    "PAUSE—THIS READING NEEDS CONFIRMATION", "VERIFY THIS BEFORE WE JUDGE IT", "THIS SWING NEEDS ONE CLEAN CHECK", "CONFIRMATION COMES BEFORE THE VERDICT",
+    "THE SIGNAL IS TOO EXTREME TO TRUST YET", "CHECK THIS NUMBER BEFORE REACTING", "ONE OUTLIER DOES NOT OWN THE STORY", "THIS READING IS ON HOLD",
+    "THE SCALE JUST THREW A CURVEBALL", "FIRST WE CONFIRM THE SIGNAL", "THIS JUMP NEEDS A FAIR RECHECK", "NO PRAISE OR PANIC UNTIL CONFIRMED"
+  ],
+  baseline: [
+    "BASELINE LOGGED—THIS IS THE STARTING LINE", "FIRST NUMBER DOWN—NOW THE TREND CAN START", "THE STARTING POINT IS OFFICIALLY HERE", "ONE HONEST NUMBER OPENS THE STORY",
+    "THE FIRST WEIGH-IN IS ON THE BOARD", "STARTING LINE SET—LET’S BUILD", "THE BASELINE IS READY", "THIS IS WHERE THE LINE BEGINS",
+    "FIRST DATA POINT—FULL ATTENTION", "THE TREND HAS ITS FIRST ANCHOR", "WE HAVE THE STARTING NUMBER", "DAY ONE OF THE WEIGHT STORY IS HERE"
+  ]
+});
+
+const FALLBACK_CLOSINGS = Object.freeze({
+  "not-good-enough": [
+    "TURN THE NEXT ARROW DOWN—LET’S GO!!!", "ANSWER THIS WITH THE NEXT CHECK!!!", "MAKE THE NEXT NUMBER PUSH BACK!!!", "THE COMEBACK STARTS WITH THIS MOVE!!!",
+    "NOW FIGHT FOR THE TURN!!!", "PUT THE NEXT POINT BACK ON TRACK!!!", "THIS LINE CAN TURN—GO GET IT!!!", "THE RESPONSE STARTS NOW!!!",
+    "MAKE THE NEXT WEIGH-IN ANSWER!!!", "RESET THE DIRECTION—COME ON!!!", "GO EARN THE DOWNWARD ARROW!!!", "THE NEXT POINT IS THE COMEBACK CHANCE!!!",
+    "WE KNOW WHAT NEEDS TO CHANGE—COME ON!!!"
+  ],
+  "good-progress": [
+    "KEEP STACKING DOWNWARD PROOF!!!", "PROTECT THIS DIRECTION—LET’S GO!!!", "MAKE THE NEXT POINT AGREE!!!", "PRESS THIS ADVANTAGE!!!",
+    "KEEP THE GOOD SIGNAL MOVING!!!", "STACK ANOTHER RIGHT-WAY ARROW!!!", "THIS IS MOMENTUM—USE IT!!!", "GO COLLECT THE NEXT WIN!!!",
+    "KEEP THE LINE WORKING FOR YOU!!!", "BUILD ON THIS RIGHT NOW!!!", "ONE MORE GOOD POINT—LET’S GO!!!", "HOLD THE RHYTHM AND KEEP PRESSING!!!"
+  ],
+  verify: [
+    "CONFIRM IT, THEN WE JUDGE THE TREND!!!", "LET THE NEXT CLEAN CHECK SETTLE IT!!!", "VERIFY FIRST, THEN ATTACK THE REAL SIGNAL!!!", "ONE FAIR RECHECK COMES NEXT!!!",
+    "MAKE THE NEXT READING THE TIEBREAKER!!!", "CONFIRM THE NUMBER BEFORE THE HYPE!!!", "THE NEXT CLEAN POINT GETS THE VERDICT!!!", "CHECK IT ONCE, THEN WE MOVE!!!",
+    "ONE CONFIRMING POINT WILL CLEAR THIS UP!!!", "VERIFY THE SWING AND BRING THE REAL STORY!!!", "THE TREND WAITS FOR ONE CLEAN ANSWER!!!", "CONFIRMATION FIRST—THEN FULL ENERGY!!!"
+  ],
+  baseline: [
+    "THE NEXT POINT GIVES THIS LINE DIRECTION!!!", "NOW GIVE THE BASELINE A STRONG FOLLOW-UP!!!", "THE TREND STARTS WITH THE NEXT CHECK!!!", "COME BACK AND MAKE THE DIRECTION LOUD!!!",
+    "ONE MORE POINT TURNS DATA INTO MOMENTUM!!!", "THE NEXT WEIGH-IN STARTS THE REAL READ!!!", "BUILD THE LINE ONE HONEST POINT AT A TIME!!!", "NOW LET THE NEXT NUMBER MOVE THE STORY!!!",
+    "THE FOLLOW-UP IS WHERE MOMENTUM BEGINS!!!", "BRING THE NEXT POINT AND WE READ THE TURN!!!", "THE START IS SET—NOW BUILD ON IT!!!", "NEXT CHECK, NEXT SIGNAL—LET’S GO!!!"
+  ]
+});
+
+function composeFallbackParagraph(opening, current, evidence, outlook, action, close, separators) {
+  const clean = (value) => String(value || "").trim().replace(/[.!?]+$/g, "");
+  const facts = [clean(current), clean(evidence), clean(outlook)].filter(Boolean);
+  const factSeparators = [separators.currentEvidence, separators.evidenceOutlook];
+  let body = `${clean(opening)}${separators.openingCurrent}${facts[0] || ""}`;
+  for (let index = 1; index < facts.length; index += 1) body += `${factSeparators[index - 1] || ". "}${facts[index]}`;
+  return `${body}. ${clean(action)}. ${String(close || "").trim()}`;
+}
+
+const FALLBACK_STRUCTURES = Object.freeze([
+  (opening, current, evidence, outlook, action, close) => composeFallbackParagraph(opening, current, evidence, outlook, action, close, { openingCurrent: "—", currentEvidence: ". ", evidenceOutlook: ". " }),
+  (opening, current, evidence, outlook, action, close) => composeFallbackParagraph(opening, current, evidence, outlook, action, close, { openingCurrent: ": ", currentEvidence: ". ", evidenceOutlook: ". " }),
+  (opening, current, evidence, outlook, action, close) => composeFallbackParagraph(opening, current, evidence, outlook, action, close, { openingCurrent: ". ", currentEvidence: ". ", evidenceOutlook: ". " }),
+  (opening, current, evidence, outlook, action, close) => composeFallbackParagraph(opening, current, evidence, outlook, action, close, { openingCurrent: "—", currentEvidence: "; ", evidenceOutlook: ". " }),
+  (opening, current, evidence, outlook, action, close) => composeFallbackParagraph(opening, current, evidence, outlook, action, close, { openingCurrent: ": ", currentEvidence: "; ", evidenceOutlook: ". " }),
+  (opening, current, evidence, outlook, action, close) => composeFallbackParagraph(opening, current, evidence, outlook, action, close, { openingCurrent: ". ", currentEvidence: "; ", evidenceOutlook: ". " }),
+  (opening, current, evidence, outlook, action, close) => composeFallbackParagraph(opening, current, evidence, outlook, action, close, { openingCurrent: "—", currentEvidence: "—", evidenceOutlook: ". " }),
+  (opening, current, evidence, outlook, action, close) => composeFallbackParagraph(opening, current, evidence, outlook, action, close, { openingCurrent: ": ", currentEvidence: "—", evidenceOutlook: ". " }),
+  (opening, current, evidence, outlook, action, close) => composeFallbackParagraph(opening, current, evidence, outlook, action, close, { openingCurrent: ". ", currentEvidence: "—", evidenceOutlook: ". " }),
+  (opening, current, evidence, outlook, action, close) => composeFallbackParagraph(opening, current, evidence, outlook, action, close, { openingCurrent: "—", currentEvidence: ". ", evidenceOutlook: "; " }),
+  (opening, current, evidence, outlook, action, close) => composeFallbackParagraph(opening, current, evidence, outlook, action, close, { openingCurrent: ": ", currentEvidence: ". ", evidenceOutlook: "; " }),
+  (opening, current, evidence, outlook, action, close) => composeFallbackParagraph(opening, current, evidence, outlook, action, close, { openingCurrent: ". ", currentEvidence: ". ", evidenceOutlook: "; " })
+]);
+
+function fallbackFactClauseVariants(context) {
+  const currentWeight = trimCoachNumber(context.currentWeight);
+  const change = context.changeDirection === "unchanged"
+    ? "unchanged"
+    : `${context.changeDirection} ${trimCoachNumber(Math.abs(context.latestDailyChange))} lb`;
+  const current = [
+    `${currentWeight} lb is ${change} today`,
+    `Today’s ${currentWeight} lb reading is ${change}`,
+    `The current result is ${currentWeight} lb, ${change} today`,
+    `At ${currentWeight} lb, today’s result is ${change}`,
+    `Today lands at ${currentWeight} lb and is ${change}`,
+    `The latest reading is ${currentWeight} lb and ${change}`
+  ];
+  const evidence = context.strongestEvidence;
+  const relation = evidence.kind === "window-acceleration"
+    ? ["accelerated from the prior read", "accelerated beyond the earlier signal", "accelerated versus the previous window", "accelerated and strengthened from before"]
+    : ({
+      strengthened: ["stronger than before", "strengthened versus the prior read", "grew stronger than the earlier signal", "a stronger signal than the prior context"],
+      eased: ["weaker than before", "eased versus the prior read", "softened from the earlier signal", "a weaker signal than the prior context"],
+      reversed: ["reversed from before", "flipped from the earlier direction", "turned against the prior move", "a reversed signal versus the prior context"],
+      held: ["similar to before", "steady against the prior read", "held near the earlier signal", "unchanged in strength from the prior context"],
+      new: ["new against the prior context", "the first comparable signal", "new versus the earlier context", "a new read without a prior match"],
+      contrasts: ["contrasting with the broader context", "a clear contrast with the broader read", "in contrast to the longer window", "contrasting against the broad signal"]
+    }[context.evidenceRelation.kind] || ["new against the prior context"]);
+  let evidenceText = [];
+  const movement = trimCoachNumber(Math.abs(evidence.movement));
+  if (evidence.kind === "baseline") {
+    evidenceText = [
+      "This first entry has no earlier movement to compare",
+      "The baseline is new, with no prior movement for comparison",
+      "This is the first reading, so earlier movement does not exist yet",
+      "The opening entry supplies a new baseline rather than a trend"
+    ];
+  } else if (evidence.kind === "outlier") {
+    evidenceText = relation.map((phrase, index) => [
+      `The new 1-day outlier is ${evidence.direction} ${movement} lb and needs confirmation`,
+      `A 1-day move of ${evidence.direction} ${movement} lb is a new outlier`,
+      `The 1-day signal is ${evidence.direction} ${movement} lb, a new outlier needing confirmation`,
+      `The new 1-day change is ${evidence.direction} ${movement} lb, an outlier rather than a settled trend`
+    ][index % 4]);
+  } else if (evidence.kind === "reversal") {
+    evidenceText = relation.map((phrase, index) => [
+      `The 1-day move reversed to ${evidence.direction} ${movement} lb from the prior direction`,
+      `The earlier direction flipped, with the 1-day move now ${evidence.direction} ${movement} lb`,
+      `A 1-day move of ${evidence.direction} ${movement} lb reversed the earlier direction`,
+      `The prior direction turned, and the 1-day movement is ${evidence.direction} ${movement} lb`
+    ][index % 4]);
+  } else if (evidence.kind === "streak") {
+    evidenceText = relation.map((phrase, index) => [
+      `The ${evidence.count}-entry streak is ${evidence.direction} ${movement} lb and ${phrase}`,
+      `Across the ${evidence.count}-entry streak, weight moved ${evidence.direction} ${movement} lb and the signal is ${phrase}`,
+      `A ${evidence.count}-entry streak now runs ${evidence.direction} ${movement} lb and is ${phrase}`,
+      `The ${evidence.count}-entry streak moved ${evidence.direction} ${movement} lb and the signal is ${phrase}`
+    ][index % 4]);
+  } else if (evidence.kind === "short-broad-contrast") {
+    const comparisonDirection = evidence.comparisonMovement < 0 ? "down" : "up";
+    const comparison = trimCoachNumber(Math.abs(evidence.comparisonMovement));
+    evidenceText = [
+      `The 3-day move is ${evidence.direction} ${movement} lb, contrasting with ${comparisonDirection} ${comparison} lb over ${evidence.comparisonWindowDays} days`,
+      `A 3-day move of ${evidence.direction} ${movement} lb contrasts with ${comparisonDirection} ${comparison} lb across ${evidence.comparisonWindowDays} days`,
+      `The contrast is clear: the 3-day move is ${evidence.direction} ${movement} lb versus ${comparisonDirection} ${comparison} lb over ${evidence.comparisonWindowDays} days`,
+      `Across the 3-day window, ${evidence.direction} ${movement} lb contrasts with ${comparisonDirection} ${comparison} lb through ${evidence.comparisonWindowDays} days`
+    ];
+  } else {
+    evidenceText = relation.map((phrase, index) => [
+      `The ${evidence.windowDays}-day move is ${evidence.direction} ${movement} lb and ${phrase}`,
+      `Across the ${evidence.windowDays}-day window, weight moved ${evidence.direction} ${movement} lb and the signal is ${phrase}`,
+      `${evidence.windowDays}-day evidence shows a ${evidence.direction} ${movement} lb move and the signal is ${phrase}`,
+      `The ${evidence.windowDays}-day read moved ${evidence.direction} ${movement} lb and is ${phrase}`
+    ][index % 4]);
   }
-  const paragraph = `${opening}—${current} lb ${changePhrase(context)}, and the 1-year trend outlook ${outlookPhrase(context)}.${modifier} ${context.action} ${close}`;
-  return normalizeCoachParagraph(paragraph);
+  const roundedOutlook = Math.round(context.outlook);
+  const outlook = context.includeOutlook ? ({
+    worsened: [
+      `The 1-year trend outlook worsened to about ${roundedOutlook} lb`,
+      `The 1-year trend outlook moved the wrong way to about ${roundedOutlook} lb`,
+      `A worsened 1-year trend outlook now reads about ${roundedOutlook} lb`,
+      `About ${roundedOutlook} lb is now the worsened 1-year trend outlook`
+    ],
+    improved: [
+      `The 1-year trend outlook improved to about ${roundedOutlook} lb`,
+      `The improved 1-year trend outlook now points to about ${roundedOutlook} lb`,
+      `A better 1-year trend outlook now reads about ${roundedOutlook} lb`,
+      `About ${roundedOutlook} lb is now the improved 1-year trend outlook`
+    ],
+    held: [
+      `The 1-year trend outlook held at about ${roundedOutlook} lb`,
+      `A steady 1-year trend outlook reads about ${roundedOutlook} lb`,
+      `The 1-year trend outlook remains steady at about ${roundedOutlook} lb`,
+      `About ${roundedOutlook} lb is where the 1-year trend outlook held steady`
+    ]
+  }[context.outlookDirection] || [`The 1-year trend outlook is holding at about ${roundedOutlook} lb`]) : [""];
+  return { current, evidence: evidenceText, outlook };
+}
+
+function fallbackFactClauses(context) {
+  const variants = fallbackFactClauseVariants(context);
+  return { current: variants.current[0], evidence: variants.evidence[0], outlook: variants.outlook[0] };
+}
+
+function coachPresentationSeed(context) {
+  return crypto.createHash("sha256").update(JSON.stringify({
+    measurementAt: context.measurementAt,
+    currentWeight: Number(trimCoachNumber(context.currentWeight)),
+    latestDailyChange: Number(trimCoachNumber(context.latestDailyChange)),
+    changeDirection: context.changeDirection,
+    verdict: context.verdict,
+    strongestEvidence: context.analysisPlan?.strongestEvidence || context.strongestEvidence,
+    relationToPrior: context.evidenceRelation?.kind,
+    outlook: context.includeOutlook ? Number(context.outlook.toFixed(3)) : null,
+    outlookDirection: context.includeOutlook ? context.outlookDirection : null,
+    trackerModifier: context.trackerModifier?.type || null,
+    preference: context.preference?.kind || null,
+    actionSemantic: context.actionSemantic
+  })).digest("hex");
+}
+
+function tokenWords(text) {
+  return String(text || "").normalize("NFKC").toLowerCase().match(/[a-z0-9]+/g) || [];
+}
+
+function openingFingerprint(text) {
+  return tokenWords(String(text || "").split(/[—:.!?]/, 1)[0]).slice(0, 10).join(" ");
+}
+
+function closingFingerprint(text) {
+  const sentences = String(text || "").split(/[.!?]+/).map((part) => part.trim()).filter(Boolean);
+  return tokenWords(sentences.at(-1) || "").slice(-10).join(" ");
+}
+
+function countLiteralOccurrences(text, needle) {
+  if (!needle) return 0;
+  return String(text || "").toLowerCase().split(String(needle).toLowerCase()).length - 1;
+}
+
+function recognizedActionMatches(text) {
+  return [...PREFERENCE_ACTIONS, ...COACH_ACTION_CATALOG]
+    .map((action) => ({ ...action, occurrences: countLiteralOccurrences(text, action.text) }))
+    .filter((action) => action.occurrences > 0);
+}
+
+function identifyApprovedAction(text, context) {
+  const approved = Array.isArray(context?.actionRealizations) ? context.actionRealizations : [];
+  const approvedMatches = approved
+    .map((realization) => ({ ...realization, semantic: context.actionSemantic, occurrences: countLiteralOccurrences(text, realization.text) }))
+    .filter((realization) => realization.occurrences > 0);
+  const recognizedMatches = recognizedActionMatches(text);
+  const totalApprovedOccurrences = approvedMatches.reduce((sum, realization) => sum + realization.occurrences, 0);
+  const totalRecognizedOccurrences = recognizedMatches.reduce((sum, realization) => sum + realization.occurrences, 0);
+  if (approvedMatches.length !== 1 || totalApprovedOccurrences !== 1 || totalRecognizedOccurrences !== 1) return null;
+  return { id: approvedMatches[0].id, semantic: context.actionSemantic, text: approvedMatches[0].text };
+}
+
+function containsAdditionalBehaviorAction(text) {
+  const value = String(text || "");
+  const knownHype = [...Object.values(FALLBACK_OPENINGS).flat(), ...Object.values(FALLBACK_CLOSINGS).flat()]
+    .sort((left, right) => right.length - left.length);
+  let remainder = value;
+  for (const phrase of knownHype) {
+    let index = remainder.toLowerCase().indexOf(phrase.toLowerCase());
+    while (index !== -1) {
+      remainder = `${remainder.slice(0, index)} ${remainder.slice(index + phrase.length)}`;
+      index = remainder.toLowerCase().indexOf(phrase.toLowerCase());
+    }
+  }
+  if (/\b(?:accountab\w*|breath\w*|call\w*|climb\w*|dinner|drink|hydrate|water|eat|eating|food|meal|order\w*|snack|stair\w*|stand\w*|calorie|protein|vegetable|fruit|walk|walking|run|running|jog|exercise|workout|train|training|squat|lunge|lift|cycle|swim|stretch|sleep|bedtime|fast|skip|restrict|purge|track|log|cook|prepare|pack|portion)\w*\b/i.test(remainder)
+    || /\bweigh(?:ed|ing|s)?\b/i.test(remainder)) return true;
+  if (/\b(?:you\s+(?:should|must|need\s+to|ought\s+to)|should|must|ought\s+to|need\s+to|try(?:ing)?\b|consider(?:ing)?\b|aim\s+to|remember\s+to|(?:it\s+)?would\s+help(?:\s+to)?|could\s+help|helps?\s+(?:with|by|to)|make\s+sure\s+to|be\s+sure\s+to|commit\s+to)\b/i.test(remainder)) return true;
+  if (/(?:^|[.!?;,—]\s*)(?:taking|standing|calling|breathing|climbing|ordering|planning|preparing|walking|running|exercising)\b/i.test(remainder)) return true;
+  const imperativeStarts = new Set([
+    "add", "anchor", "avoid", "breathe", "bring", "build", "call", "change", "choose", "cook", "count", "cut", "decide", "do", "drink",
+    "eat", "exercise", "fill", "get", "give", "grab", "have", "hydrate", "leave", "let", "lift", "log", "make", "move", "order", "pack", "pair",
+    "keep", "pause", "pick", "plan", "plate", "prepare", "put", "repeat", "replace", "rest", "run", "save", "serve", "set", "sit", "skip", "sleep", "slow",
+    "snack", "stand", "start", "stop", "stretch", "swap", "take", "track", "train", "try", "consider", "use", "walk", "weigh", "write"
+  ]);
+  return remainder.split(/[.!?;,—]+/).some((clause) => {
+    const words = tokenWords(clause);
+    while (["now", "please", "today", "next", "then"].includes(words[0])) words.shift();
+    return imperativeStarts.has(words[0]);
+  });
+}
+
+function structuralFingerprint(text, context) {
+  let normalized = String(text || "").normalize("NFKC").toLowerCase();
+  const recognized = [...PREFERENCE_ACTIONS, ...COACH_ACTION_CATALOG]
+    .map((action) => action.text)
+    .concat(Array.isArray(context?.actionRealizations) ? context.actionRealizations.map((realization) => realization.text) : [])
+    .filter(Boolean)
+    .sort((left, right) => right.length - left.length);
+  for (const actionText of recognized) normalized = normalized.split(String(actionText).toLowerCase()).join(" action ");
+  return normalized
+    .replace(/\b\d{4}-\d{2}-\d{2}\b/g, " date ")
+    .replace(/\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}\b/g, " date ")
+    .replace(/[-+]?\d+(?:\.\d+)?\s*(?:lb|pounds?)\b/g, " weight ")
+    .replace(/\b\d+-day\b/g, " window ")
+    .replace(/\b\d+-entry\b/g, " streak ")
+    .replace(/[-+]?\d+(?:\.\d+)?/g, " value ")
+    .replace(/[^a-z]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function trigramSet(text, context) {
+  const words = structuralFingerprint(text, context).split(" ").filter(Boolean);
+  const rows = new Set();
+  for (let index = 0; index + 2 < words.length; index += 1) rows.add(words.slice(index, index + 3).join(" "));
+  return rows;
+}
+
+function trigramSimilarity(left, right, context) {
+  const a = trigramSet(left, context);
+  const b = trigramSet(right, context);
+  if (!a.size || !b.size) return 0;
+  let overlap = 0;
+  for (const token of a) if (b.has(token)) overlap += 1;
+  return (2 * overlap) / (a.size + b.size);
+}
+
+function noveltyErrors(text, context, previousMessages = [], selectedAction = identifyApprovedAction(text, context)) {
+  const openingRecent = (previousMessages || []).slice(0, 6);
+  const structuralRecent = (previousMessages || []).slice(0, 10);
+  const actionRecent = (previousMessages || []).slice(0, COACH_COOLDOWN_COUNT);
+  const errors = [];
+  const opening = openingFingerprint(text);
+  const closing = closingFingerprint(text);
+  const structure = structuralFingerprint(text, context);
+  if (openingRecent.some((message) => opening && openingFingerprint(message.text || message) === opening)) errors.push("repeat-opening");
+  if (openingRecent.some((message) => closing && closingFingerprint(message.text || message) === closing)) errors.push("repeat-closing");
+  if (structuralRecent.some((message) => structuralFingerprint(message.text || message, context) === structure)) errors.push("repeat-structure");
+  if (structuralRecent.some((message) => trigramSimilarity(text, message.text || message, context) >= 0.72)) errors.push("repeat-trigrams");
+  const recentActions = actionRecent.map(inferActionMetadata).filter(Boolean);
+  if (selectedAction && recentActions.some((action) => action.text === selectedAction.text)) errors.push("action-cooldown");
+  if (selectedAction && recentActions.some((action) => action.semantic === selectedAction.semantic)) errors.push("action-semantic-cooldown");
+  return Array.from(new Set(errors));
+}
+
+function buildContextualFallbackResult(context, previousMessages = []) {
+  if (!context) {
+    const text = "WEIGH-IN SAVED—THE DATA IS HERE, AND THE NEXT CONSISTENT CHECK WILL MAKE THE DIRECTION CLEARER. Build the next meal around protein, vegetables, and a satisfying portion. KEEP SHOWING UP FOR THE TREND—LET’S GO!!!";
+    return { text, structureId: "empty", errors: [], wordCount: coachWordCount(text) };
+  }
+  const openings = FALLBACK_OPENINGS[context.verdict] || FALLBACK_OPENINGS["not-good-enough"];
+  const closings = FALLBACK_CLOSINGS[context.verdict] || FALLBACK_CLOSINGS["not-good-enough"];
+  const facts = fallbackFactClauseVariants(context);
+  const presentationSeed = coachPresentationSeed(context);
+  const start = stableIndex(`${presentationSeed}|fallback`, FALLBACK_STRUCTURES.length);
+  const rejectionCounts = {};
+  const recentOpeningFingerprints = new Set(previousMessages.slice(0, 6).map((message) => openingFingerprint(message.text || message)));
+  const recentClosingFingerprints = new Set(previousMessages.slice(0, 6).map((message) => closingFingerprint(message.text || message)));
+  const actionRows = context.actionRealizations || [{ id: context.actionId, text: context.action }];
+  const eligibleOpenings = openings
+    .map((text, index) => ({ text, index }))
+    .filter((entry) => !recentOpeningFingerprints.has(openingFingerprint(entry.text)));
+  const eligibleClosings = closings
+    .map((text, index) => ({ text, index }))
+    .filter((entry) => !recentClosingFingerprints.has(closingFingerprint(entry.text)));
+  const scheduled = [];
+  for (let structureOffset = 0; structureOffset < FALLBACK_STRUCTURES.length; structureOffset += 1) {
+    const structureIndex = (start + structureOffset) % FALLBACK_STRUCTURES.length;
+    for (const openingEntry of eligibleOpenings) {
+      for (const closingEntry of eligibleClosings) {
+        for (let factOffset = 0; factOffset < 4; factOffset += 1) {
+          const currentIndex = (structureOffset * 5 + factOffset) % facts.current.length;
+          const evidenceIndex = (structureOffset * 7 + factOffset * 3) % facts.evidence.length;
+          const outlookIndex = (structureOffset * 11 + factOffset * 5) % facts.outlook.length;
+          for (let actionOffset = 0; actionOffset < actionRows.length; actionOffset += 1) {
+            const realization = actionRows[actionOffset];
+            const text = normalizeCoachParagraph(FALLBACK_STRUCTURES[structureIndex](
+              openingEntry.text,
+              facts.current[currentIndex],
+              facts.evidence[evidenceIndex],
+              facts.outlook[outlookIndex],
+              realization.text,
+              closingEntry.text
+            ));
+            const wordCount = coachWordCount(text);
+            if (wordCount < COACH_MIN_WORDS || wordCount > COACH_MAX_WORDS) {
+              rejectionCounts["word-count"] = (rejectionCounts["word-count"] || 0) + 1;
+              continue;
+            }
+            const structureId = `${context.verdict}-${structureIndex + 1}-${openingEntry.index + 1}-${closingEntry.index + 1}-${currentIndex + 1}-${evidenceIndex + 1}-${outlookIndex + 1}-${actionOffset + 1}`;
+            scheduled.push({
+              text,
+              structureId,
+              scheduleRank: stableIndex(`${presentationSeed}|${structureId}`, 0x7fffffff)
+            });
+          }
+        }
+      }
+    }
+  }
+  scheduled.sort((left, right) => left.scheduleRank - right.scheduleRank || left.structureId.localeCompare(right.structureId));
+  const validationBatchSize = 192;
+  for (let batchStart = 0; batchStart < scheduled.length; batchStart += validationBatchSize) {
+    const validCandidates = [];
+    for (const candidate of scheduled.slice(batchStart, batchStart + validationBatchSize)) {
+      const validation = validateCoachParagraph(candidate.text, context, previousMessages, { privateGoal: NaN });
+      if (!validation.ok) {
+        for (const error of validation.errors) rejectionCounts[error] = (rejectionCounts[error] || 0) + 1;
+        continue;
+      }
+      const priorSimilarities = previousMessages.slice(0, 10).map((message) => trigramSimilarity(validation.text, message.text || message, context));
+      validCandidates.push({
+        text: validation.text,
+        structureId: candidate.structureId,
+        action: validation.action,
+        errors: [],
+        wordCount: validation.wordCount,
+        maxPriorSimilarity: priorSimilarities.length ? Math.max(...priorSimilarities) : 0
+      });
+    }
+    validCandidates.sort((left, right) => left.maxPriorSimilarity - right.maxPriorSimilarity || left.structureId.localeCompare(right.structureId) || left.text.localeCompare(right.text));
+    if (validCandidates[0]) return validCandidates[0];
+  }
+  throw new Error(`no compliant contextual fallback invariant: ${Object.entries(rejectionCounts).sort((left, right) => right[1] - left[1]).slice(0, 5).map(([key, count]) => `${key}=${count}`).join(",")}`);
+}
+
+function buildContextualFallback(context, previousMessages = []) {
+  return buildContextualFallbackResult(context, previousMessages).text;
 }
 
 function similarityScore(left, right) {
@@ -623,13 +1342,138 @@ function numericTokens(text) {
   return (String(text || "").match(/[-+]?\d+(?:\.\d+)?/g) || []).map(Number).filter(Number.isFinite);
 }
 
+function coachSentenceScopes(text) {
+  return String(text || "")
+    .split(/(?:[!?]+|(?<!\d)\.(?!\d))/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function coachClaimScopes(text) {
+  const outlookBoundary = /(?:[,;—]\s*|\b(?:and|while|but)\s+)(?=(?:the\s+|a\s+|about\s+)?(?:(?:worsened|improved|better|steady|held|wrong[- ]way)\s+)?(?:1-year\s+trend\s+)?outlook\b)/i;
+  return coachSentenceScopes(text)
+    .flatMap((sentence) => sentence.split(outlookBoundary))
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function movementClaimPattern(direction, movement) {
+  return new RegExp(`\\b${direction}\\s+${trimCoachNumber(Math.abs(movement)).replace(".", "\\.")}\\s+lb\\b`, "i");
+}
+
+function evidenceClaimMatches(scope, context) {
+  const evidence = context?.strongestEvidence;
+  if (!evidence || context.verdict === "baseline") return true;
+  if (!movementClaimPattern(evidence.direction, evidence.movement).test(scope)) return false;
+  const relationPattern = {
+    strengthened: /\b(?:accelerat\w*|stronger|strengthened|worse|worsened|grew|intensif\w*)\b/i,
+    eased: /\b(?:weaker|eased|easier|soften\w*)\b/i,
+    reversed: /\b(?:reversed|flipped|turned)\b/i,
+    held: /\b(?:similar|steady|held|unchanged)\b/i,
+    new: /\b(?:new|first|outlier)\b/i,
+    contrasts: /\bcontrast\w*\b/i
+  }[context.evidenceRelation?.kind];
+  if (relationPattern && !relationPattern.test(scope)) return false;
+  if (evidence.kind === "streak") {
+    return scope.includes(`${evidence.count}-entry`) && /\bstreak\b/i.test(scope);
+  }
+  if (evidence.kind === "short-broad-contrast") {
+    const comparisonDirection = evidence.comparisonMovement < 0 ? "down" : "up";
+    return scope.includes("3-day")
+      && scope.includes(`${evidence.comparisonWindowDays} days`)
+      && movementClaimPattern(comparisonDirection, evidence.comparisonMovement).test(scope)
+      && /\bcontrast\w*\b/i.test(scope);
+  }
+  return scope.includes(`${evidence.windowDays}-day`)
+    && (evidence.kind !== "outlier" || /\boutlier\b/i.test(scope));
+}
+
+function outlookClaimMatches(scope, context) {
+  if (!context?.includeOutlook || !/\boutlook\b/i.test(scope) || !scope.includes(`about ${Math.round(context.outlook)} lb`)) return false;
+  const directionPattern = {
+    worsened: /\b(?:wrong way|worsen\w*)\b/i,
+    improved: /\b(?:improv\w*|better)\b/i,
+    held: /\b(?:held|steady|holding)\b/i
+  }[context.outlookDirection];
+  return !directionPattern || directionPattern.test(scope);
+}
+
+function approvedCoachCopyComponents(context) {
+  const facts = fallbackFactClauseVariants(context);
+  return {
+    openings: FALLBACK_OPENINGS[context?.verdict] || FALLBACK_OPENINGS["not-good-enough"],
+    currentFacts: facts.current,
+    evidenceFacts: facts.evidence,
+    outlookFacts: context?.includeOutlook ? facts.outlook.filter(Boolean) : [],
+    modifiers: context?.trackerModifier?.text ? [context.trackerModifier.text] : [],
+    closings: FALLBACK_CLOSINGS[context?.verdict] || FALLBACK_CLOSINGS["not-good-enough"]
+  };
+}
+
+function closedCoachGrammarErrors(text, context, selectedAction) {
+  if (!context || !selectedAction?.text) return ["closed-copy-grammar"];
+  const components = approvedCoachCopyComponents(context);
+  const source = String(text || "").normalize("NFKC");
+  const lower = source.toLowerCase();
+  const errors = [];
+  if (source.includes("?")) errors.push("closed-fact-question");
+  const slot = (name, rows, required = true) => {
+    const matches = rows
+      .filter((component) => countLiteralOccurrences(source, component) === 1)
+      .map((component) => {
+        const start = lower.indexOf(component.toLowerCase());
+        return { name, text: component, start, end: start + component.length };
+      });
+    if (matches.length !== 1) {
+      if (required || matches.length > 1) errors.push(`closed-${name}`);
+      return null;
+    }
+    return matches[0];
+  };
+  const opening = slot("opening", components.openings);
+  const current = slot("current-fact", components.currentFacts);
+  const evidence = slot("evidence-fact", components.evidenceFacts);
+  const outlook = components.outlookFacts.length ? slot("outlook-fact", components.outlookFacts) : null;
+  let modifier = null;
+  if (components.modifiers.length) modifier = slot("modifier", components.modifiers, false);
+  const actionStart = lower.indexOf(selectedAction.text.toLowerCase());
+  const action = actionStart >= 0 ? { name: "action", text: selectedAction.text, start: actionStart, end: actionStart + selectedAction.text.length } : null;
+  if (!action) errors.push("closed-action");
+  const closing = slot("closing", components.closings);
+  const ordered = [opening, current, evidence, outlook, modifier, action, closing].filter(Boolean);
+  if (ordered.length >= 2) {
+    if (source.slice(0, ordered[0].start).trim() || source.slice(ordered.at(-1).end).trim()) errors.push("closed-copy-residue");
+    for (let index = 1; index < ordered.length; index += 1) {
+      const prior = ordered[index - 1];
+      const next = ordered[index];
+      if (prior.end > next.start) {
+        errors.push("closed-slot-order");
+        continue;
+      }
+      const separator = source.slice(prior.end, next.start);
+      const isOpeningBoundary = prior.name === "opening" && next.name === "current-fact";
+      const allowed = isOpeningBoundary
+        ? /^\s*(?:—|–|:|\.)\s*$/.test(separator)
+        : next.name === "action"
+          ? /^\s*\.\s*$/.test(separator)
+          : prior.name === "action"
+            ? /^\s*$/.test(separator)
+          : /^\s*(?:\.|;|—|–)\s*$/.test(separator);
+      if (!allowed) errors.push(`closed-separator-${prior.name}-${next.name}`);
+    }
+  }
+  const expectedNames = ["opening", "current-fact", "evidence-fact", ...(outlook ? ["outlook-fact"] : []), ...(modifier ? ["modifier"] : []), "action", "closing"];
+  if (ordered.map((entry) => entry.name).join("|") !== expectedNames.join("|")) errors.push("closed-slot-order");
+  return Array.from(new Set(errors));
+}
+
 function validateCoachParagraph(text, context, previousMessages = [], options = {}) {
   const paragraph = normalizeCoachParagraph(text);
   const errors = [];
   const words = coachWordCount(paragraph);
   if (/[\r\n]/.test(String(text || ""))) errors.push("multiline");
   if (words < COACH_MIN_WORDS || words > COACH_MAX_WORDS) errors.push("word-count");
-  const unsafe = /\b(?:obese|fat|body|lazy|disgusting|failure|worthless|worth|bmi|jyp|korean idol|fast|fasting|starve|starving|skip(?:ping)? meals?|purge|purging|compensat\w*|punish\w*|restrict\w*|under-?eat\w*|overexercis\w*|excessive exercise|depriv\w*|guilt|shame|diagnos\w*|depress\w*)\b/i;
+  const unsafe = /\b(?:obese|fat|body|lazy|disgusting|failure|worthless|worth|bmi|jyp|korean idol|fast|fasting|starve|starving|skip(?:ping)?(?:\s+(?:a|the))?\s+meals?|purge|purging|compensat\w*|punish\w*|restrict\w*|under-?eat\w*|overexercis\w*|excessive exercise|depriv\w*|guilt|shame|diagnos\w*|depress\w*)\b/i;
   if (unsafe.test(paragraph)) errors.push("unsafe-language");
   if (/\b(?:horn\w*|sex(?:ual)?|ovulat\w*|conflict|phone|address|relationship|appearance)\b/i.test(paragraph)) errors.push("private-context-leak");
   if (/[\u00e2\u00c3\u00c2\ufffd]/.test(paragraph)) errors.push("mojibake");
@@ -637,59 +1481,60 @@ function validateCoachParagraph(text, context, previousMessages = [], options = 
   if (/\b(?:goal|goal weight|internal target|target weight)\b/i.test(paragraph)) errors.push("goal-reference");
   if (/\b(?:period|cycle|menstrual)\b.{0,35}\b(?:caused?|made|explains?)\b|\b(?:caused?|made|explains?)\b.{0,35}\b(?:period|cycle|menstrual)\b/i.test(paragraph)) errors.push("period-causality");
   if (!context || !paragraph.includes(`${trimCoachNumber(context.currentWeight)} lb`)) errors.push("current-weight");
-  if (context && !paragraph.includes(`about ${Math.round(context.outlook)} lb`)) errors.push("outlook-weight");
-  if (context && !paragraph.includes(context.action)) errors.push("required-action");
+  if (context?.includeOutlook && !paragraph.includes(`about ${Math.round(context.outlook)} lb`)) errors.push("outlook-weight");
+  if (context && !context.includeOutlook && /\b1-year trend outlook\b/i.test(paragraph)) errors.push("unsolicited-outlook");
+  const actionMatch = context ? identifyApprovedAction(paragraph, context) : null;
+  const recognizedActions = recognizedActionMatches(paragraph);
+  if (context && !actionMatch) errors.push(recognizedActions.length > 1 ? "multiple-actions" : "required-action-realization");
   if (context) {
-    const withoutSelectedAction = paragraph
-      .replace(context.action, "")
-      .replace(context.trackerModifier?.text || "", "");
-    if (/\b(?:plan|choose|build|make|add|eat|walk|exercise|repeat|use|weigh|track|log)\b/i.test(withoutSelectedAction)) errors.push("extra-action");
+    const withoutSelectedAction = paragraph.replace(actionMatch?.text || "", "").replace(context.trackerModifier?.text || "", "");
+    if (containsAdditionalBehaviorAction(withoutSelectedAction)) errors.push("extra-action");
+    errors.push(...closedCoachGrammarErrors(paragraph, context, actionMatch));
   }
-  if (context && context.changeDirection === "unchanged" && !/\b(?:unchanged|same|flat)\b/i.test(paragraph)) errors.push("change-direction");
-  if (context && context.changeDirection === "up" && !new RegExp(`\\bup\\s+${trimCoachNumber(Math.abs(context.latestDailyChange)).replace(".", "\\.")}\\s+lb`, "i").test(paragraph)) errors.push("change-direction");
-  if (context && context.changeDirection === "down" && !new RegExp(`\\bdown\\s+${trimCoachNumber(Math.abs(context.latestDailyChange)).replace(".", "\\.")}\\s+lb`, "i").test(paragraph)) errors.push("change-direction");
-  if (context && context.outlookDirection === "worsened" && !/\b(?:wrong way|worsen\w*)\b/i.test(paragraph)) errors.push("outlook-direction");
-  if (context && context.outlookDirection === "improved" && !/\b(?:improv\w*|better)\b/i.test(paragraph)) errors.push("outlook-direction");
+  const currentClaim = context ? coachSentenceScopes(paragraph).find((scope) => {
+    if (!scope.includes(`${trimCoachNumber(context.currentWeight)} lb`)) return false;
+    if (context.changeDirection === "unchanged") return /\b(?:unchanged|same|flat)\b/i.test(scope);
+    return movementClaimPattern(context.changeDirection, context.latestDailyChange).test(scope);
+  }) : null;
+  if (context && !currentClaim) errors.push("current-claim");
+  if (context?.includeOutlook && !coachClaimScopes(paragraph).some((scope) => outlookClaimMatches(scope, context))) errors.push("outlook-claim");
+  if (context && context.verdict !== "baseline") {
+    if (!coachClaimScopes(paragraph).some((scope) => evidenceClaimMatches(scope, context))) errors.push("evidence-claim");
+  }
+  const leadVerdict = paragraph.slice(0, 150);
   const verdictPattern = context && {
-    "not-good-enough": /^(?:not good enough|today needs? a response|this needs? a response|not approved|wrong way)/i,
-    "good-progress": /^(?:yes|that['’]s real movement|real progress|good progress|this is a win|strong work|right way)/i,
-    verify: /^(?:pause|verify|confirm|this reading needs? confirmation)/i,
-    baseline: /^(?:baseline|first number|starting point|starting line)/i
+    "not-good-enough": /\b(?:not good enough|wrong[- ]way|needs? (?:work|a response|attention|a correction|to change)|setback|regression|worsen\w*|course correction|red flag|bad signal|pushed back|does not get a pass|moving (?:the )?wrong way)\b/i,
+    "good-progress": /\b(?:real progress|right way|a win|strong progress|moving our way|got better|improv\w*|positive signal|lower and moving|landed the right way|momentum)\b/i,
+    verify: /\b(?:pause|verify|confirmation|confirm\w*|outlier|recheck|too extreme to trust|on hold|curved?ball|tie[ -]?breaker)\b/i,
+    baseline: /\b(?:baseline|starting (?:line|point)|first (?:number|weigh-in|data point|anchor)|where the line begins|trend has its first|day one)\b/i
   }[context.verdict];
-  if (verdictPattern && !verdictPattern.test(paragraph)) errors.push("verdict");
+  if (verdictPattern && !verdictPattern.test(leadVerdict)) errors.push("verdict");
   if (context?.verdict === "not-good-enough" && /\b(?:amazing|awesome|great job|a win|approved)\b/i.test(paragraph)) errors.push("verdict-conflict");
   if (context?.verdict === "good-progress" && /\b(?:not good enough|not approved|failure|bad result)\b/i.test(paragraph)) errors.push("verdict-conflict");
   const allowedNumbers = context ? [
-    1,
-    3,
-    7,
-    14,
-    28,
+    1, 3, 7, 14, 28,
     Number(trimCoachNumber(context.currentWeight)),
     Math.round(context.outlook),
+    Number(context.outlook.toFixed(1)),
     Number(trimCoachNumber(Math.abs(context.latestDailyChange))),
+    Number(context.strongestEvidence?.windowDays),
+    Number(trimCoachNumber(Math.abs(context.strongestEvidence?.movement))),
+    Number(context.strongestEvidence?.count),
+    Number(context.strongestEvidence?.comparisonWindowDays),
+    Number(trimCoachNumber(Math.abs(context.strongestEvidence?.comparisonMovement))),
     Number(context.streak?.count),
     ...Object.values(context.movements || {}).map((movement) => Number(trimCoachNumber(Math.abs(movement))))
   ] : [];
   for (const number of numericTokens(paragraph)) {
-    if (!allowedNumbers.some((allowed) => Math.abs(allowed - number) < 0.001)) {
+    if (!allowedNumbers.some((allowed) => Number.isFinite(allowed) && Math.abs(allowed - number) < 0.001)) {
       errors.push("unsupported-number");
       break;
     }
   }
   const hiddenGoal = Number(options.privateGoal);
   if (Number.isFinite(hiddenGoal) && numericTokens(paragraph).some((number) => Math.abs(number - hiddenGoal) < 0.001)) errors.push("goal-leak");
-  if ((previousMessages || []).slice(0, 10).some((previous) => similarityScore(paragraph, previous.text || previous) >= 0.78)) errors.push("repetition");
-  return { ok: errors.length === 0, errors: Array.from(new Set(errors)), text: paragraph, wordCount: words };
-}
-
-function parseCriticResult(text) {
-  try {
-    const parsed = JSON.parse(String(text || "").replace(/^```json\s*|\s*```$/gi, "").trim());
-    return { approved: parsed.approved === true, reason: String(parsed.reason || "") };
-  } catch (error) {
-    return { approved: false, reason: "invalid critic response" };
-  }
+  errors.push(...noveltyErrors(paragraph, context, previousMessages, actionMatch));
+  return { ok: errors.length === 0, errors: Array.from(new Set(errors)), text: paragraph, wordCount: words, action: actionMatch };
 }
 
 async function requestCoachResponse(input, options = {}) {
@@ -697,7 +1542,7 @@ async function requestCoachResponse(input, options = {}) {
   if (!apiKey) throw new Error("coach model unavailable");
   const fetchImpl = options.fetchImpl || fetch;
   const controller = new AbortController();
-  const timeoutMs = Math.max(25, Number(options.timeoutMs || coachGenerationTimeoutMs));
+  const timeoutMs = Math.max(1, Number(options.timeoutMs || coachGenerationTimeoutMs));
   let timeoutId;
   try {
     const timeout = new Promise((resolve, reject) => {
@@ -706,15 +1551,26 @@ async function requestCoachResponse(input, options = {}) {
         reject(new Error("coach model timeout"));
       }, timeoutMs);
     });
+    const requestBody = {
+      model: options.model || chatModel,
+      input,
+      max_output_tokens: Number(options.maxOutputTokens || 520)
+    };
+    if (options.schema) {
+      requestBody.text = {
+        format: {
+          type: "json_schema",
+          name: options.schemaName || "lily_coach_output",
+          strict: true,
+          schema: options.schema
+        }
+      };
+    }
     const request = fetchImpl("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
       signal: controller.signal,
-      body: JSON.stringify({
-        model: options.model || chatModel,
-        input,
-        max_output_tokens: 260
-      })
+      body: JSON.stringify(requestBody)
     });
     const response = await Promise.race([request, timeout]);
     if (!response.ok) throw new Error("coach model request failed");
@@ -724,76 +1580,282 @@ async function requestCoachResponse(input, options = {}) {
   }
 }
 
-function publicCoachFacts(context) {
+const COACH_WRITER_SCHEMA = Object.freeze({
+  type: "object",
+  additionalProperties: false,
+  required: ["candidates"],
+  properties: {
+    candidates: {
+      type: "array",
+      minItems: COACH_CANDIDATE_COUNT,
+      maxItems: COACH_CANDIDATE_COUNT,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["text"],
+        properties: { text: { type: "string" } }
+      }
+    }
+  }
+});
+
+const COACH_CRITIC_SCHEMA = Object.freeze({
+  type: "object",
+  additionalProperties: false,
+  required: ["approved", "selectedIndex", "reasonCode", "checks"],
+  properties: {
+    approved: { type: "boolean" },
+    selectedIndex: { type: "integer", minimum: -1, maximum: COACH_CANDIDATE_COUNT - 1 },
+    reasonCode: { type: "string" },
+    checks: {
+      type: "object",
+      additionalProperties: false,
+      required: ["facts", "evidence", "verdict", "oneAction", "privacySafety", "originality"],
+      properties: {
+        facts: { type: "boolean" },
+        evidence: { type: "boolean" },
+        verdict: { type: "boolean" },
+        oneAction: { type: "boolean" },
+        privacySafety: { type: "boolean" },
+        originality: { type: "boolean" }
+      }
+    }
+  }
+});
+
+function parseStructuredJson(text) {
+  try {
+    return JSON.parse(String(text || "").replace(/^```json\s*|\s*```$/gi, "").trim());
+  } catch (error) {
+    return null;
+  }
+}
+
+function parseWriterCandidates(text) {
+  const parsed = parseStructuredJson(text);
+  if (!parsed || !Array.isArray(parsed.candidates)) return [];
+  return parsed.candidates.slice(0, COACH_CANDIDATE_COUNT).map((candidate) => normalizeCoachParagraph(candidate?.text)).filter(Boolean);
+}
+
+function safeDiagnosticCode(value, fallback = "unknown") {
+  const code = String(value || fallback).toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48);
+  return code || fallback;
+}
+
+function parseCriticResult(text, candidateCount = COACH_CANDIDATE_COUNT) {
+  const parsed = parseStructuredJson(text);
+  if (!parsed || typeof parsed.approved !== "boolean" || !Number.isInteger(parsed.selectedIndex) || !parsed.checks || typeof parsed.checks !== "object") {
+    return { valid: false, approved: false, selectedIndex: -1, reasonCode: "critic-format", checks: {} };
+  }
+  const requiredChecks = ["facts", "evidence", "verdict", "oneAction", "privacySafety", "originality"];
+  const checksPass = requiredChecks.every((key) => parsed.checks[key] === true);
+  const selectedValid = parsed.selectedIndex >= 0 && parsed.selectedIndex < candidateCount;
   return {
-    currentWeight: trimCoachNumber(context.currentWeight),
-    change: context.changeDirection === "unchanged" ? "unchanged" : `${context.changeDirection} ${trimCoachNumber(Math.abs(context.latestDailyChange))} lb`,
-    streak: context.streak,
-    reversal: context.reversal,
-    outlier: context.outlier,
-    movements: context.movements,
-    outlook: Math.round(context.outlook),
-    outlookDirection: context.outlookDirection,
-    verdict: context.verdict,
-    trackerModifier: context.trackerModifier ? context.trackerModifier.text : null,
-    savedPreferenceUsed: Boolean(context.preference),
-    action: context.action,
-    hiddenStrategy: context.hiddenStrategy
+    valid: true,
+    approved: parsed.approved === true && checksPass && selectedValid,
+    selectedIndex: selectedValid ? parsed.selectedIndex : -1,
+    reasonCode: safeDiagnosticCode(parsed.reasonCode, checksPass ? "critic-rejected" : "critic-check-failed"),
+    checks: Object.fromEntries(requiredChecks.map((key) => [key, parsed.checks[key] === true]))
   };
 }
 
-async function generateCoachParagraph(context, previousMessages, options = {}) {
-  const fallback = buildContextualFallback(context);
-  if (!(Object.prototype.hasOwnProperty.call(options, "apiKey") ? options.apiKey : openaiApiKey)) {
-    return { text: fallback, status: "fallback-no-model" };
+function publicCoachFacts(context) {
+  return {
+    analysis: context.analysisPlan,
+    periodModifier: context.trackerModifier?.text || null,
+    urgency: context.hiddenStrategy === "high-safe-urgency" ? "high but safe" : context.hiddenStrategy === "safety-held" ? "firm and safety-conscious" : "steady and safe",
+    approvedCopyComponents: approvedCoachCopyComponents(context)
+  };
+}
+
+function recentCoachAvoidance(previousMessages = []) {
+  const recentActions = previousMessages.slice(0, COACH_COOLDOWN_COUNT).map(inferActionMetadata).filter(Boolean);
+  return {
+    openings: previousMessages.slice(0, 6).map((message) => openingFingerprint(message.text || message)).filter(Boolean),
+    closings: previousMessages.slice(0, 6).map((message) => closingFingerprint(message.text || message)).filter(Boolean),
+    structuralFingerprints: previousMessages.slice(0, 10).map((message) => structuralFingerprint(message.text || message, null)).filter(Boolean),
+    orderedTrigrams: previousMessages.slice(0, 10).map((message) => Array.from(trigramSet(message.text || message, null))),
+    recentActionSentences: recentActions.map((action) => action.text).filter(Boolean),
+    recentActionMeanings: recentActions.map((action) => action.semantic).filter(Boolean)
+  };
+}
+
+function generationDiagnostics(stage, attemptCount, rejectionCodes, startedAt, extras = {}) {
+  return {
+    stage: safeDiagnosticCode(stage),
+    attemptCount: Math.max(0, Number(attemptCount) || 0),
+    rejectionCodes: Array.from(new Set((rejectionCodes || []).map((code) => safeDiagnosticCode(code)))).slice(0, 20),
+    latencyMs: Math.max(0, Date.now() - startedAt),
+    ...extras
+  };
+}
+
+function sanitizeGenerationDiagnostics(value) {
+  if (!value || typeof value !== "object") return null;
+  const sanitized = {
+    stage: safeDiagnosticCode(value.stage),
+    attemptCount: Math.max(0, Number(value.attemptCount) || 0),
+    rejectionCodes: Array.from(new Set((Array.isArray(value.rejectionCodes) ? value.rejectionCodes : []).map((code) => safeDiagnosticCode(code)))).slice(0, 20),
+    latencyMs: Math.max(0, Number(value.latencyMs) || 0)
+  };
+  for (const key of ["candidateCount", "validCandidateCount"]) {
+    if (Number.isFinite(Number(value[key]))) sanitized[key] = Math.max(0, Number(value[key]));
   }
-  let rejection = "";
+  return sanitized;
+}
+
+function sanitizeCriticResult(value) {
+  if (!value || typeof value !== "object") return null;
+  const checkKeys = ["facts", "evidence", "verdict", "oneAction", "privacySafety", "originality"];
+  return {
+    valid: value.valid === true,
+    approved: value.approved === true,
+    selectedIndex: Number.isInteger(value.selectedIndex) ? value.selectedIndex : -1,
+    reasonCode: safeDiagnosticCode(value.reasonCode, "not-run"),
+    checks: Object.fromEntries(checkKeys.map((key) => [key, value.checks?.[key] === true]))
+  };
+}
+
+function fingerprintMetadata(text, context, previousMessages = []) {
+  const normalized = structuralFingerprint(text, context);
+  const nearest = (previousMessages || []).slice(0, 10)
+    .map((message) => ({
+      id: typeof message === "object" ? message.id || null : null,
+      similarity: trigramSimilarity(text, message.text || message, context)
+    }))
+    .sort((left, right) => right.similarity - left.similarity)[0] || null;
+  return {
+    normalizedFingerprint: normalized,
+    fingerprintHash: crypto.createHash("sha256").update(normalized).digest("hex"),
+    nearestPriorMessageId: nearest?.id || null,
+    nearestPriorSimilarity: nearest ? Number(nearest.similarity.toFixed(3)) : null
+  };
+}
+
+async function generateCoachParagraph(context, previousMessages = [], options = {}) {
+  const startedAt = Date.now();
+  const totalTimeoutMs = Math.max(25, Number(options.timeoutMs || coachGenerationTimeoutMs));
+  const remainingTimeoutMs = () => {
+    const remaining = totalTimeoutMs - (Date.now() - startedAt);
+    if (remaining <= 0) throw new Error("coach model timeout");
+    return Math.max(1, remaining);
+  };
+  const fallback = buildContextualFallbackResult(context, previousMessages);
+  const configuredKey = Object.prototype.hasOwnProperty.call(options, "apiKey") ? options.apiKey : openaiApiKey;
+  if (!configuredKey) {
+    return {
+      text: fallback.text,
+      status: "fallback-no-model",
+      structureId: fallback.structureId,
+      action: fallback.action,
+      diagnostics: generationDiagnostics("no-model", 0, ["no-model"], startedAt)
+    };
+  }
+
+  const rejectionCodes = [];
+  let lastStatus = "fallback-writer-validation";
+  let lastCritic = null;
+  let attempts = 0;
   for (let attempt = 0; attempt < 2; attempt += 1) {
+    attempts += 1;
     try {
-      const facts = publicCoachFacts(context);
       const system = [
-        "Write one energetic, human fitness-coach paragraph for Lily.",
-        "Use only the supplied facts; do not invent causes, numbers, health claims, or promises.",
-        `Return ${COACH_MIN_WORDS}-${COACH_MAX_WORDS} words in one paragraph with an unmistakable verdict.`,
-        "Include the current weight, exact change, rounded 1-year trend outlook and its direction.",
-        "Include the supplied action sentence verbatim and no other instruction or action.",
+        "Write three genuinely different evidence-first fitness-coach paragraphs for Lily and return only the required JSON.",
+        `Each candidate must be ${COACH_MIN_WORDS}-${COACH_MAX_WORDS} words in one paragraph.`,
+        "Each must state the current weight and exact daily change, lead with the supplied strongest evidence and its relation to prior context, and include the outlook only when the analysis object includes one.",
+        "The action object gives one approved meaning and multiple natural approved realizations. Use exactly one listed realization as the paragraph’s only food, movement, measurement, or behavior instruction; do not invent or paraphrase another action.",
+        "Outside that one exact action realization, build the paragraph only from one exact opening, currentFact, evidenceFact, optional outlookFact, optional modifier, and closing in approvedCopyComponents. Do not alter component wording.",
+        "Use this exact slot order: opening, currentFact, evidenceFact, optional outlookFact, optional modifier, action, closing. Use only a period, semicolon, or em dash between fact slots; use a period before the action and before the closing. Never join facts with because, so, while, or another causal connector. Never turn a fact into a question.",
+        "Use an unmistakable verdict matching the facts. Change sentence order, opening, closing, and rhythm across all three candidates.",
+        "Do not reuse supplied recent openings, closings, structures, or ordered three-word runs.",
         "Never mention a goal, target weight, private strategy, BMI, diagnosis, appearance, worth, fasting, skipped meals, restriction, compensation, punishment, JYP, or idol training.",
-        "A period modifier can caution about one noisy point but cannot alter the verdict, outlook, or claim causation.",
-        "Do not reuse stock phrasing from recent messages. Output only the paragraph."
+        "A period modifier may caution about noise but may not change the verdict or claim causation."
       ].join(" ");
-      const draft = await requestCoachResponse([
+      const writerText = await requestCoachResponse([
         { role: "system", content: system },
-        { role: "user", content: `FACTS: ${JSON.stringify(facts)}\nRECENT OPENINGS TO AVOID: ${JSON.stringify((previousMessages || []).slice(0, 10).map((message) => String(message.text || message).split(/[.!?]/)[0]))}\n${rejection ? `FIX THESE REJECTION REASONS: ${rejection}` : ""}` }
-      ], options);
-      const validation = validateCoachParagraph(draft, context, previousMessages, {
-        privateGoal: Object.prototype.hasOwnProperty.call(options, "privateGoal") ? options.privateGoal : privateCoachGoal
-      });
-      if (!validation.ok) {
-        rejection = validation.errors.join(", ");
+        { role: "user", content: `FACTS: ${JSON.stringify(publicCoachFacts(context))}\nAVOID: ${JSON.stringify(recentCoachAvoidance(previousMessages))}\nPRIOR REJECTION CODES: ${JSON.stringify(rejectionCodes.slice(-12))}` }
+      ], { ...options, timeoutMs: remainingTimeoutMs(), schema: COACH_WRITER_SCHEMA, schemaName: "lily_coach_candidates_v2", maxOutputTokens: 720 });
+      const candidates = parseWriterCandidates(writerText);
+      if (candidates.length !== COACH_CANDIDATE_COUNT) {
+        lastStatus = "fallback-writer-format";
+        rejectionCodes.push("writer-format");
         continue;
       }
+      const validCandidates = [];
+      for (const candidate of candidates) {
+        const validation = validateCoachParagraph(candidate, context, previousMessages, {
+          privateGoal: Object.prototype.hasOwnProperty.call(options, "privateGoal") ? options.privateGoal : privateCoachGoal
+        });
+        if (!validation.ok) {
+          rejectionCodes.push(...validation.errors);
+          continue;
+        }
+        const siblingErrors = noveltyErrors(validation.text, context, validCandidates.map((entry) => ({ text: entry.text, actionId: entry.action.id, actionSemantic: entry.action.semantic, actionText: entry.action.text })), validation.action)
+          .filter((error) => error !== "action-cooldown" && error !== "action-semantic-cooldown");
+        if (siblingErrors.length) {
+          rejectionCodes.push(...siblingErrors.map((error) => `candidate-${error}`));
+          continue;
+        }
+        validCandidates.push({ text: validation.text, action: validation.action });
+      }
+      if (!validCandidates.length) {
+        lastStatus = "fallback-writer-validation";
+        rejectionCodes.push("writer-no-valid-candidates");
+        continue;
+      }
+
       const criticText = await requestCoachResponse([
         {
           role: "system",
-          content: "Audit the proposed coach paragraph for numerical accuracy, usefulness, one-action compliance, privacy, safety, period causality, and originality. Approve only if every requirement passes. Return JSON only: {\"approved\":true|false,\"reason\":\"short reason\"}."
+          content: "Select one candidate only if every structured check passes. Required facts and the selected action are expected repetition; judge originality from framing, opening, closing, sentence order, and non-required wording. Return only the required JSON."
         },
-        { role: "user", content: `FACTS: ${JSON.stringify(publicCoachFacts(context))}\nPROPOSED: ${validation.text}\nRECENT: ${JSON.stringify((previousMessages || []).slice(0, 10).map((message) => message.text || message))}` }
-      ], options);
-      const critic = parseCriticResult(criticText);
-      if (!critic.approved) {
-        rejection = critic.reason || "critic rejected";
+        { role: "user", content: `FACTS: ${JSON.stringify(publicCoachFacts(context))}\nCANDIDATES: ${JSON.stringify(validCandidates.map((candidate) => candidate.text))}\nAVOID: ${JSON.stringify(recentCoachAvoidance(previousMessages))}` }
+      ], { ...options, timeoutMs: remainingTimeoutMs(), schema: COACH_CRITIC_SCHEMA, schemaName: "lily_coach_critic_v2", maxOutputTokens: 260 });
+      const critic = parseCriticResult(criticText, validCandidates.length);
+      lastCritic = critic;
+      if (!critic.valid) {
+        lastStatus = "fallback-critic-format";
+        rejectionCodes.push("critic-format");
         continue;
       }
-      return { text: validation.text, status: "generated-and-critic-approved" };
+      if (!critic.approved) {
+        lastStatus = "fallback-critic-rejected";
+        rejectionCodes.push(critic.reasonCode);
+        continue;
+      }
+      const selected = validCandidates[critic.selectedIndex];
+      return {
+        text: selected.text,
+        status: "generated-and-critic-approved",
+        structureId: null,
+        action: selected.action,
+        criticResult: critic,
+        diagnostics: generationDiagnostics("critic-approved", attempts, rejectionCodes, startedAt, { candidateCount: candidates.length, validCandidateCount: validCandidates.length })
+      };
     } catch (error) {
-      rejection = error.message || "generation failed";
-      if (/timeout/.test(rejection)) break;
+      const code = /timeout/i.test(error?.message || "") ? "timeout" : "api-error";
+      rejectionCodes.push(code);
+      lastStatus = code === "timeout" ? "fallback-timeout" : "fallback-api-error";
+      if (code === "timeout") break;
     }
   }
-  return { text: fallback, status: rejection && /timeout/.test(rejection) ? "fallback-timeout" : "fallback-validation" };
+  return {
+    text: fallback.text,
+    status: lastStatus,
+    structureId: fallback.structureId,
+    action: fallback.action,
+    criticResult: lastCritic,
+    diagnostics: generationDiagnostics(lastStatus.replace(/^fallback-/, ""), attempts, rejectionCodes, startedAt)
+  };
 }
 
-function createCoachMessageRecord(context, text, status, now = new Date().toISOString(), existing = null) {
+function createCoachMessageRecord(context, text, status, now = new Date().toISOString(), existing = null, metadata = {}) {
+  const selectedAction = metadata.action || identifyApprovedAction(text, context) || {
+    id: context.actionId,
+    semantic: context.actionSemantic,
+    text: context.action
+  };
+  const fingerprint = fingerprintMetadata(text, context, metadata.previousMessages || []);
   return {
     id: existing?.id || createId("coach"),
     weightId: context.weightId,
@@ -802,9 +1864,23 @@ function createCoachMessageRecord(context, text, status, now = new Date().toISOS
     evidenceReferences: context.evidenceReferences,
     contextHash: context.contextHash,
     generationVersion: COACH_GENERATION_VERSION,
-    modelVersion: chatModel,
+    analysisVersion: COACH_ANALYSIS_VERSION,
+    writerPromptVersion: COACH_WRITER_PROMPT_VERSION,
+    criticPromptVersion: COACH_CRITIC_PROMPT_VERSION,
+    validatorVersion: COACH_VALIDATOR_VERSION,
+    fallbackVersion: COACH_FALLBACK_VERSION,
+    actionVersion: COACH_ACTION_VERSION,
+    modelVersion: metadata.modelVersion || chatModel,
     promptVersion: COACH_PROMPT_VERSION,
     safetyVersion: COACH_SAFETY_VERSION,
+    actionId: selectedAction.id,
+    actionSemantic: selectedAction.semantic,
+    actionText: selectedAction.text,
+    fallbackStructureId: metadata.structureId || null,
+    analysisPlan: context.analysisPlan,
+    diagnostics: sanitizeGenerationDiagnostics(metadata.diagnostics),
+    criticResult: sanitizeCriticResult(metadata.criticResult),
+    ...fingerprint,
     status,
     createdAt: existing?.createdAt || now,
     updatedAt: now
@@ -833,7 +1909,15 @@ function addFallbackCoachForWeight(store, weightId, status = "fallback-contextua
   if (coachForWeight(store, weightId)) return store;
   const context = buildCoachContext(store, weightId, options);
   if (!context) return store;
-  const record = createCoachMessageRecord(context, buildContextualFallback(context), status);
+  const currentWeight = (store.weights || []).find((weight) => weight.id === weightId);
+  const previousMessages = causalPreviousCoachMessages(store, currentWeight, 10);
+  const fallback = buildContextualFallbackResult(context, previousMessages);
+  const record = createCoachMessageRecord(context, fallback.text, status, new Date().toISOString(), null, {
+    action: fallback.action,
+    structureId: fallback.structureId,
+    previousMessages,
+    diagnostics: generationDiagnostics("fallback-created", 0, [], Date.now())
+  });
   return { ...store, coachMessages: [record, ...(Array.isArray(store.coachMessages) ? store.coachMessages : [])] };
 }
 
@@ -845,7 +1929,14 @@ function refreshLatestWeightOnlyCoach(store, status) {
   const context = buildCoachContext(store, latestWeight.id, { includePersonalContext: false, privateGoal: privateCoachGoal });
   if (!context) return store;
   const existing = coachForWeight(store, latestWeight.id);
-  const replacement = createCoachMessageRecord(context, buildContextualFallback(context), status, new Date().toISOString(), existing);
+  const previousMessages = causalPreviousCoachMessages(store, latestWeight, 10);
+  const fallback = buildContextualFallbackResult(context, previousMessages);
+  const replacement = createCoachMessageRecord(context, fallback.text, status, new Date().toISOString(), existing, {
+    action: fallback.action,
+    structureId: fallback.structureId,
+    previousMessages,
+    diagnostics: generationDiagnostics("context-refreshed", 0, [], Date.now())
+  });
   return {
     ...store,
     coachMessages: [replacement, ...(Array.isArray(store.coachMessages) ? store.coachMessages : []).filter((message) => message.id !== existing?.id)]
@@ -887,7 +1978,8 @@ async function generateAndReplaceCoach(weightId, options = {}) {
   });
   const fallbackRecord = coachForWeight(snapshot, weightId);
   if (!context || !fallbackRecord) return publicCoach(fallbackRecord);
-  const previousMessages = (snapshot.coachMessages || []).filter((message) => message.weightId !== weightId).slice(0, 10);
+  const currentWeight = (snapshot.weights || []).find((weight) => weight.id === weightId);
+  const previousMessages = causalPreviousCoachMessages(snapshot, currentWeight, 10);
   const result = await generateCoachParagraph(context, previousMessages, options);
   if (result.status.startsWith("fallback-")) {
     let savedFallback = fallbackRecord;
@@ -895,7 +1987,14 @@ async function generateAndReplaceCoach(weightId, options = {}) {
       const existing = coachForWeight(store, weightId);
       const weightStillExists = (store.weights || []).some((weight) => weight.id === weightId);
       if (!existing || !weightStillExists || existing.contextHash !== context.contextHash) return store;
-      savedFallback = createCoachMessageRecord(context, existing.text, result.status, new Date().toISOString(), existing);
+      savedFallback = createCoachMessageRecord(context, result.text, result.status, new Date().toISOString(), existing, {
+        action: result.action,
+        structureId: result.structureId,
+        previousMessages,
+        diagnostics: result.diagnostics,
+        criticResult: result.criticResult,
+        modelVersion: options.model || chatModel
+      });
       return {
         ...store,
         coachMessages: [savedFallback, ...(store.coachMessages || []).filter((message) => message.id !== existing.id)]
@@ -908,13 +2007,62 @@ async function generateAndReplaceCoach(weightId, options = {}) {
     const existing = coachForWeight(store, weightId);
     const weightStillExists = (store.weights || []).some((weight) => weight.id === weightId);
     if (!existing || !weightStillExists || existing.contextHash !== context.contextHash) return store;
-    saved = createCoachMessageRecord(context, result.text, result.status, new Date().toISOString(), existing);
+    saved = createCoachMessageRecord(context, result.text, result.status, new Date().toISOString(), existing, {
+      action: result.action,
+      structureId: result.structureId,
+      previousMessages,
+      diagnostics: result.diagnostics,
+      criticResult: result.criticResult,
+      modelVersion: options.model || chatModel
+    });
     return {
       ...store,
       coachMessages: [saved, ...(store.coachMessages || []).filter((message) => message.id !== existing.id)]
     };
   });
   return publicCoach(saved);
+}
+
+async function regenerateRecentCoachMessages(options = {}) {
+  const count = Math.min(5, Math.max(1, Number(options.count) || 5));
+  const initial = await readStore();
+  const targets = (initial.weights || [])
+    .slice()
+    .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)) || String(right.id).localeCompare(String(left.id)))
+    .slice(0, count)
+    .reverse()
+    .map((weight) => weight.id);
+  const outcomes = [];
+  for (const weightId of targets) {
+    let prepared = false;
+    await writeStore((store) => {
+      const currentWeight = (store.weights || []).find((weight) => weight.id === weightId);
+      const context = buildCoachContext(store, weightId, {
+        privateGoal: Object.prototype.hasOwnProperty.call(options, "privateGoal") ? options.privateGoal : privateCoachGoal
+      });
+      if (!currentWeight || !context) return store;
+      const previousMessages = causalPreviousCoachMessages(store, currentWeight, 10);
+      const fallback = buildContextualFallbackResult(context, previousMessages);
+      const existing = coachForWeight(store, weightId);
+      const replacement = createCoachMessageRecord(context, fallback.text, "fallback-regenerating", new Date().toISOString(), existing, {
+        action: fallback.action,
+        structureId: fallback.structureId,
+        previousMessages,
+        diagnostics: generationDiagnostics("regeneration-fallback", 0, [], Date.now()),
+        modelVersion: options.model || chatModel
+      });
+      prepared = true;
+      return {
+        ...store,
+        coachMessages: [replacement, ...(store.coachMessages || []).filter((message) => message.id !== existing?.id && message.weightId !== weightId)]
+      };
+    });
+    if (!prepared) continue;
+    await generateAndReplaceCoach(weightId, options);
+    const latest = await readStore();
+    outcomes.push({ weightId, status: coachForWeight(latest, weightId)?.status || "missing" });
+  }
+  return outcomes;
 }
 
 function trackerDateKey(value = Date.now()) {
@@ -1632,28 +2780,56 @@ if (require.main === module) {
     });
 }
 
-if (process.env.NODE_ENV === "test") {
+if (process.env.NODE_ENV === "test" || process.env.LILY_COACH_CLI === "1") {
   module.exports = {
+    COACH_ACTION_CATALOG,
+    COACH_ACTION_VERSION,
+    COACH_ANALYSIS_VERSION,
+    COACH_COOLDOWN_COUNT,
+    COACH_CRITIC_PROMPT_VERSION,
+    COACH_FALLBACK_VERSION,
+    COACH_GENERATION_VERSION,
     COACH_MAX_WORDS,
     COACH_MIN_WORDS,
+    COACH_VALIDATOR_VERSION,
+    COACH_WRITER_PROMPT_VERSION,
+    FALLBACK_CLOSINGS,
+    FALLBACK_OPENINGS,
+    FALLBACK_STRUCTURES,
+    PREFERENCE_ACTIONS,
     addFallbackCoachForWeight,
     backfillCoachMessages,
     buildCoachContext,
     buildContextualFallback,
+    buildContextualFallbackResult,
+    causalPreviousCoachMessages,
     coachForWeight,
     coachWordCount,
     createCoachMessageRecord,
     ensureDataDir,
+    fallbackFactClauseVariants,
+    fallbackFactClauses,
+    coachPresentationSeed,
     generateAndReplaceCoach,
     generateCoachParagraph,
     hiddenStrategyState,
     latestCoachPayload,
     normalizeCoachParagraph,
+    noveltyErrors,
+    openingFingerprint,
+    closingFingerprint,
+    structuralFingerprint,
+    trigramSimilarity,
+    identifyApprovedAction,
+    parseCriticResult,
+    parseWriterCandidates,
     publicCoach,
     readStore,
+    regenerateRecentCoachMessages,
     refreshLatestWeightOnlyCoach,
     refreshIfLatestCoachReferences,
     removeWeightAndCoach,
+    selectStrongestCoachEvidence,
     similarityScore,
     validateCoachParagraph,
     writeStore

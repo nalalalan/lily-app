@@ -6,6 +6,7 @@ const path = require("node:path");
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "lily-coach-server-"));
 process.env.NODE_ENV = "test";
 process.env.DATA_DIR = tempDir;
+process.env.OPENAI_API_KEY = "";
 process.env.LILY_INTERNAL_GOAL_LB = "117";
 
 const coach = require("../server.js");
@@ -19,130 +20,29 @@ function queuedFetch(texts) {
   return async () => response(queue.shift() || "");
 }
 
-function fixtureStore() {
-  const weights = [
-    { id: "weight-1", weight: 151.2, unit: "lb", createdAt: "2026-07-17T12:00:00.000Z", updatedAt: "2026-07-17T12:00:00.000Z" },
-    { id: "weight-2", weight: 150.3, unit: "lb", createdAt: "2026-07-18T12:00:00.000Z", updatedAt: "2026-07-18T12:00:00.000Z" },
-    { id: "weight-3", weight: 148.5, unit: "lb", createdAt: "2026-07-19T12:00:00.000Z", updatedAt: "2026-07-19T12:00:00.000Z" },
-    { id: "weight-4", weight: 149.9, unit: "lb", createdAt: "2026-07-20T12:00:00.000Z", updatedAt: "2026-07-20T12:00:00.000Z" },
-    { id: "weight-5", weight: 149.9, unit: "lb", createdAt: "2026-07-21T12:00:00.000Z", updatedAt: "2026-07-21T12:00:00.000Z" }
-  ];
-  return {
-    weights,
-    memories: [
-      {
-        id: "preference-1",
-        kind: "note",
-        text: "She loves Korean food and said she wants vegetables in every meal.",
-        createdAt: "2026-07-01T12:00:00.000Z",
-        updatedAt: "2026-07-01T12:00:00.000Z"
-      },
-      {
-        id: "private-contact",
-        kind: "contact",
-        text: "A private phone number that must never enter coaching.",
-        createdAt: "2026-07-01T12:00:00.000Z",
-        updatedAt: "2026-07-01T12:00:00.000Z"
-      }
-    ],
-    trackerEvents: [
-      {
-        id: "period-current",
-        type: "period",
-        dateKey: "2026-07-21",
-        periodEndDateKey: "2026-07-22",
-        reportedHighDesireDateKey: "2026-07-29",
-        createdAt: "2026-07-21T10:00:00.000Z",
-        updatedAt: "2026-07-21T10:00:00.000Z"
-      },
-      {
-        id: "conflict-old",
-        type: "conflict",
-        dateKey: "2026-07-10",
-        createdAt: "2026-07-10T12:00:00.000Z",
-        updatedAt: "2026-07-10T12:00:00.000Z"
-      }
-    ],
-    chats: [],
-    coachMessages: []
-  };
+function criticPayload(approved, selectedIndex = approved ? 0 : -1, reasonCode = approved ? "approved" : "rejected") {
+  return JSON.stringify({
+    approved,
+    selectedIndex,
+    reasonCode,
+    checks: {
+      facts: approved,
+      evidence: approved,
+      verdict: approved,
+      oneAction: approved,
+      privacySafety: approved,
+      originality: approved
+    }
+  });
 }
 
-async function run() {
-  await coach.ensureDataDir();
-  await coach.writeStore(() => fixtureStore());
-  await coach.backfillCoachMessages();
-  await coach.backfillCoachMessages();
+function recordWeight(id, date, weight, timestampSuffix = "T16:00:00.000Z") {
+  const createdAt = `${date}${timestampSuffix}`;
+  return { id, weight, unit: "lb", createdAt, updatedAt: createdAt };
+}
 
-  const migrated = await coach.readStore();
-  assert.equal(migrated.weights.length, 5, "backfill preserves every weight");
-  assert.equal(migrated.memories.length, 2, "backfill preserves memories");
-  assert.equal(migrated.trackerEvents.length, 2, "backfill preserves tracker data");
-  assert.equal(migrated.coachMessages.length, migrated.weights.length, "idempotent backfill gives every existing weigh-in exactly one persisted fallback");
-
-  const latest = coach.latestCoachPayload(migrated);
-  assert.deepEqual(Object.keys(latest).sort(), ["createdAt", "text", "weightId"], "public coach exposes only its approved three fields");
-  assert.equal(latest.weightId, "weight-5");
-  assert(!JSON.stringify(latest).includes("117"), "private configuration never enters the public coach payload");
-
-  const latestRecord = coach.coachForWeight(migrated, "weight-5");
-  for (const key of ["text", "weightId", "verdict", "evidenceReferences", "contextHash", "generationVersion", "modelVersion", "promptVersion", "safetyVersion", "status", "createdAt", "updatedAt"]) {
-    assert(Object.prototype.hasOwnProperty.call(latestRecord, key), `private coach record includes ${key}`);
-  }
-  assert(latestRecord.evidenceReferences.some((reference) => reference.type === "memory" && reference.id === "preference-1"));
-  assert(latestRecord.evidenceReferences.some((reference) => reference.type === "tracker" && reference.id === "period-current"));
-  assert(!JSON.stringify(latestRecord).toLowerCase().includes("highdesire"), "sexual tracker fields never enter coach records");
-  assert(!JSON.stringify(latestRecord).includes("2026-07-29"), "sexual tracker dates never enter coach records");
-
-  const context = coach.buildCoachContext(migrated, "weight-5", { privateGoal: 117 });
-  const anotherGoalContext = coach.buildCoachContext(migrated, "weight-5", { privateGoal: 132 });
-  assert.deepEqual(context.forecastFingerprint, anotherGoalContext.forecastFingerprint, "private strategy cannot alter forecast history");
-  assert.equal(context.outlook, anotherGoalContext.outlook, "private strategy cannot alter the headline outlook");
-  assert.notEqual(context.hiddenStrategy, anotherGoalContext.hiddenStrategy, "private configuration may affect only hidden urgency state");
-  assert.equal(context.trackerModifier.type, "active-logged-period");
-  assert(!JSON.stringify(context.trackerModifier).toLowerCase().includes("desire"));
-
-  const baselineStore = {
-    weights: [migrated.weights[0]],
-    memories: [],
-    trackerEvents: [],
-    chats: [],
-    coachMessages: []
-  };
-  const baselineContext = coach.buildCoachContext(baselineStore, "weight-1", { privateGoal: 117 });
-  assert.equal(baselineContext.outlookDirection, "held", "the first weigh-in has no prior outlook to worsen from");
-  const baselineFallback = coach.buildContextualFallback(baselineContext);
-  const baselineValidation = coach.validateCoachParagraph(baselineFallback, baselineContext, [], { privateGoal: 117 });
-  assert.equal(baselineValidation.ok, true, `baseline fallback must validate: ${baselineValidation.errors.join(", ")}`);
-
-  const dislikedPreferenceStore = {
-    ...baselineStore,
-    memories: [{
-      id: "negative-preference",
-      kind: "note",
-      text: "Lily hates Korean food and does not like vegetables.",
-      createdAt: "2026-07-01T12:00:00.000Z",
-      updatedAt: "2026-07-01T12:00:00.000Z"
-    }]
-  };
-  const dislikedContext = coach.buildCoachContext(dislikedPreferenceStore, "weight-1", { privateGoal: 117 });
-  assert.equal(dislikedContext.preference, null, "negated food notes must never be rewritten as preferences");
-
-  const mixedConstraintStore = {
-    ...baselineStore,
-    memories: [{
-      id: "mixed-preference",
-      kind: "note",
-      text: "Lily doesn't like vegetables but wants them in every meal.",
-      createdAt: "2026-07-01T12:00:00.000Z",
-      updatedAt: "2026-07-01T12:00:00.000Z"
-    }]
-  };
-  const mixedConstraintContext = coach.buildCoachContext(mixedConstraintStore, "weight-1", { privateGoal: 117 });
-  assert.equal(mixedConstraintContext.preference?.id, "mixed-preference", "a later explicit want may safely override an earlier dislike in the same saved constraint");
-  assert.match(mixedConstraintContext.action, /vegetables you said you want/i);
-
-  const liveWeights = [
+function liveWeights(idPrefix = "live-weight-", timestampSuffix = "T16:00:00.000Z") {
+  const rows = [
     ["2026-06-26", 149.4], ["2026-06-28", 148.5], ["2026-06-29", 147.4],
     ["2026-06-30", 149], ["2026-07-01", 149.4], ["2026-07-02", 149.4],
     ["2026-07-03", 148.8], ["2026-07-04", 149.9], ["2026-07-06", 150.7],
@@ -150,145 +50,469 @@ async function run() {
     ["2026-07-11", 150.5], ["2026-07-12", 149.9], ["2026-07-13", 150],
     ["2026-07-14", 147.7], ["2026-07-15", 149.4], ["2026-07-16", 150.3],
     ["2026-07-17", 149.9], ["2026-07-18", 149.4], ["2026-07-19", 148.5],
-    ["2026-07-20", 149.9], ["2026-07-21", 149.9]
-  ].map(([date, weight], index) => ({
-    id: `live-weight-${index}`,
-    weight,
-    unit: "lb",
-    createdAt: `${date}T16:00:00.000Z`,
-    updatedAt: `${date}T16:00:00.000Z`
-  }));
-  const liveStore = {
-    weights: liveWeights,
-    memories: migrated.memories,
-    trackerEvents: migrated.trackerEvents.filter((event) => event.id !== "period-current"),
+    ["2026-07-20", 149.9], ["2026-07-21", 149.9], ["2026-07-22", 151]
+  ];
+  return rows.map(([date, weight], index) => recordWeight(`${idPrefix}${index}`, date, weight, timestampSuffix));
+}
+
+function savedContext() {
+  return {
+    memories: [
+      {
+        id: "preference-1",
+        kind: "note",
+        text: "She loves Korean food and said she wants vegetables in every meal.",
+        createdAt: "2026-06-01T12:00:00.000Z",
+        updatedAt: "2026-06-01T12:00:00.000Z"
+      },
+      {
+        id: "private-contact",
+        kind: "contact",
+        text: "A private phone number that must never enter coaching.",
+        createdAt: "2026-06-01T12:00:00.000Z",
+        updatedAt: "2026-06-01T12:00:00.000Z"
+      }
+    ],
+    trackerEvents: [
+      {
+        id: "period-july",
+        type: "period",
+        dateKey: "2026-07-03",
+        periodEndDateKey: "2026-07-07",
+        reportedHighDesireDateKey: "2026-07-15",
+        createdAt: "2026-07-03T10:00:00.000Z",
+        updatedAt: "2026-07-03T10:00:00.000Z"
+      },
+      {
+        id: "conflict-july",
+        type: "conflict",
+        dateKey: "2026-07-10",
+        createdAt: "2026-07-10T10:00:00.000Z",
+        updatedAt: "2026-07-10T10:00:00.000Z"
+      }
+    ]
+  };
+}
+
+function baseStore(weights, context = savedContext()) {
+  return {
+    weights,
+    memories: context.memories || [],
+    trackerEvents: context.trackerEvents || [],
     chats: [],
     coachMessages: []
   };
-  const liveContext = coach.buildCoachContext(liveStore, liveWeights.at(-1).id, { privateGoal: 117 });
-  assert.equal(Number(liveContext.previousOutlook.toFixed(1)), 144.7);
-  assert.equal(Number(liveContext.outlook.toFixed(1)), 145.4);
-  assert.equal(liveContext.outlookDirection, "worsened", "flat July 21 evidence must turn the coach outlook verdict upward");
-  const liveFallback = coach.buildContextualFallback(liveContext);
-  assert.match(liveFallback, /^NOT GOOD ENOUGH YET/);
-  assert.match(liveFallback, /149\.9 lb is unchanged/);
-  assert.match(liveFallback, /turned the wrong way to about 145 lb/);
+}
 
-  const fallback = coach.buildContextualFallback(context);
-  const fallbackValidation = coach.validateCoachParagraph(fallback, context, [], { privateGoal: 117 });
+function assertParagraph(text, label = "coach paragraph") {
+  const words = coach.coachWordCount(text);
+  assert(words >= coach.COACH_MIN_WORDS && words <= coach.COACH_MAX_WORDS, `${label} has ${words} words`);
+  assert(!/[\r\n]/.test(text), `${label} is one paragraph`);
+  assert(!/[\u00e2\u00c3\u00c2\ufffd]/.test(text), `${label} has valid encoding`);
+  assert(!/goal|target weight|jyp|idol|obese|fasting|skip(?:ping)? meals?|punish|compensat|diagnos/i.test(text), `${label} stays private and safe`);
+}
+
+function buildWriterCandidates(context, previousMessages = []) {
+  const facts = coach.fallbackFactClauseVariants(context);
+  const openings = coach.FALLBACK_OPENINGS[context.verdict];
+  const closings = coach.FALLBACK_CLOSINGS[context.verdict];
+  const selected = [];
+  outer:
+  for (let structureIndex = 0; structureIndex < coach.FALLBACK_STRUCTURES.length; structureIndex += 1) {
+    for (let factIndex = 0; factIndex < 4; factIndex += 1) {
+      for (let openingIndex = 0; openingIndex < openings.length; openingIndex += 1) {
+        for (let closingIndex = 0; closingIndex < closings.length; closingIndex += 1) {
+          const action = context.actionRealizations[factIndex % context.actionRealizations.length];
+          const text = coach.normalizeCoachParagraph(coach.FALLBACK_STRUCTURES[structureIndex](
+            openings[openingIndex],
+            facts.current[factIndex % facts.current.length],
+            facts.evidence[(factIndex + structureIndex) % facts.evidence.length],
+            facts.outlook[(factIndex * 3 + structureIndex) % facts.outlook.length],
+            action.text,
+            closings[closingIndex]
+          ));
+          const validation = coach.validateCoachParagraph(text, context, previousMessages);
+          if (!validation.ok) continue;
+          const siblingMessages = selected.map((entry) => ({
+            text: entry.text,
+            actionId: entry.action.id,
+            actionSemantic: entry.action.semantic,
+            actionText: entry.action.text
+          }));
+          const siblingErrors = coach.noveltyErrors(validation.text, context, siblingMessages, validation.action)
+            .filter((error) => error !== "action-cooldown" && error !== "action-semantic-cooldown");
+          if (siblingErrors.length) continue;
+          selected.push({ text: validation.text, action: validation.action });
+          if (selected.length === 3) break outer;
+        }
+      }
+    }
+  }
+  assert.equal(selected.length, 3, "test fixture can supply three valid, structurally distinct writer candidates");
+  return selected;
+}
+
+function addAllFallbacks(store) {
+  let next = store;
+  const ordered = store.weights.slice().sort((left, right) => String(left.createdAt).localeCompare(String(right.createdAt)) || String(left.id).localeCompare(String(right.id)));
+  const durations = [];
+  for (const weight of ordered) {
+    const startedAt = Date.now();
+    next = coach.addFallbackCoachForWeight(next, weight.id, "fallback-test");
+    durations.push(Date.now() - startedAt);
+    const record = coach.coachForWeight(next, weight.id);
+    const context = coach.buildCoachContext(next, weight.id, { privateGoal: 117 });
+    const previous = coach.causalPreviousCoachMessages(next, weight, 10);
+    assertParagraph(record.text, `fallback for ${weight.createdAt}`);
+    assert.deepEqual(coach.noveltyErrors(record.text, context, previous), [], `fallback for ${weight.createdAt} passes every originality gate`);
+    for (const prior of previous.slice(0, 10)) {
+      assert(coach.trigramSimilarity(record.text, prior.text, context) < 0.72, "prior-ten ordered trigram similarity stays below 0.72");
+    }
+    assert(!previous.slice(0, 6).some((prior) => coach.openingFingerprint(prior.text) === coach.openingFingerprint(record.text)), "opening is new within six");
+    assert(!previous.slice(0, 6).some((prior) => coach.closingFingerprint(prior.text) === coach.closingFingerprint(record.text)), "closing is new within six");
+    assert(!previous.slice(0, 3).some((prior) => prior.actionSemantic === record.actionSemantic), "action meaning is new within three");
+    assert(!previous.slice(0, 3).some((prior) => prior.actionText === record.actionText), "action sentence is new within three");
+  }
+  return { store: next, durations };
+}
+
+async function run() {
+  await coach.ensureDataDir();
+
+  const productionWeights = liveWeights();
+  const productionStore = baseStore(productionWeights);
+  const july22 = coach.buildCoachContext(productionStore, productionWeights.at(-1).id, { privateGoal: 117 });
+  assert.equal(july22.currentWeight, 151);
+  assert.equal(Number(july22.latestDailyChange.toFixed(1)), 1.1);
+  assert.equal(july22.strongestEvidence.kind, "window-acceleration");
+  assert.equal(july22.strongestEvidence.windowDays, 3);
+  assert.equal(Number(july22.strongestEvidence.movement.toFixed(1)), 2.5);
+  assert.equal(Number(july22.strongestEvidence.previousMovement.toFixed(1)), 0.5);
+  assert.equal(july22.evidenceRelation.kind, "strengthened");
+  assert.equal(Number(july22.outlook.toFixed(3)), 146.177);
+  assert.equal(Number(july22.outlookChange.toFixed(2)), 0.75);
+  assert.equal(july22.outlookDirection, "worsened");
+  assert.equal(july22.includeOutlook, true);
+  assert(july22.evidenceReferences.some((reference) => reference.role === "selected-evidence-window" && reference.id === "live-weight-20"), "Jul 19 source evidence is retained for the three-day movement");
+  assert(july22.analysisPlan.outlook && july22.analysisPlan.relationToPrior === "strengthened");
+
+  const alternateGoal = coach.buildCoachContext(productionStore, productionWeights.at(-1).id, { privateGoal: 132 });
+  assert.deepEqual(july22.forecastFingerprint, alternateGoal.forecastFingerprint, "private strategy cannot alter forecast history");
+  assert.equal(july22.outlook, alternateGoal.outlook, "private strategy cannot alter the headline outlook");
+  assert.notEqual(july22.hiddenStrategy, alternateGoal.hiddenStrategy, "private configuration is confined to hidden coaching strategy");
+
+  const twoWeightStore = baseStore([
+    recordWeight("two-1", "2026-07-21", 150),
+    recordWeight("two-2", "2026-07-22", 151)
+  ], { memories: [], trackerEvents: [] });
+  const twoWeightContext = coach.buildCoachContext(twoWeightStore, "two-2", { privateGoal: 117 });
+  assert.equal(twoWeightContext.evidenceRelation.kind, "new", "a missing prior window is new evidence, not an invented zero baseline");
+  assert.equal(twoWeightContext.previousStrongestEvidence, null);
+
+  const outlierWeights = [
+    recordWeight("out-1", "2026-07-19", 150),
+    recordWeight("out-2", "2026-07-20", 150.2),
+    recordWeight("out-3", "2026-07-21", 150.1),
+    recordWeight("out-4", "2026-07-22", 154)
+  ];
+  const outlierContext = coach.buildCoachContext(baseStore(outlierWeights, { memories: [], trackerEvents: [] }), "out-4");
+  assert.equal(outlierContext.strongestEvidence.kind, "outlier");
+  assert.equal(outlierContext.verdict, "verify");
+
+  const reversalWeights = [
+    recordWeight("rev-1", "2026-07-19", 151), recordWeight("rev-2", "2026-07-20", 150),
+    recordWeight("rev-3", "2026-07-21", 149), recordWeight("rev-4", "2026-07-22", 150)
+  ];
+  const reversalContext = coach.buildCoachContext(baseStore(reversalWeights, { memories: [], trackerEvents: [] }), "rev-4");
+  assert.equal(reversalContext.strongestEvidence.kind, "reversal");
+  assert.equal(reversalContext.evidenceRelation.kind, "reversed");
+  assert.equal(coach.validateCoachParagraph(coach.buildContextualFallback(reversalContext, []), reversalContext, []).ok, true);
+
+  const noisyWeights = [
+    recordWeight("noise-1", "2026-07-18", 150), recordWeight("noise-2", "2026-07-19", 150.1),
+    recordWeight("noise-3", "2026-07-20", 149.9), recordWeight("noise-4", "2026-07-21", 150),
+    recordWeight("noise-5", "2026-07-22", 150)
+  ];
+  const noisyContext = coach.buildCoachContext(baseStore(noisyWeights, { memories: [], trackerEvents: [] }), "noise-5");
+  assert.equal(noisyContext.changeDirection, "unchanged");
+  assert.equal(coach.validateCoachParagraph(coach.buildContextualFallback(noisyContext, []), noisyContext, []).ok, true);
+
+  const fullFallbackRun = addAllFallbacks(productionStore);
+  assert.equal(fullFallbackRun.store.coachMessages.length, 24, "the exact live history always has a valid fallback");
+  assert(Math.max(...fullFallbackRun.durations) < 1000, "each fallback is ready inside one second locally");
+  const finalFallback = coach.coachForWeight(fullFallbackRun.store, productionWeights.at(-1).id);
+  assert.match(finalFallback.text, /151 lb/);
+  assert.match(finalFallback.text, /3-day/);
+  assert.match(finalFallback.text, /up 2\.5 lb/);
+  assert.match(finalFallback.text, /accelerat/i);
+  assert.match(finalFallback.text, /about 146 lb/);
+
+  const equivalentRows = productionWeights.slice(0, 8);
+  const equivalentA = addAllFallbacks(baseStore(equivalentRows)).store.coachMessages
+    .slice().sort((left, right) => String(left.createdAt).localeCompare(String(right.createdAt))).map((message) => message.text);
+  const equivalentBWeights = liveWeights("opaque-", "T16:00:00Z").slice(0, 8);
+  const equivalentB = addAllFallbacks(baseStore(equivalentBWeights)).store.coachMessages
+    .slice().sort((left, right) => String(left.createdAt).localeCompare(String(right.createdAt))).map((message) => message.text);
+  assert.deepEqual(equivalentA, equivalentB, "opaque IDs and equivalent timestamp serialization cannot change copy selection");
+
+  const risingWeights = [recordWeight("rise-baseline", "2026-08-01", 150)];
+  for (let index = 1; index <= 12; index += 1) {
+    const date = new Date(Date.UTC(2026, 7, index + 1)).toISOString().slice(0, 10);
+    risingWeights.push(recordWeight(`rise-${index}`, date, 150 + index * 0.2));
+  }
+  const risingRun = addAllFallbacks(baseStore(risingWeights, { memories: [], trackerEvents: [] }));
+  const risingMessages = risingWeights.slice(1).map((weight) => coach.coachForWeight(risingRun.store, weight.id));
+  assert(risingMessages.every((message) => message.verdict === "not-good-enough"), "twelve consecutive same-verdict weigh-ins remain distinct and valid");
+
+  const fallback = coach.buildContextualFallback(july22, []);
+  const fallbackValidation = coach.validateCoachParagraph(fallback, july22, [], { privateGoal: 117 });
   assert.equal(fallbackValidation.ok, true, fallbackValidation.errors.join(", "));
-  assert(coach.coachWordCount(fallback) >= coach.COACH_MIN_WORDS && coach.coachWordCount(fallback) <= coach.COACH_MAX_WORDS);
-  assert.equal((fallback.match(/[\r\n]/g) || []).length, 0, "fallback is exactly one paragraph");
-  assert(!/[\u00e2\u00c3\u00c2\ufffd]/.test(fallback), "persisted fallback contains no mojibake");
-  assert(!/goal|target weight|jyp|idol/i.test(fallback));
-  assert(!/period.{0,30}(?:caused|made|explains)|(?:caused|made|explains).{0,30}period/i.test(fallback));
+  assertParagraph(fallback);
+  assert.equal(coach.identifyApprovedAction(fallback, july22)?.semantic, july22.actionSemantic);
 
-  const wrongNumber = fallback.replace(`${context.currentWeight} lb`, "999 lb");
-  assert(coach.validateCoachParagraph(wrongNumber, context, [], { privateGoal: 117 }).errors.includes("unsupported-number"));
-  const leakedGoal = fallback.replace(`about ${Math.round(context.outlook)} lb`, "about 117 lb");
-  assert(coach.validateCoachParagraph(leakedGoal, context, [], { privateGoal: 117 }).errors.includes("goal-leak"));
-  const leakedStrategy = fallback.replace("TURN THIS LINE AROUND", "SAFETY-HELD—TURN THIS LINE AROUND");
-  assert(coach.validateCoachParagraph(leakedStrategy, context, [], { privateGoal: 117 }).errors.includes("private-strategy-leak"));
-  const unsafe = fallback.replace(context.action, `${context.action} Fast tomorrow.`);
-  assert(coach.validateCoachParagraph(unsafe, context, [], { privateGoal: 117 }).errors.includes("unsafe-language"));
-  const privateTrackerLeak = fallback.replace("TURN THIS LINE AROUND", "OVULATION IS COMING—TURN THIS LINE AROUND");
-  assert(coach.validateCoachParagraph(privateTrackerLeak, context, [], { privateGoal: 117 }).errors.includes("private-context-leak"));
-  const extraAction = fallback.replace(context.action, `${context.action} Plan a walk.`);
-  assert(coach.validateCoachParagraph(extraAction, context, [], { privateGoal: 117 }).errors.includes("extra-action"));
-  const oppositeVerdict = fallback.replace(/^.*?—/, "AMAZING WORK—THIS IS A WIN—");
-  assert(coach.validateCoachParagraph(oppositeVerdict, context, [], { privateGoal: 117 }).errors.includes("verdict"), "deterministic validation must reject approval for a negative verdict");
-  assert(coach.validateCoachParagraph(`${fallback}\nSecond paragraph.`, context, [], { privateGoal: 117 }).errors.includes("multiline"));
-  assert(coach.validateCoachParagraph(fallback.replace("—", "\u00e2\u20ac\u201d"), context, [], { privateGoal: 117 }).errors.includes("mojibake"));
-  assert(coach.validateCoachParagraph(fallback, context, [{ text: fallback }], { privateGoal: 117 }).errors.includes("repetition"));
+  const acceptanceAction = july22.actionRealizations.slice().sort((left, right) => coach.coachWordCount(left.text) - coach.coachWordCount(right.text))[0].text;
+  const acceptanceExample = `THIS IS MOVING THE WRONG WAY—151 lb is up 1.1 lb today. The 3-day move is up 2.5 lb and accelerated from the prior read. The 1-year trend outlook worsened to about 146 lb. ${acceptanceAction} THE RESPONSE STARTS NOW!!!`;
+  const acceptanceValidation = coach.validateCoachParagraph(acceptanceExample, july22, [], { privateGoal: 117 });
+  assert.equal(acceptanceValidation.ok, true, `a fresh semantic verdict must not be rejected as non-template copy: ${acceptanceValidation.errors.join(", ")}`);
+  assertParagraph(acceptanceExample, "July 22 acceptance example");
 
-  const invalidGeneration = await coach.generateCoachParagraph(context, [], {
+  const wrongNumber = fallback.replace("151 lb", "999 lb");
+  assert(coach.validateCoachParagraph(wrongNumber, july22, [], { privateGoal: 117 }).errors.includes("unsupported-number"));
+  const leakedGoal = fallback.replace("about 146 lb", "about 117 lb");
+  assert(coach.validateCoachParagraph(leakedGoal, july22, [], { privateGoal: 117 }).errors.includes("goal-leak"));
+  const leakedPrivateContext = fallback.replace(/[^.!?]+!!!$/, "OVULATION EXPLAINS THIS!!!");
+  assert(coach.validateCoachParagraph(leakedPrivateContext, july22, [], { privateGoal: 117 }).errors.includes("private-context-leak"));
+  const periodCause = `${fallback} The period caused this.`;
+  assert(coach.validateCoachParagraph(periodCause, july22, [], { privateGoal: 117 }).errors.includes("period-causality"));
+  assert(coach.validateCoachParagraph(`${fallback}\nSecond paragraph.`, july22, [], { privateGoal: 117 }).errors.includes("multiline"));
+  for (const unsafeClose of ["YOU ARE LAZY!!!", "SKIP A MEAL TO FIX IT!!!", "PUNISH THIS WITH COMPENSATORY EXERCISE!!!"]) {
+    const unsafeCandidate = fallback.replace(/[^.!?]+!!!$/, unsafeClose);
+    assert(coach.validateCoachParagraph(unsafeCandidate, july22, [], { privateGoal: 117 }).errors.includes("unsafe-language"), `unsafe coaching is rejected: ${unsafeClose}`);
+  }
+
+  const extraActions = [
+    "Take the stairs now.", "Stand up after dinner.", "Call a friend for accountability.",
+    "Breathe before ordering.", "Drink water now.", "A stair climb would help.",
+    "Taking the stairs helps.", "Keep standing after dinner.", "For dinner, stand up."
+  ];
+  for (const extra of extraActions) {
+    const candidate = fallback.replace(/[^.!?]+!!!$/, extra);
+    assert(coach.validateCoachParagraph(candidate, july22, [], { privateGoal: 117 }).errors.includes("extra-action"), `extra action is rejected: ${extra}`);
+  }
+
+  const semanticBypasses = [
+    "A short hike could work.", "Park farther away.", "A dance break could work.", "Dance after work.",
+    "A salad could work.", "More steps tonight.", "Journal tonight.", "Meditation may help.",
+    "Clean the scale.", "Reset the scale.", "Hold the scale.", "Trust the scale.",
+    "Fight the scale.", "Attack the scale.", "Clean the next reading.", "Press the scale."
+  ];
+  for (const extra of semanticBypasses) {
+    const candidate = acceptanceExample.replace(" THE RESPONSE STARTS", ` ${extra} THE RESPONSE STARTS`);
+    const result = coach.validateCoachParagraph(candidate, july22, [], { privateGoal: 117 });
+    assert(result.errors.some((error) => error.startsWith("closed-")), `closed component grammar rejects a hidden second recommendation: ${extra}`);
+  }
+
+  const falseEvidenceRelation = acceptanceExample.replace(
+    "The 3-day move is up 2.5 lb and accelerated from the prior read.",
+    "The 3-day move is up 2.5 lb and weaker than before. A worsened 1-year trend outlook reads about 146 lb."
+  );
+  assert(coach.validateCoachParagraph(falseEvidenceRelation, july22, [], { privateGoal: 117 }).errors.includes("evidence-claim"), "the outlook cannot satisfy a contradictory broader-evidence relation");
+
+  for (const contradicted of [
+    acceptanceExample.replace("151 lb is up 1.1 lb today", "151 lb is not up 1.1 lb today"),
+    acceptanceExample.replace("is up 2.5 lb and accelerated", "is up 2.5 lb and not accelerated"),
+    acceptanceExample.replace("outlook worsened", "outlook not worsened")
+  ]) {
+    const result = coach.validateCoachParagraph(contradicted, july22, [], { privateGoal: 117 });
+    assert(result.errors.some((error) => error.startsWith("closed-") || error.endsWith("-claim")), "negation cannot coexist with a positively matched fact");
+  }
+
+  for (const falseArgument of [
+    acceptanceExample.replace("today. The 3-day", "today because the 3-day"),
+    acceptanceExample.replace("prior read. The 1-year", "prior read, so the 1-year"),
+    acceptanceExample.replace("151 lb is up 1.1 lb today.", "151 lb is up 1.1 lb today?"),
+    `THIS IS MOVING THE WRONG WAY—${acceptanceAction}. 151 lb is up 1.1 lb today. The 3-day move is up 2.5 lb and accelerated from the prior read. The 1-year trend outlook worsened to about 146 lb. THE RESPONSE STARTS NOW!!!`
+  ]) {
+    const result = coach.validateCoachParagraph(falseArgument, july22, [], { privateGoal: 117 });
+    assert(result.errors.some((error) => error.startsWith("closed-")), "causal joins, factual questions, and action-first fragments are rejected");
+  }
+
+  const structureA = "WRONG WAY—151 lb is up 1.1 lb. The 3-day move is up 2.5 lb.";
+  const structureB = "WRONG WAY—149 lb is up 0.7 lb. The 3-day move is up 1.2 lb.";
+  assert.equal(coach.structuralFingerprint(structureA, july22), coach.structuralFingerprint(structureB, july22), "changing numbers inside a repeated argument is not original analysis");
+
+  const writerRows = buildWriterCandidates(july22, []);
+  const writerPayload = JSON.stringify({ candidates: writerRows.map((candidate) => ({ text: candidate.text })) });
+  const approvedGeneration = await coach.generateCoachParagraph(july22, [], {
     apiKey: "test-key",
     privateGoal: 117,
-    fetchImpl: queuedFetch([wrongNumber, wrongNumber]),
-    timeoutMs: 50
+    fetchImpl: queuedFetch([writerPayload, criticPayload(true, 1)]),
+    timeoutMs: 3000
   });
-  assert.equal(invalidGeneration.status, "fallback-validation", "unsupported model numbers fall back deterministically");
-  assert.equal(invalidGeneration.text, fallback);
+  assert.equal(approvedGeneration.status, "generated-and-critic-approved");
+  assert.equal(approvedGeneration.text, writerRows[1].text);
+  assert.equal(approvedGeneration.criticResult.checks.originality, true);
 
-  const unsafeGeneration = await coach.generateCoachParagraph(context, [], {
+  const invalidWriter = await coach.generateCoachParagraph(july22, [], {
     apiKey: "test-key",
     privateGoal: 117,
-    fetchImpl: queuedFetch([unsafe, unsafe]),
-    timeoutMs: 50
+    fetchImpl: queuedFetch([JSON.stringify({ candidates: [{ text: wrongNumber }, { text: wrongNumber }, { text: wrongNumber }] }), JSON.stringify({ candidates: [] })]),
+    timeoutMs: 3000
   });
-  assert.equal(unsafeGeneration.status, "fallback-validation", "unsafe model text never persists");
+  assert.match(invalidWriter.status, /^fallback-writer-/);
+  assert.equal(invalidWriter.text, fallback);
+  assert(invalidWriter.diagnostics.rejectionCodes.includes("unsupported-number"));
 
-  const criticRejected = await coach.generateCoachParagraph(context, [], {
+  const rejectedCritic = await coach.generateCoachParagraph(july22, [], {
     apiKey: "test-key",
     privateGoal: 117,
-    fetchImpl: queuedFetch([
-      fallback,
-      JSON.stringify({ approved: false, reason: "too generic" }),
-      fallback,
-      JSON.stringify({ approved: false, reason: "still too generic" })
-    ]),
-    timeoutMs: 50
+    fetchImpl: queuedFetch([writerPayload, criticPayload(false), writerPayload, criticPayload(false)]),
+    timeoutMs: 3000
   });
-  assert.equal(criticRejected.status, "fallback-validation", "critic rejection triggers the contextual fallback");
+  assert.equal(rejectedCritic.status, "fallback-critic-rejected");
+  assert.equal(rejectedCritic.text, fallback);
+  assert.equal(rejectedCritic.criticResult.approved, false);
 
-  const timeoutGeneration = await coach.generateCoachParagraph(context, [], {
+  const writerFormatFailure = await coach.generateCoachParagraph(july22, [], {
+    apiKey: "test-key",
+    privateGoal: 117,
+    fetchImpl: queuedFetch(["not-json", JSON.stringify({ candidates: [] })]),
+    timeoutMs: 3000
+  });
+  assert.equal(writerFormatFailure.status, "fallback-writer-format");
+  assert.equal(writerFormatFailure.text, fallback);
+
+  const criticFormatFailure = await coach.generateCoachParagraph(july22, [], {
+    apiKey: "test-key",
+    privateGoal: 117,
+    fetchImpl: queuedFetch([writerPayload, JSON.stringify({ approved: "yes" }), writerPayload, "not-json"]),
+    timeoutMs: 3000
+  });
+  assert.equal(criticFormatFailure.status, "fallback-critic-format");
+  assert.equal(criticFormatFailure.text, fallback);
+
+  const apiFailure = await coach.generateCoachParagraph(july22, [], {
+    apiKey: "test-key",
+    privateGoal: 117,
+    fetchImpl: async () => { throw new Error("provider unavailable"); },
+    timeoutMs: 3000
+  });
+  assert.equal(apiFailure.status, "fallback-api-error");
+  assert.equal(apiFailure.text, fallback);
+
+  const timeoutStartedAt = Date.now();
+  const timeoutGeneration = await coach.generateCoachParagraph(july22, [], {
     apiKey: "test-key",
     privateGoal: 117,
     fetchImpl: async () => new Promise(() => {}),
-    timeoutMs: 30
+    timeoutMs: 50
   });
-  assert.equal(timeoutGeneration.status, "fallback-timeout", "model timeout returns the already-valid fallback");
+  assert.equal(timeoutGeneration.status, "fallback-timeout");
+  assert(Date.now() - timeoutStartedAt < 1000, "the total generation deadline includes the full pipeline");
 
+  const noModel = await coach.generateCoachParagraph(july22, [], { apiKey: "", privateGoal: 117 });
+  assert.equal(noModel.status, "fallback-no-model");
+  assert.equal(noModel.text, fallback);
+
+  const fixtureWeights = [
+    recordWeight("weight-1", "2026-07-17", 151.2),
+    recordWeight("weight-2", "2026-07-18", 150.3),
+    recordWeight("weight-3", "2026-07-19", 148.5),
+    recordWeight("weight-4", "2026-07-20", 149.9),
+    recordWeight("weight-5", "2026-07-21", 149.9)
+  ];
+  const fixtureContext = savedContext();
+  fixtureContext.trackerEvents.push({
+    id: "period-current",
+    type: "period",
+    dateKey: "2026-07-21",
+    periodEndDateKey: "2026-07-22",
+    reportedHighDesireDateKey: "2026-07-29",
+    createdAt: "2026-07-21T10:00:00.000Z",
+    updatedAt: "2026-07-21T10:00:00.000Z"
+  });
+  await coach.writeStore(() => baseStore(fixtureWeights, fixtureContext));
+  await coach.backfillCoachMessages();
+  await coach.backfillCoachMessages();
+  const migrated = await coach.readStore();
+  assert.equal(migrated.weights.length, 5);
+  assert.equal(migrated.coachMessages.length, 5, "backfill is idempotent and one-to-one");
+  const latest = coach.latestCoachPayload(migrated);
+  assert.deepEqual(Object.keys(latest).sort(), ["createdAt", "text", "weightId"]);
+  assert(!JSON.stringify(latest).includes("117"), "private configuration never enters the public payload");
+  const latestRecord = coach.coachForWeight(migrated, "weight-5");
+  for (const key of [
+    "analysisPlan", "analysisVersion", "actionId", "actionSemantic", "actionText", "contextHash", "createdAt",
+    "criticPromptVersion", "criticResult", "diagnostics", "evidenceReferences", "fallbackVersion", "fingerprintHash",
+    "generationVersion", "modelVersion", "nearestPriorMessageId", "nearestPriorSimilarity", "normalizedFingerprint",
+    "promptVersion", "safetyVersion", "status", "text", "updatedAt", "validatorVersion", "verdict", "weightId", "writerPromptVersion"
+  ]) assert(Object.prototype.hasOwnProperty.call(latestRecord, key), `private coach record includes ${key}`);
+  assert(latestRecord.evidenceReferences.some((reference) => reference.type === "tracker" && reference.id === "period-current"));
+  assert(!JSON.stringify(latestRecord).toLowerCase().includes("highdesire"));
+  assert(!JSON.stringify(latestRecord).includes("2026-07-29"));
+
+  const persistedContext = coach.buildCoachContext(migrated, "weight-5", { privateGoal: 117 });
+  const persistedPrevious = coach.causalPreviousCoachMessages(migrated, fixtureWeights.at(-1), 10);
+  const persistedWriterRows = buildWriterCandidates(persistedContext, persistedPrevious);
+  const persistedWriterPayload = JSON.stringify({ candidates: persistedWriterRows.map((candidate) => ({ text: candidate.text })) });
+  const beforeGenerated = coach.coachForWeight(migrated, "weight-5");
   await coach.generateAndReplaceCoach("weight-5", {
     apiKey: "test-key",
     privateGoal: 117,
-    fetchImpl: queuedFetch([wrongNumber, wrongNumber]),
-    timeoutMs: 50
+    fetchImpl: queuedFetch([persistedWriterPayload, criticPayload(true, 0)]),
+    timeoutMs: 3000
   });
-  const fallbackStatusStore = await coach.readStore();
-  assert.equal(coach.coachForWeight(fallbackStatusStore, "weight-5").status, "fallback-validation", "fallback rejection status is persisted without replacing its valid paragraph");
-
-  const generated = await coach.generateAndReplaceCoach("weight-5", {
-    apiKey: "test-key",
-    privateGoal: 117,
-    fetchImpl: queuedFetch([fallback, JSON.stringify({ approved: true, reason: "all checks pass" })]),
-    timeoutMs: 50
-  });
-  assert.equal(generated.weightId, "weight-5");
   const generatedStore = await coach.readStore();
-  assert.equal(coach.coachForWeight(generatedStore, "weight-5").status, "generated-and-critic-approved", "critic-approved draft atomically replaces the fallback");
-  assert.equal(generatedStore.coachMessages.filter((message) => message.weightId === "weight-5").length, 1, "replacement does not duplicate the coach record");
+  const generatedRecord = coach.coachForWeight(generatedStore, "weight-5");
+  assert.equal(generatedRecord.status, "generated-and-critic-approved");
+  assert.equal(generatedRecord.id, beforeGenerated.id);
+  assert.equal(generatedRecord.createdAt, beforeGenerated.createdAt);
+  assert.equal(generatedRecord.criticResult.approved, true);
+  assert.equal(generatedStore.coachMessages.filter((message) => message.weightId === "weight-5").length, 1);
+  assert(!JSON.stringify(generatedRecord).includes("999"), "rejected drafts are never persisted");
 
-  const withoutPreference = { ...generatedStore, memories: generatedStore.memories.filter((memory) => memory.id !== "preference-1") };
-  const contextRefreshed = coach.refreshIfLatestCoachReferences(withoutPreference, "memory", "preference-1");
-  const refreshedRecord = coach.coachForWeight(contextRefreshed, "weight-5");
+  const withoutPeriod = { ...generatedStore, trackerEvents: generatedStore.trackerEvents.filter((event) => event.id !== "period-current") };
+  const refreshed = coach.refreshIfLatestCoachReferences(withoutPeriod, "tracker", "period-current");
+  const refreshedRecord = coach.coachForWeight(refreshed, "weight-5");
   assert.equal(refreshedRecord.status, "fallback-weight-only-context-removed");
-  assert(!refreshedRecord.evidenceReferences.some((reference) => reference.type === "memory" || reference.type === "tracker"), "context deletion produces a weight-only latest message");
-
-  const recentConflictStore = coach.addFallbackCoachForWeight({
-    ...liveStore,
-    memories: [],
-    trackerEvents: [{
-      id: "conflict-recent",
-      type: "conflict",
-      dateKey: "2026-07-21",
-      createdAt: "2026-07-21T10:00:00.000Z",
-      updatedAt: "2026-07-21T10:00:00.000Z"
-    }],
-    coachMessages: []
-  }, liveWeights.at(-1).id, "fallback-contextual", { privateGoal: 117 });
-  const recentConflictRecord = coach.coachForWeight(recentConflictStore, liveWeights.at(-1).id);
-  assert(recentConflictRecord.evidenceReferences.some((reference) => reference.type === "tracker" && reference.id === "conflict-recent"), "a conflict that changes the action must be an evidence reference");
-  const conflictRemoved = coach.refreshIfLatestCoachReferences({ ...recentConflictStore, trackerEvents: [] }, "tracker", "conflict-recent");
-  assert.equal(coach.coachForWeight(conflictRemoved, liveWeights.at(-1).id).status, "fallback-weight-only-context-removed", "deleting referenced conflict context must replace the latest message");
+  assert(!refreshedRecord.evidenceReferences.some((reference) => reference.type === "memory" || reference.type === "tracker"));
 
   const removedLatest = coach.removeWeightAndCoach(generatedStore, "weight-5");
-  assert(!removedLatest.coachMessages.some((message) => message.weightId === "weight-5"), "deleting a weight deletes its attached coach message");
-  assert.equal(coach.latestCoachPayload(removedLatest).weightId, "weight-4", "the remaining latest weight receives a recalculated coach");
+  assert(!removedLatest.coachMessages.some((message) => message.weightId === "weight-5"));
+  assert.equal(coach.latestCoachPayload(removedLatest).weightId, "weight-4");
+
+  await coach.writeStore(() => productionStore);
+  await coach.backfillCoachMessages();
+  const beforeRegeneration = await coach.readStore();
+  const beforeWeights = JSON.stringify(beforeRegeneration.weights);
+  const beforeCount = beforeRegeneration.coachMessages.length;
+  const targetWeights = beforeRegeneration.weights.slice()
+    .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)))
+    .slice(0, 5)
+    .reverse();
+  const beforeByWeight = new Map(targetWeights.map((weight) => [weight.id, coach.coachForWeight(beforeRegeneration, weight.id)]));
+  const outcomes = await coach.regenerateRecentCoachMessages({ count: 5, apiKey: "", privateGoal: 117 });
+  const afterRegeneration = await coach.readStore();
+  assert.deepEqual(outcomes.map((outcome) => outcome.weightId), targetWeights.map((weight) => weight.id), "recent five regenerate causally oldest to newest");
+  assert(outcomes.every((outcome) => outcome.status === "fallback-no-model"));
+  assert.equal(afterRegeneration.coachMessages.length, beforeCount);
+  assert.equal(JSON.stringify(afterRegeneration.weights), beforeWeights);
+  for (const weight of targetWeights) {
+    const before = beforeByWeight.get(weight.id);
+    const after = coach.coachForWeight(afterRegeneration, weight.id);
+    assert.equal(after.id, before.id);
+    assert.equal(after.weightId, before.weightId);
+    assert.equal(after.createdAt, before.createdAt);
+    assert(after.updatedAt >= before.updatedAt);
+    assertParagraph(after.text, `regenerated ${weight.createdAt}`);
+    const context = coach.buildCoachContext(afterRegeneration, weight.id, { privateGoal: 117 });
+    const previous = coach.causalPreviousCoachMessages(afterRegeneration, weight, 10);
+    assert.deepEqual(coach.noveltyErrors(after.text, context, previous), []);
+  }
 
   await assert.rejects(coach.writeStore(() => { throw new Error("intentional write failure"); }));
   await coach.writeStore((store) => ({ ...store, queueRecovered: true }));
-  assert.equal((await coach.readStore()).queueRecovered, true, "a failed store mutation must not poison later writes");
+  assert.equal((await coach.readStore()).queueRecovered, true, "a failed mutation cannot poison later writes");
 
   fs.rmSync(tempDir, { recursive: true, force: true });
   console.log("coach-message-server verification passed");

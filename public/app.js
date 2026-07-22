@@ -9,12 +9,18 @@ const LEGACY_MIGRATED_KEY = "lily-legacy-migrated-v1";
 const PIN_LENGTH = 6;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MIN_WEIGHT_TREND_GAP_DAYS = 1;
+const COACH_ANALYZING_TEXT = "Analyzing today’s weigh-in…";
+const COACH_EMPTY_TEXT = "No coach message yet.";
+const COACH_UNAVAILABLE_TEXT = "Coach message unavailable.";
+const COACH_ANALYSIS_WINDOW_MS = 8000;
+const COACH_POLL_CHECKPOINTS_MS = Object.freeze([500, 1200, 2200, 3500, 5000, 6500, 7800]);
 
 const state = {
   authenticated: false,
   memories: [],
   weights: [],
   latestCoach: null,
+  coachAnalysis: null,
   tracker: null,
   pendingFiles: [],
   chat: [
@@ -105,7 +111,7 @@ function renderShell() {
                   <h2 id="weightTitle">weight</h2>
                   <p id="weightLatest">No weights saved.</p>
                   <p class="weight-estimate" id="weightEstimate">1-week, 1-month, 1-year estimates need saved weights.</p>
-                  <p class="weight-coach" id="weightCoach" aria-live="polite">DROP IN A WEIGH-IN AND LET’S LIGHT THIS TRACKER UP!!!</p>
+                  <p class="weight-coach" id="weightCoach" aria-live="polite">No coach message yet.</p>
                 </div>
               </div>
               <div class="weight-chart-stack" aria-label="Lily weight charts">
@@ -326,6 +332,7 @@ function setLocked(isLocked) {
   appSurface.setAttribute("aria-hidden", String(isLocked));
   state.authenticated = !isLocked;
   if (isLocked) {
+    cancelCoachAnalysis();
     window.setTimeout(() => document.getElementById("pinInput").focus(), 40);
   }
 }
@@ -401,6 +408,7 @@ async function loadWeights() {
     const result = await apiFetch("/api/weights");
     state.weights = Array.isArray(result.weights) ? result.weights : [];
     state.latestCoach = normalizeLatestCoach(result.latestCoach);
+    cancelCoachAnalysisIfLatestChanged();
     renderWeights();
   } catch (error) {
     showToast(error.message);
@@ -429,6 +437,7 @@ async function loadData(options = {}) {
     state.memories = Array.isArray(memoryResult.memories) ? memoryResult.memories : [];
     state.weights = Array.isArray(weightResult.weights) ? weightResult.weights : [];
     state.latestCoach = normalizeLatestCoach(weightResult.latestCoach);
+    cancelCoachAnalysisIfLatestChanged();
     state.tracker = trackerResult.tracker || null;
     renderWall();
     renderWeights();
@@ -532,11 +541,14 @@ async function saveWeight(event) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ weight, unit: "lb" })
     });
-    state.latestCoach = normalizeLatestCoach(result.latestCoach);
+    const fallbackCoach = normalizeLatestCoach(result.latestCoach);
+    state.weights = mergeSavedWeight(state.weights, result.weight);
+    state.latestCoach = fallbackCoach;
+    const analysis = beginCoachAnalysis(result.weight?.id, fallbackCoach);
     input.value = "";
-    await loadWeights();
+    renderWeights();
     showToast("Weight saved");
-    pollCoachReplacement(result.weight?.id, result.latestCoach?.text);
+    pollCoachReplacement(analysis);
   } catch (error) {
     showToast(error.message);
   } finally {
@@ -544,21 +556,85 @@ async function saveWeight(event) {
   }
 }
 
-async function pollCoachReplacement(weightId, initialText) {
-  if (!weightId) return;
-  for (const waitMs of [1200, 1800, 2500, 4000, 6000, 9000, 10000]) {
-    await new Promise((resolve) => setTimeout(resolve, waitMs));
+function mergeSavedWeight(rows, savedWeight) {
+  const current = Array.isArray(rows) ? rows : [];
+  if (!savedWeight || !savedWeight.id) return current;
+  return [savedWeight, ...current.filter((record) => String(record.id) !== String(savedWeight.id))];
+}
+
+function beginCoachAnalysis(weightId, fallbackCoach) {
+  cancelCoachAnalysis();
+  if (!weightId) return null;
+  const normalizedFallback = normalizeLatestCoach(fallbackCoach);
+  const startedAt = Date.now();
+  const analysis = {
+    weightId: String(weightId),
+    initialText: normalizedFallback?.text || "",
+    fallbackCoach: normalizedFallback,
+    latestPersistedCoach: normalizedFallback,
+    startedAt,
+    deadlineAt: startedAt + COACH_ANALYSIS_WINDOW_MS,
+    deadlineTimer: null
+  };
+  state.coachAnalysis = analysis;
+  analysis.deadlineTimer = window.setTimeout(() => {
+    settleCoachAnalysis(analysis, analysis.latestPersistedCoach || analysis.fallbackCoach);
+  }, COACH_ANALYSIS_WINDOW_MS);
+  return analysis;
+}
+
+function cancelCoachAnalysis(analysis = state.coachAnalysis) {
+  if (!analysis || state.coachAnalysis !== analysis) return;
+  if (analysis.deadlineTimer !== null) window.clearTimeout(analysis.deadlineTimer);
+  state.coachAnalysis = null;
+}
+
+function cancelCoachAnalysisIfLatestChanged() {
+  const analysis = state.coachAnalysis;
+  if (!analysis) return;
+  const latestWeight = weightRows()[0];
+  if (!latestWeight || String(latestWeight.id) !== analysis.weightId) cancelCoachAnalysis(analysis);
+}
+
+function settleCoachAnalysis(analysis, persistedCoach) {
+  if (!analysis || state.coachAnalysis !== analysis) return false;
+  cancelCoachAnalysis(analysis);
+  state.latestCoach = normalizeLatestCoach(persistedCoach);
+  renderWeights();
+  return true;
+}
+
+async function waitForCoachCheckpoint(analysis, elapsedMs) {
+  const delay = Math.max(0, analysis.startedAt + elapsedMs - Date.now());
+  if (delay > 0) await new Promise((resolve) => window.setTimeout(resolve, delay));
+}
+
+async function pollCoachReplacement(analysis) {
+  if (!analysis) return;
+  for (const elapsedMs of COACH_POLL_CHECKPOINTS_MS) {
+    await waitForCoachCheckpoint(analysis, elapsedMs);
+    if (state.coachAnalysis !== analysis) return;
     try {
       const result = await apiFetch("/api/weights");
       const latestCoach = normalizeLatestCoach(result.latestCoach);
       const latestWeight = Array.isArray(result.weights) ? result.weights[0] : null;
-      if (!latestWeight || String(latestWeight.id) !== String(weightId)) return;
+      if (!latestWeight || String(latestWeight.id) !== analysis.weightId) {
+        state.weights = Array.isArray(result.weights) ? result.weights : state.weights;
+        settleCoachAnalysis(analysis, latestCoach);
+        return;
+      }
       state.weights = result.weights;
-      state.latestCoach = latestCoach;
+      if (latestCoach) {
+        analysis.latestPersistedCoach = latestCoach;
+        state.latestCoach = latestCoach;
+      }
+      if (latestCoach && latestCoach.text !== analysis.initialText) {
+        settleCoachAnalysis(analysis, latestCoach);
+        return;
+      }
       renderWeights();
-      if (latestCoach && latestCoach.text !== String(initialText || "")) return;
     } catch (error) {
-      // The saved fallback remains valid; a later poll or page load can retrieve the replacement.
+      // The deadline reveals the already-persisted fallback if a poll is unavailable.
     }
   }
 }
@@ -673,7 +749,7 @@ function renderWeights() {
   const newest = rows[0];
   latest.textContent = newest ? `${formatWeight(newest)} saved ${formatDateTime(newest.createdAt)}` : "No weights saved.";
   if (estimate) estimate.textContent = createWeightEstimate(currentForecast);
-  if (coach) coach.textContent = createWeightCoachMessage(newest, dailyPoints, currentForecast);
+  if (coach) coach.textContent = createWeightCoachMessage(newest);
   if (actualChartValue) actualChartValue.textContent = newest ? `${formatWeight(newest)} now` : "--";
   if (forecastChartValue) {
     forecastChartValue.textContent = outlookPresentation ? outlookPresentation.verdict : "SAVE A WEIGH-IN TO START";
@@ -796,28 +872,18 @@ function normalizeLatestCoach(value) {
   };
 }
 
-function createWeightCoachMessage(newest, points, forecast) {
-  const saved = normalizeLatestCoach(state.latestCoach);
-  if (newest && saved && String(saved.weightId) === String(newest.id)) return saved.text;
-  if (!newest || !points.length || !forecast) {
-    return "DROP IN THE FIRST WEIGH-IN AND LET’S LIGHT THIS TRACKER UP—ONE HONEST NUMBER STARTS THE LINE, AND THE NEXT REPEATABLE CHOICE STARTS THE MOMENTUM!!!";
+function weightCoachText(newest, latestCoach, coachAnalysis, now = Date.now()) {
+  const newestId = newest?.id ? String(newest.id) : "";
+  const saved = normalizeLatestCoach(latestCoach);
+  if (newestId && coachAnalysis && coachAnalysis.weightId === newestId && now < coachAnalysis.deadlineAt) {
+    return COACH_ANALYZING_TEXT;
   }
+  if (newestId && saved && saved.weightId === newestId) return saved.text;
+  return newest ? COACH_UNAVAILABLE_TEXT : COACH_EMPTY_TEXT;
+}
 
-  const current = points[points.length - 1];
-  const prior = points.length > 1 ? points[points.length - 2] : null;
-  const change = prior ? current.weight - prior.weight : null;
-  const currentWeight = `${trimWeight(current.weight)} lb`;
-  const outlook = formatOneYearHeadline(forecast);
-  if (!Number.isFinite(change)) {
-    return `FIRST NUMBER IN—${currentWeight} is the starting point, and the 1-year trend outlook is ${outlook}. Make the next meal a balanced plate you can repeat; that single move gives the next weigh-in a real chance to improve the line. LET’S GET MOVING!!!`;
-  }
-  if (change > 0.05) {
-    return `TODAY NEEDS A RESPONSE—${currentWeight} is up ${trimWeight(Math.abs(change))} lb, and the 1-year trend outlook is ${outlook}. Make the next meal a balanced plate you can repeat; that single move can make the next weigh-in answer back. TURN THIS AROUND—LET’S GO!!!`;
-  }
-  if (change < -0.05) {
-    return `THAT’S REAL MOVEMENT—${currentWeight} is down ${trimWeight(Math.abs(change))} lb, and the 1-year trend outlook is ${outlook}. Make the next meal a balanced plate you can repeat; that single move protects today’s momentum and gives the line another chance to improve. KEEP PRESSING—LET’S GO!!!`;
-  }
-  return `NOT GOOD ENOUGH YET—${currentWeight} is unchanged, and the 1-year trend outlook is ${outlook}. Make the next meal a balanced plate you can repeat; that single move can make the next weigh-in turn this line the right way. COME ON—LET’S GO!!!`;
+function createWeightCoachMessage(newest) {
+  return weightCoachText(newest, state.latestCoach, state.coachAnalysis);
 }
 
 function dailyWeightPoints(rows) {
