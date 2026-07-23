@@ -206,6 +206,179 @@ async function run() {
   assert.match(finalFallback.text, /up 2\.5 lb/);
   assert.match(finalFallback.text, /accelerat/i);
   assert.match(finalFallback.text, /about 146 lb/);
+
+  const electrolyteReaction = {
+    id: "reaction-electrolytes",
+    kind: "note",
+    text: "she says shes trying to drink more electrolytes",
+    createdAt: "2026-07-23T00:32:11.765Z",
+    updatedAt: "2026-07-23T00:32:11.765Z"
+  };
+  const reactionBase = addAllFallbacks(baseStore(productionWeights, { memories: [], trackerEvents: [] })).store;
+  const reactionWeight = productionWeights.at(-1);
+  const beforeReactionCoach = coach.coachForWeight(reactionBase, reactionWeight.id);
+  const priorReactionCoachesBefore = reactionBase.coachMessages.filter((message) => message.weightId !== reactionWeight.id);
+  const withReaction = { ...reactionBase, memories: [electrolyteReaction] };
+  const measurementOnlyContext = coach.buildCoachContext(withReaction, reactionWeight.id, { privateGoal: 117 });
+  assert.equal(measurementOnlyContext.preference, null, "a note saved after the weigh-in cannot silently rewrite its causal context");
+  const refreshedReaction = coach.refreshLatestCoachForSavedMemories(
+    withReaction,
+    [electrolyteReaction.id],
+    Date.parse(electrolyteReaction.createdAt),
+    "fallback-test-saved-reaction",
+    Date.parse(electrolyteReaction.createdAt)
+  );
+  assert.equal(refreshedReaction.updated, true, "the exact saved electrolyte effort refreshes the latest screenshot coach once");
+  const reactionCoach = coach.coachForWeight(refreshedReaction.store, reactionWeight.id);
+  assert.equal(reactionCoach.id, beforeReactionCoach.id, "saved-reaction refresh preserves the coach id");
+  assert.equal(reactionCoach.createdAt, beforeReactionCoach.createdAt, "saved-reaction refresh preserves coach creation time");
+  assert.deepEqual(
+    refreshedReaction.store.coachMessages.filter((message) => message.weightId !== reactionWeight.id),
+    priorReactionCoachesBefore,
+    "saved-reaction refresh leaves every earlier coach record byte-equivalent"
+  );
+  assert.equal(reactionCoach.actionSemantic, "acknowledged-hydration-effort");
+  assert.match(reactionCoach.text, /hydration/i);
+  assert.doesNotMatch(reactionCoach.text, /electrolyte/i, "raw saved wording never enters coaching copy");
+  assert(reactionCoach.evidenceReferences.some((reference) => reference.type === "memory" && reference.id === electrolyteReaction.id && reference.role === "reported-hydration-effort"));
+  const reactionContext = coach.buildCoachContext(refreshedReaction.store, reactionWeight.id, {
+    privateGoal: 117,
+    personalContextCutoff: Date.parse(electrolyteReaction.createdAt)
+  });
+  assert.equal(reactionContext.preference.kind, "reported-hydration-effort");
+  assert.equal(reactionContext.analysisPlan.savedContext.transient, true);
+  assert.equal(reactionContext.verdict, measurementOnlyContext.verdict);
+  assert.equal(reactionContext.outlook, measurementOnlyContext.outlook);
+  assert.deepEqual(reactionContext.forecastFingerprint, measurementOnlyContext.forecastFingerprint, "saved reactions cannot alter forecasts or chart geometry");
+  assert(!JSON.stringify(coach.publicCoachFacts(reactionContext)).includes(electrolyteReaction.text), "raw reaction text never enters writer facts");
+  const beforeReactionSnapshot = coach.coachRefreshPreservationSnapshot(withReaction, reactionWeight.id);
+  const afterReactionSnapshot = coach.coachRefreshPreservationSnapshot(refreshedReaction.store, reactionWeight.id);
+  assert.equal(coach.assertCoachRefreshPreserved(beforeReactionSnapshot, afterReactionSnapshot), true, "the maintenance refresh may change only the selected coach body");
+  assert.equal(coach.assertExpectedCoachRefreshState(beforeReactionSnapshot, {
+    weights: beforeReactionSnapshot.counts.weights,
+    coachMessages: beforeReactionSnapshot.counts.coachMessages,
+    memories: beforeReactionSnapshot.counts.memories,
+    trackerEvents: beforeReactionSnapshot.counts.trackerEvents
+  }, {
+    id: beforeReactionSnapshot.targetCoachId,
+    createdAt: beforeReactionSnapshot.targetCoachCreatedAt
+  }), true, "the maintenance refresh fails closed against an exact live identity and count baseline");
+  assert.throws(() => coach.assertCoachRefreshPreserved(
+    beforeReactionSnapshot,
+    coach.coachRefreshPreservationSnapshot({ ...refreshedReaction.store, weights: refreshedReaction.store.weights.slice(1) }, reactionWeight.id)
+  ), /preservation check failed/i, "a concurrent weight change is detected rather than silently accepted");
+  assert.throws(() => coach.assertExpectedCoachRefreshState(beforeReactionSnapshot, {
+    weights: beforeReactionSnapshot.counts.weights + 1,
+    coachMessages: beforeReactionSnapshot.counts.coachMessages,
+    memories: beforeReactionSnapshot.counts.memories,
+    trackerEvents: beforeReactionSnapshot.counts.trackerEvents
+  }, {
+    id: beforeReactionSnapshot.targetCoachId,
+    createdAt: beforeReactionSnapshot.targetCoachCreatedAt
+  }), /state changed/i, "a stale expected count blocks the maintenance refresh before mutation");
+
+  const nextReactionWeight = recordWeight("reaction-next-weight", "2026-07-23", 150.8);
+  const afterReactionStore = { ...refreshedReaction.store, weights: [...refreshedReaction.store.weights, nextReactionWeight] };
+  const nextReactionContext = coach.buildCoachContext(afterReactionStore, nextReactionWeight.id, {
+    privateGoal: 117,
+    personalContextCutoff: Date.parse(nextReactionWeight.createdAt)
+  });
+  assert(!nextReactionContext.evidenceReferences.some((reference) => reference.type === "memory" && reference.id === electrolyteReaction.id), "a transient screenshot reaction is not reused on later weigh-ins");
+
+  const unrelatedReaction = {
+    ...electrolyteReaction,
+    id: "reaction-unrelated",
+    text: "she says she watched a movie",
+    createdAt: "2026-07-23T00:33:11.765Z",
+    updatedAt: "2026-07-23T00:33:11.765Z"
+  };
+  assert.equal(coach.refreshLatestCoachForSavedMemories(
+    { ...reactionBase, memories: [unrelatedReaction] },
+    [unrelatedReaction.id],
+    Date.parse(unrelatedReaction.createdAt)
+  ).updated, false, "unrelated comments stay saved without being forced into weight coaching");
+  const unsafeReaction = {
+    ...electrolyteReaction,
+    id: "reaction-unsafe",
+    text: "she says shes trying to skip meals and drink electrolytes",
+    createdAt: "2026-07-23T00:34:11.765Z",
+    updatedAt: "2026-07-23T00:34:11.765Z"
+  };
+  assert.equal(coach.refreshLatestCoachForSavedMemories(
+    { ...reactionBase, memories: [unsafeReaction] },
+    [unsafeReaction.id],
+    Date.parse(unsafeReaction.createdAt)
+  ).updated, false, "unsafe saved comments are never turned into coaching actions");
+  for (const deniedEffort of [
+    "she says she is not trying to drink more water",
+    "she said she stopped trying to drink electrolytes",
+    "Lily mentioned she cannot keep up the hydration routine"
+  ]) {
+    assert.equal(coach.reportedCoachEffort(deniedEffort), null, `negated or stopped effort stays excluded: ${deniedEffort}`);
+  }
+  const staleReaction = {
+    ...electrolyteReaction,
+    id: "reaction-stale",
+    createdAt: "2026-07-01T00:32:11.765Z",
+    updatedAt: "2026-07-01T00:32:11.765Z"
+  };
+  assert.equal(coach.refreshLatestCoachForSavedMemories(
+    { ...reactionBase, memories: [staleReaction] },
+    [staleReaction.id],
+    Date.parse("2026-07-23T00:32:11.765Z")
+  ).updated, false, "stale reactions are not treated as current screenshot feedback");
+  const oldWeightStore = addAllFallbacks(baseStore([
+    recordWeight("old-reaction-1", "2026-06-30", 150),
+    recordWeight("old-reaction-2", "2026-07-01", 150.2)
+  ], { memories: [electrolyteReaction], trackerEvents: [] })).store;
+  assert.equal(coach.refreshLatestCoachForSavedMemories(
+    oldWeightStore,
+    [electrolyteReaction.id],
+    Date.parse(electrolyteReaction.createdAt)
+  ).updated, false, "a fresh note cannot rewrite a weeks-old weigh-in as today's coach read");
+  const ancientCloseReaction = {
+    ...electrolyteReaction,
+    id: "reaction-ancient-close",
+    createdAt: "2026-07-02T00:32:11.765Z",
+    updatedAt: "2026-07-02T00:32:11.765Z"
+  };
+  const ancientCloseStore = addAllFallbacks(baseStore([
+    recordWeight("ancient-close-1", "2026-07-01", 150),
+    recordWeight("ancient-close-2", "2026-07-02", 150.2)
+  ], { memories: [ancientCloseReaction], trackerEvents: [] })).store;
+  assert.equal(coach.refreshLatestCoachForSavedMemories(
+    ancientCloseStore,
+    [ancientCloseReaction.id],
+    Date.parse(ancientCloseReaction.createdAt),
+    "fallback-test-ancient-close",
+    Date.parse("2026-07-23T00:32:11.765Z")
+  ).updated, false, "an old note saved close to an old weight cannot be presented as current screenshot feedback later");
+  const vegetableReaction = {
+    ...electrolyteReaction,
+    id: "reaction-vegetables",
+    text: "she says she likes vegetables and is trying to eat more vegetables"
+  };
+  const firstVegetableSelection = coach.selectSavedPreference(
+    [vegetableReaction],
+    Date.parse(vegetableReaction.createdAt),
+    []
+  );
+  assert.equal(firstVegetableSelection?.kind, "reported-vegetable-effort");
+  const usedVegetableSelection = coach.selectSavedPreference(
+    [vegetableReaction],
+    Date.parse(vegetableReaction.createdAt) + 24 * 60 * 60 * 1000,
+    [{ evidenceReferences: [{ type: "memory", id: vegetableReaction.id, role: "reported-vegetable-effort" }] }]
+  );
+  assert.equal(usedVegetableSelection, null, "a used effort note cannot fall through into a reusable stable preference");
+  const removedReactionStore = coach.refreshIfLatestCoachReferences(
+    { ...refreshedReaction.store, memories: [] },
+    "memory",
+    electrolyteReaction.id
+  );
+  const removedReactionCoach = coach.coachForWeight(removedReactionStore, reactionWeight.id);
+  assert.equal(removedReactionCoach.id, reactionCoach.id);
+  assert(!removedReactionCoach.evidenceReferences.some((reference) => reference.type === "memory"), "deleting a used reaction returns the latest coach to weight-only context");
+
   const liveLatestFiveActions = productionWeights.slice(-5).map((weight) => {
     const message = coach.coachForWeight(fullFallbackRun.store, weight.id);
     return `${message.actionSemantic}|${message.actionText}`;

@@ -54,19 +54,21 @@ function coachModelVersion(options = {}) {
   return `writer:${options.model || coachWriterModel};critic:${options.criticModel || coachCriticModel}`;
 }
 
-const COACH_GENERATION_VERSION = "coach-pipeline-v6";
-const COACH_ANALYSIS_VERSION = "coach-analysis-v2";
+const COACH_GENERATION_VERSION = "coach-pipeline-v7";
+const COACH_ANALYSIS_VERSION = "coach-analysis-v3";
 const COACH_WRITER_PROMPT_VERSION = "coach-writer-v5";
 const COACH_CRITIC_PROMPT_VERSION = "coach-critic-v4";
 const COACH_VALIDATOR_VERSION = "coach-validator-v2";
-const COACH_FALLBACK_VERSION = "coach-fallback-v4";
-const COACH_ACTION_VERSION = "coach-action-v4";
+const COACH_FALLBACK_VERSION = "coach-fallback-v5";
+const COACH_ACTION_VERSION = "coach-action-v5";
 const COACH_PROMPT_VERSION = COACH_WRITER_PROMPT_VERSION;
 const COACH_SAFETY_VERSION = "coach-safety-v2";
 const COACH_MIN_WORDS = 35;
 const COACH_MAX_WORDS = 55;
 const COACH_COOLDOWN_COUNT = 3;
 const COACH_CANDIDATE_COUNT = 3;
+const COACH_REACTION_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
+const COACH_REACTION_REFRESH_MAX_AGE_MS = 48 * 60 * 60 * 1000;
 const KG_TO_LB = 2.2046226218;
 
 async function ensureDataDir() {
@@ -442,8 +444,55 @@ function foodPreferenceSignal(text, topicPattern) {
   return signal;
 }
 
-function selectSavedPreference(memories, cutoff) {
-  const blocked = /\b(?:sex|horn|ovulat|conflict|address|phone|diagnos|depress|body image|appearance|relationship)\b/i;
+function reportedCoachEffort(text) {
+  const source = String(text || "").trim();
+  const attributed = /\b(?:she|lily)\s+(?:says?|said|mentioned|replied|responded|told\s+me)\b/i.test(source);
+  const effort = /\b(?:try(?:ing|ies|ied)?|work(?:ing)?\s+on|start(?:ed|ing)?|plan(?:s|ned|ning)?\s+to|keep(?:s|ing)?\s+up|has\s+been|is\s+(?:drinking|eating|walking)\s+more)\b/i.test(source);
+  const negatedEffort = /\b(?:not|never|stopp?ed|stops?|quit|gave\s+up|cannot|can(?:'|\u2019)?t|cant|couldn(?:'|\u2019)?t|w(?:ill\s+not|on(?:'|\u2019)?t)|does\s+not|doesn(?:'|\u2019)?t|is\s+not|isn(?:'|\u2019)?t)\b.{0,40}\b(?:try\w*|work\w*|start\w*|plan\w*|keep\w*|drink\w*|eat\w*|walk\w*)\b|\b(?:try\w*|work\w*|start\w*|plan\w*|keep\w*)\b.{0,24}\b(?:not|never|stopp?ed|quit|cannot|can(?:'|\u2019)?t|cant|w(?:ill\s+not|on(?:'|\u2019)?t))\b/i.test(source);
+  const unsafe = /\b(?:alcohol|beer|wine|liquor|doctor|medical|prescri\w*|medicat\w*|dose|dosage|kidney|heart|blood pressure|sodium|fast\w*|starv\w*|purg\w*|vomit\w*|skip\w*\s+meals?|restrict\w*)\b/i.test(source);
+  if (!attributed || !effort || negatedEffort || unsafe) return null;
+
+  if (/\b(?:water|electrolyte\w*|hydrat\w*)\b/i.test(source)) {
+    return {
+      kind: "reported-hydration-effort",
+      actionId: "reaction-hydration-effort",
+      actionSemantic: "acknowledged-hydration-effort"
+    };
+  }
+  if (/\b(?:vegetable|veggie)\w*\b/i.test(source)) {
+    return {
+      kind: "reported-vegetable-effort",
+      actionId: "reaction-vegetable-effort",
+      actionSemantic: "acknowledged-vegetable-effort"
+    };
+  }
+  if (/\bprotein\w*\b/i.test(source)) {
+    return {
+      kind: "reported-protein-effort",
+      actionId: "reaction-protein-effort",
+      actionSemantic: "acknowledged-protein-effort"
+    };
+  }
+  if (/\b(?:walk\w*|steps?|movement)\b/i.test(source)) {
+    return {
+      kind: "reported-movement-effort",
+      actionId: "reaction-movement-effort",
+      actionSemantic: "acknowledged-movement-effort"
+    };
+  }
+  return null;
+}
+
+function referencedCoachMemoryIds(messages) {
+  return new Set((Array.isArray(messages) ? messages : [])
+    .flatMap((message) => Array.isArray(message?.evidenceReferences) ? message.evidenceReferences : [])
+    .filter((reference) => reference?.type === "memory" && reference.id)
+    .map((reference) => reference.id));
+}
+
+function selectSavedPreference(memories, cutoff, previousMessages = []) {
+  const blocked = /\b(?:sex|horn|ovulat|conflict|address|phone|diagnos|depress|body image|appearance|relationship|fast\w*|starv\w*|purg\w*|vomit\w*|skip\w*\s+meals?|restrict\w*)\b/i;
+  const usedMemoryIds = referencedCoachMemoryIds(previousMessages);
   const rows = (Array.isArray(memories) ? memories : [])
     .filter((memory) => memory && memory.kind === "note")
     .filter((memory) => !memory.sourceId && !memory.derivedFact && !memory.factIndex)
@@ -453,6 +502,19 @@ function selectSavedPreference(memories, cutoff) {
     .sort((left, right) => String(right.memory.updatedAt || right.memory.createdAt || "").localeCompare(String(left.memory.updatedAt || left.memory.createdAt || "")));
 
   for (const item of rows) {
+    const reportedEffort = reportedCoachEffort(item.text);
+    const createdAt = Date.parse(item.memory.createdAt);
+    const ageMs = Number.isFinite(cutoff) && Number.isFinite(createdAt) ? cutoff - createdAt : NaN;
+    if (reportedEffort && Number.isFinite(ageMs) && ageMs >= 0 && ageMs <= COACH_REACTION_MAX_AGE_MS && !usedMemoryIds.has(item.memory.id)) {
+      return {
+        id: item.memory.id,
+        kind: reportedEffort.kind,
+        transient: true,
+        actionId: reportedEffort.actionId,
+        actionSemantic: reportedEffort.actionSemantic
+      };
+    }
+    if (reportedEffort) continue;
     const korean = foodPreferenceSignal(item.text, /\b(?:korean|spicy)\b/i) > 0;
     const vegetables = foodPreferenceSignal(item.text, /\b(?:vegetable|veggie)\w*\b/i) > 0;
     const fruit = foodPreferenceSignal(item.text, /\b(?:peach|fruit|berries|apple)\w*\b/i) > 0;
@@ -533,7 +595,15 @@ const PREFERENCE_ACTIONS = Object.freeze([
   { id: "preference-korean", preferenceKey: "preference-korean", semantic: "preferred-balanced-meal", text: "Build the next balanced meal with the Korean flavors you like." },
   { id: "preference-korean-alt", preferenceKey: "preference-korean", semantic: "preferred-balanced-meal", text: "Use the Korean flavors you like in the next balanced meal." },
   { id: "preference-fruit", preferenceKey: "preference-fruit", semantic: "preferred-planned-snack", text: "Choose a fruit you enjoy for the next planned snack." },
-  { id: "preference-fruit-alt", preferenceKey: "preference-fruit", semantic: "preferred-planned-snack", text: "Make the next planned snack a fruit you enjoy." }
+  { id: "preference-fruit-alt", preferenceKey: "preference-fruit", semantic: "preferred-planned-snack", text: "Make the next planned snack a fruit you enjoy." },
+  { id: "reaction-hydration-effort", preferenceKey: "reaction-hydration-effort", semantic: "acknowledged-hydration-effort", text: "Keep the hydration effort you mentioned steady today." },
+  { id: "reaction-hydration-effort-alt", preferenceKey: "reaction-hydration-effort", semantic: "acknowledged-hydration-effort", text: "Follow through on the hydration routine you said you are working on." },
+  { id: "reaction-vegetable-effort", preferenceKey: "reaction-vegetable-effort", semantic: "acknowledged-vegetable-effort", text: "Keep the vegetable effort you mentioned in the next satisfying meal." },
+  { id: "reaction-vegetable-effort-alt", preferenceKey: "reaction-vegetable-effort", semantic: "acknowledged-vegetable-effort", text: "Follow through on the vegetable habit you said you are building." },
+  { id: "reaction-protein-effort", preferenceKey: "reaction-protein-effort", semantic: "acknowledged-protein-effort", text: "Keep the protein effort you mentioned in the next satisfying meal." },
+  { id: "reaction-protein-effort-alt", preferenceKey: "reaction-protein-effort", semantic: "acknowledged-protein-effort", text: "Follow through on the protein habit you said you are building." },
+  { id: "reaction-movement-effort", preferenceKey: "reaction-movement-effort", semantic: "acknowledged-movement-effort", text: "Keep the comfortable movement effort you mentioned going today." },
+  { id: "reaction-movement-effort-alt", preferenceKey: "reaction-movement-effort", semantic: "acknowledged-movement-effort", text: "Follow through on the comfortable movement routine you said you are building." }
 ]);
 
 function stableIndex(value, length) {
@@ -792,7 +862,11 @@ function buildAnalysisPlan(context) {
     action: {
       semantic: context.actionSemantic,
       approvedRealizations: context.actionRealizations.map((realization) => ({ id: realization.id, text: realization.text }))
-    }
+    },
+    savedContext: context.preference ? {
+      kind: context.preference.kind,
+      transient: context.preference.transient === true
+    } : null
   };
 }
 
@@ -802,8 +876,7 @@ function buildCoachContext(store, weightId, options = {}) {
   const latestPoint = points[points.length - 1];
   const previousPoint = points.length > 1 ? points[points.length - 2] : null;
   const currentTime = Date.parse(current.createdAt);
-  const forecast = weightForecast.calculateForecast(points, { asOfDay: latestPoint.day });
-  const history = weightForecast.buildOneYearHistory(points, forecast, currentTime);
+  const history = weightForecast.buildOneYearHistory(points);
   const outlookPoint = history[history.length - 1] || null;
   const previousOutlookPoint = history.length > 1 ? history[history.length - 2] : null;
   const outlook = Number(outlookPoint && outlookPoint.weight);
@@ -812,9 +885,14 @@ function buildCoachContext(store, weightId, options = {}) {
   const latestDailyChange = previousPoint ? latestPoint.weight - previousPoint.weight : 0;
   const dateKey = trackerDateKey(currentTime);
   const includePersonalContext = options.includePersonalContext !== false;
+  const requestedPersonalContextCutoff = Number(options.personalContextCutoff);
+  const personalContextCutoff = Number.isFinite(requestedPersonalContextCutoff) ? requestedPersonalContextCutoff : currentTime;
   const trackerModifier = includePersonalContext ? selectTrackerModifier(store.trackerEvents, dateKey) : null;
   const recentConflict = includePersonalContext ? selectRecentConflict(store.trackerEvents, dateKey) : null;
-  const preference = includePersonalContext ? selectSavedPreference(store.memories, currentTime) : null;
+  const causalCoachHistory = includePersonalContext
+    ? causalPreviousCoachMessages(store, current, Math.max(10, (store.weights || []).length))
+    : [];
+  const preference = includePersonalContext ? selectSavedPreference(store.memories, personalContextCutoff, causalCoachHistory) : null;
   const outlier = isWeightOutlier(points);
   const streak = recentWeightStreak(points);
   const movements = movementMap(points);
@@ -919,7 +997,7 @@ function buildCoachContext(store, weightId, options = {}) {
     outlookEvidenceRelation: outlookReinforces ? "reinforces" : outlookContradicts ? "contradicts" : outlookDirectionFlip ? "direction-flip" : "material-movement",
     verdict,
     trackerModifier,
-    preference: selectedPreference ? { id: selectedPreference.id, kind: selectedPreference.kind } : null,
+    preference: selectedPreference ? { id: selectedPreference.id, kind: selectedPreference.kind, transient: selectedPreference.transient === true } : null,
     action: actionSelection.text,
     actionId: actionSelection.id,
     actionSemantic: actionSelection.semantic,
@@ -1291,13 +1369,15 @@ function trigramSet(text, context) {
   return rows;
 }
 
-function trigramSimilarity(left, right, context) {
-  const a = trigramSet(left, context);
-  const b = trigramSet(right, context);
+function trigramSetSimilarity(a, b) {
   if (!a.size || !b.size) return 0;
   let overlap = 0;
   for (const token of a) if (b.has(token)) overlap += 1;
   return (2 * overlap) / (a.size + b.size);
+}
+
+function trigramSimilarity(left, right, context) {
+  return trigramSetSimilarity(trigramSet(left, context), trigramSet(right, context));
 }
 
 function noveltyErrors(text, context, previousMessages = [], selectedAction = identifyApprovedAction(text, context)) {
@@ -1388,38 +1468,44 @@ function buildContextualFallbackCandidates(context, previousMessages = [], limit
   const selectedOpenings = new Set();
   const selectedClosings = new Set();
   const selectedStructures = new Set();
+  const comparisonMessages = previousMessages.slice(0, 10);
+  const comparisonTrigrams = comparisonMessages.map((message) => trigramSet(message.text || message, context));
   for (let batchStart = 0; batchStart < scheduled.length; batchStart += validationBatchSize) {
-    const validCandidates = [];
-    for (const candidate of scheduled.slice(batchStart, batchStart + validationBatchSize)) {
+    const rankedCandidates = scheduled.slice(batchStart, batchStart + validationBatchSize).map((candidate) => {
+      const candidateTrigrams = trigramSet(candidate.text, context);
+      const priorSimilarities = comparisonTrigrams.map((previousTrigrams) => trigramSetSimilarity(candidateTrigrams, previousTrigrams));
+      return {
+        ...candidate,
+        maxPriorSimilarity: priorSimilarities.length ? Math.max(...priorSimilarities) : 0
+      };
+    });
+    rankedCandidates.sort((left, right) => left.maxPriorSimilarity - right.maxPriorSimilarity || left.structureId.localeCompare(right.structureId) || left.text.localeCompare(right.text));
+    for (const candidate of rankedCandidates) {
       const validation = validateCoachParagraph(candidate.text, context, previousMessages, { privateGoal: NaN });
       if (!validation.ok) {
         for (const error of validation.errors) rejectionCounts[error] = (rejectionCounts[error] || 0) + 1;
         continue;
       }
-      const priorSimilarities = previousMessages.slice(0, 10).map((message) => trigramSimilarity(validation.text, message.text || message, context));
-      validCandidates.push({
+      const validCandidate = {
         text: validation.text,
         structureId: candidate.structureId,
         action: validation.action,
         errors: [],
         wordCount: validation.wordCount,
-        maxPriorSimilarity: priorSimilarities.length ? Math.max(...priorSimilarities) : 0
-      });
-    }
-    validCandidates.sort((left, right) => left.maxPriorSimilarity - right.maxPriorSimilarity || left.structureId.localeCompare(right.structureId) || left.text.localeCompare(right.text));
-    for (const candidate of validCandidates) {
-      const opening = openingFingerprint(candidate.text);
-      const closing = closingFingerprint(candidate.text);
-      const structure = structuralFingerprint(candidate.text, context);
+        maxPriorSimilarity: candidate.maxPriorSimilarity
+      };
+      const opening = openingFingerprint(validCandidate.text);
+      const closing = closingFingerprint(validCandidate.text);
+      const structure = structuralFingerprint(validCandidate.text, context);
       if (selectedOpenings.has(opening) || selectedClosings.has(closing) || selectedStructures.has(structure)) continue;
-      const siblingErrors = noveltyErrors(candidate.text, context, selectedCandidates.map((entry) => ({
+      const siblingErrors = noveltyErrors(validCandidate.text, context, selectedCandidates.map((entry) => ({
         text: entry.text,
         actionId: entry.action?.id,
         actionSemantic: entry.action?.semantic,
         actionText: entry.action?.text
-      })), candidate.action).filter((error) => error !== "action-cooldown" && error !== "action-semantic-cooldown");
+      })), validCandidate.action).filter((error) => error !== "action-cooldown" && error !== "action-semantic-cooldown");
       if (siblingErrors.length) continue;
-      selectedCandidates.push(candidate);
+      selectedCandidates.push(validCandidate);
       selectedOpenings.add(opening);
       selectedClosings.add(closing);
       selectedStructures.add(structure);
@@ -2140,6 +2226,129 @@ function refreshIfLatestCoachReferences(store, referenceType, referenceId, statu
   return wasReferenced ? refreshLatestWeightOnlyCoach(store, status) : store;
 }
 
+function refreshLatestCoachForSavedMemories(store, memoryIds, personalContextCutoff, status = "fallback-saved-context", operationalNow = Date.now()) {
+  const candidateIds = new Set((Array.isArray(memoryIds) ? memoryIds : []).filter(Boolean));
+  if (!candidateIds.size) return { store, updated: false, weightId: null, latestCoach: null };
+  const latestWeight = (Array.isArray(store.weights) ? store.weights : [])
+    .slice()
+    .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)))[0];
+  if (!latestWeight) return { store, updated: false, weightId: null, latestCoach: null };
+  const latestWeightTime = Date.parse(latestWeight.createdAt);
+  const contextTime = Number(personalContextCutoff);
+  const currentTime = Number(operationalNow);
+  if (!Number.isFinite(latestWeightTime) || !Number.isFinite(contextTime) || contextTime < latestWeightTime || contextTime - latestWeightTime > COACH_REACTION_REFRESH_MAX_AGE_MS) {
+    return { store, updated: false, weightId: latestWeight.id, latestCoach: publicCoach(coachForWeight(store, latestWeight.id)) };
+  }
+  const eligibleCandidateIds = new Set((store.memories || [])
+    .filter((memory) => candidateIds.has(memory.id))
+    .filter((memory) => {
+      const createdAt = Date.parse(memory.createdAt);
+      const ageMs = currentTime - createdAt;
+      return Number.isFinite(createdAt) && Number.isFinite(currentTime) && ageMs >= 0 && ageMs <= COACH_REACTION_MAX_AGE_MS && createdAt >= latestWeightTime && createdAt <= contextTime;
+    })
+    .map((memory) => memory.id));
+  if (!eligibleCandidateIds.size) return { store, updated: false, weightId: latestWeight.id, latestCoach: publicCoach(coachForWeight(store, latestWeight.id)) };
+  const context = buildCoachContext(store, latestWeight.id, {
+    privateGoal: privateCoachGoal,
+    personalContextCutoff
+  });
+  const selectedNewMemory = context?.evidenceReferences?.find((reference) => reference.type === "memory" && eligibleCandidateIds.has(reference.id));
+  if (!context || !selectedNewMemory) return { store, updated: false, weightId: latestWeight.id, latestCoach: publicCoach(coachForWeight(store, latestWeight.id)) };
+  const existing = coachForWeight(store, latestWeight.id);
+  const previousMessages = causalPreviousCoachMessages(store, latestWeight, 10);
+  const fallback = buildContextualFallbackResult(context, previousMessages);
+  const replacement = createCoachMessageRecord(context, fallback.text, status, new Date().toISOString(), existing, {
+    action: fallback.action,
+    structureId: fallback.structureId,
+    previousMessages,
+    diagnostics: generationDiagnostics("saved-context", 0, [], Date.now())
+  });
+  const nextStore = {
+    ...store,
+    coachMessages: [replacement, ...(store.coachMessages || []).filter((message) => message.id !== existing?.id && message.weightId !== latestWeight.id)]
+  };
+  return { store: nextStore, updated: true, weightId: latestWeight.id, latestCoach: publicCoach(replacement) };
+}
+
+function jsonHash(value) {
+  return crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+function coachRefreshPreservationSnapshot(store, targetWeightId = "") {
+  const weights = Array.isArray(store.weights) ? store.weights : [];
+  const memories = Array.isArray(store.memories) ? store.memories : [];
+  const trackerEvents = Array.isArray(store.trackerEvents) ? store.trackerEvents : [];
+  const chats = Array.isArray(store.chats) ? store.chats : [];
+  const coachMessages = Array.isArray(store.coachMessages) ? store.coachMessages : [];
+  const latestWeight = weights
+    .slice()
+    .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)) || String(right.id).localeCompare(String(left.id)))[0] || null;
+  const weightId = targetWeightId || latestWeight?.id || "";
+  const targetCoaches = coachMessages.filter((message) => message.weightId === weightId);
+  const targetCoach = coachForWeight(store, weightId);
+  return {
+    counts: {
+      weights: weights.length,
+      coachMessages: coachMessages.length,
+      memories: memories.length,
+      trackerEvents: trackerEvents.length,
+      chats: chats.length
+    },
+    latestWeightId: latestWeight?.id || "",
+    targetWeightId: weightId,
+    targetCoachCount: targetCoaches.length,
+    targetCoachId: targetCoach?.id || "",
+    targetCoachCreatedAt: targetCoach?.createdAt || "",
+    weightsHash: jsonHash(weights),
+    memoriesHash: jsonHash(memories),
+    trackerEventsHash: jsonHash(trackerEvents),
+    chatsHash: jsonHash(chats),
+    otherCoachMessagesHash: jsonHash(coachMessages.filter((message) => message.weightId !== weightId))
+  };
+}
+
+function assertCoachRefreshPreserved(before, after) {
+  const fields = [
+    "latestWeightId",
+    "targetWeightId",
+    "targetCoachCount",
+    "targetCoachId",
+    "targetCoachCreatedAt",
+    "weightsHash",
+    "memoriesHash",
+    "trackerEventsHash",
+    "chatsHash",
+    "otherCoachMessagesHash"
+  ];
+  const changed = fields.filter((field) => before?.[field] !== after?.[field]);
+  if (JSON.stringify(before?.counts) !== JSON.stringify(after?.counts)) changed.push("counts");
+  if (changed.length) {
+    throw Object.assign(new Error(`Coach refresh preservation check failed: ${changed.join(", ")}.`), { status: 409 });
+  }
+  return true;
+}
+
+function assertExpectedCoachRefreshState(snapshot, expected = {}, expectedCoach = {}) {
+  const requiredCounts = ["weights", "coachMessages", "memories", "trackerEvents"];
+  if (!requiredCounts.every((key) => Number.isInteger(expected[key]) && expected[key] >= 0)) {
+    throw Object.assign(new Error("Exact expected weights, coachMessages, memories, and trackerEvents counts are required."), { status: 400 });
+  }
+  const mismatches = requiredCounts.filter((key) => snapshot.counts[key] !== expected[key]);
+  if (mismatches.length) {
+    throw Object.assign(new Error(`Coach refresh state changed: ${mismatches.join(", ")}.`), { status: 409 });
+  }
+  if (!expectedCoach.id || !expectedCoach.createdAt) {
+    throw Object.assign(new Error("The expected latest coach id and createdAt are required."), { status: 400 });
+  }
+  if (snapshot.targetCoachId !== expectedCoach.id || snapshot.targetCoachCreatedAt !== expectedCoach.createdAt) {
+    throw Object.assign(new Error("The latest coach identity changed; refresh was not applied."), { status: 409 });
+  }
+  if (snapshot.latestWeightId !== snapshot.targetWeightId || snapshot.targetCoachCount !== 1) {
+    throw Object.assign(new Error("The latest weight must have exactly one coach record before refresh."), { status: 409 });
+  }
+  return true;
+}
+
 function removeWeightAndCoach(store, weightId) {
   let next = {
     ...store,
@@ -2164,7 +2373,8 @@ async function backfillCoachMessages() {
 async function generateAndReplaceCoach(weightId, options = {}) {
   const snapshot = await readStore();
   const context = buildCoachContext(snapshot, weightId, {
-    privateGoal: Object.prototype.hasOwnProperty.call(options, "privateGoal") ? options.privateGoal : privateCoachGoal
+    privateGoal: Object.prototype.hasOwnProperty.call(options, "privateGoal") ? options.privateGoal : privateCoachGoal,
+    personalContextCutoff: options.personalContextCutoff
   });
   const fallbackRecord = coachForWeight(snapshot, weightId);
   if (!context || !fallbackRecord) return publicCoach(fallbackRecord);
@@ -2632,6 +2842,97 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  if (pathname === "/api/coach/refresh-saved-context" && req.method === "POST") {
+    const body = await readJson(req);
+    const memoryId = String(body.memoryId || "").trim();
+    if (!memoryId) {
+      send(res, 400, { error: "A saved memory id is required." });
+      return;
+    }
+    const expected = body.expected && typeof body.expected === "object" ? body.expected : {};
+    const expectedCoach = body.expectedCoach && typeof body.expectedCoach === "object" ? body.expectedCoach : {};
+    let baseline = null;
+    let prepared = null;
+    let personalContextCutoff = NaN;
+    let backupFile = "";
+    let alreadyCurrent = false;
+
+    await writeStore(async (store) => {
+      const memory = (store.memories || []).find((item) => item.id === memoryId);
+      if (!memory) throw Object.assign(new Error("Saved memory not found."), { status: 404 });
+      personalContextCutoff = Date.parse(memory.createdAt);
+      if (!Number.isFinite(personalContextCutoff)) {
+        throw Object.assign(new Error("Saved memory has no valid creation time."), { status: 409 });
+      }
+      baseline = coachRefreshPreservationSnapshot(store);
+      assertExpectedCoachRefreshState(baseline, expected, expectedCoach);
+      const existing = coachForWeight(store, baseline.targetWeightId);
+      alreadyCurrent = Boolean(existing?.evidenceReferences?.some((reference) => reference.type === "memory" && reference.id === memoryId));
+      if (alreadyCurrent) {
+        prepared = { store, updated: false, weightId: baseline.targetWeightId, latestCoach: publicCoach(existing) };
+        return store;
+      }
+
+      prepared = refreshLatestCoachForSavedMemories(store, [memoryId], personalContextCutoff, "fallback-saved-context-maintenance", Date.now());
+      if (!prepared.updated) {
+        throw Object.assign(new Error("Saved memory was not eligible for the latest coach."), { status: 409 });
+      }
+      const backupsDir = path.join(dataDir, "backups");
+      await fsp.mkdir(backupsDir, { recursive: true });
+      backupFile = `store-before-coach-refresh-${new Date().toISOString().replace(/[:.]/g, "-")}-${crypto.randomBytes(3).toString("hex")}.json`;
+      await fsp.copyFile(storePath, path.join(backupsDir, backupFile));
+      assertCoachRefreshPreserved(baseline, coachRefreshPreservationSnapshot(prepared.store, prepared.weightId));
+      return prepared.store;
+    });
+
+    if (alreadyCurrent) {
+      const currentStore = await readStore();
+      const currentSnapshot = coachRefreshPreservationSnapshot(currentStore, prepared?.weightId || baseline?.targetWeightId);
+      assertCoachRefreshPreserved(baseline, currentSnapshot);
+      const currentRecord = coachForWeight(currentStore, currentSnapshot.targetWeightId);
+      const memoryReferenced = Boolean(currentRecord?.evidenceReferences?.some((reference) => reference.type === "memory" && reference.id === memoryId));
+      if (!memoryReferenced) {
+        throw Object.assign(new Error("The current coach does not reference the requested saved memory."), { status: 409 });
+      }
+      send(res, 200, {
+        updated: false,
+        alreadyCurrent: true,
+        latestCoach: publicCoach(currentRecord),
+        status: currentRecord?.status || "missing",
+        actionSemantic: currentRecord?.actionSemantic || "",
+        memoryReferenced,
+        backup: null,
+        counts: currentSnapshot.counts,
+        preserved: true
+      });
+      return;
+    }
+
+    if (prepared?.updated && prepared.weightId) {
+      await generateAndReplaceCoach(prepared.weightId, { personalContextCutoff });
+    }
+    const finalStore = await readStore();
+    const finalSnapshot = coachRefreshPreservationSnapshot(finalStore, prepared?.weightId || baseline?.targetWeightId);
+    assertCoachRefreshPreserved(baseline, finalSnapshot);
+    const finalRecord = coachForWeight(finalStore, finalSnapshot.targetWeightId);
+    const memoryReferenced = Boolean(finalRecord?.evidenceReferences?.some((reference) => reference.type === "memory" && reference.id === memoryId));
+    if (!memoryReferenced) {
+      throw Object.assign(new Error("The refreshed coach did not retain the saved-memory reference."), { status: 409 });
+    }
+    send(res, 200, {
+      updated: Boolean(prepared?.updated),
+      alreadyCurrent,
+      latestCoach: publicCoach(finalRecord),
+      status: finalRecord?.status || "missing",
+      actionSemantic: finalRecord?.actionSemantic || "",
+      memoryReferenced,
+      backup: backupFile || null,
+      counts: finalSnapshot.counts,
+      preserved: true
+    });
+    return;
+  }
+
   if (pathname === "/api/tracker" && req.method === "GET") {
     const store = await readStore();
     send(res, 200, { tracker: publicTrackerSummary(store.trackerEvents) });
@@ -2799,8 +3100,24 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
-    await writeStore((store) => ({ ...store, memories: [...created, ...store.memories] }));
-    send(res, 201, { memories: created.map(publicMemory) });
+    const personalContextCutoff = Date.parse(now);
+    const createdNoteIds = created.filter((memory) => memory.kind === "note").map((memory) => memory.id);
+    let coachRefresh = { updated: false, weightId: null, latestCoach: null };
+    await writeStore((store) => {
+      const withMemories = { ...store, memories: [...created, ...store.memories] };
+      coachRefresh = refreshLatestCoachForSavedMemories(withMemories, createdNoteIds, personalContextCutoff);
+      return coachRefresh.store;
+    });
+    send(res, 201, {
+      memories: created.map(publicMemory),
+      coachUpdated: coachRefresh.updated,
+      latestCoach: coachRefresh.updated ? coachRefresh.latestCoach : null
+    });
+    if (coachRefresh.updated && coachRefresh.weightId) {
+      setImmediate(() => {
+        generateAndReplaceCoach(coachRefresh.weightId, { personalContextCutoff }).catch(() => {});
+      });
+    }
     return;
   }
 
@@ -2981,6 +3298,8 @@ if (process.env.NODE_ENV === "test" || process.env.LILY_COACH_CLI === "1") {
     COACH_GENERATION_VERSION,
     COACH_MAX_WORDS,
     COACH_MIN_WORDS,
+    COACH_REACTION_MAX_AGE_MS,
+    COACH_REACTION_REFRESH_MAX_AGE_MS,
     COACH_VALIDATOR_VERSION,
     COACH_WRITER_PROMPT_VERSION,
     FALLBACK_CLOSINGS,
@@ -2990,6 +3309,8 @@ if (process.env.NODE_ENV === "test" || process.env.LILY_COACH_CLI === "1") {
     WRITER_SAFE_CLOSINGS,
     WRITER_SAFE_OPENINGS,
     addFallbackCoachForWeight,
+    assertCoachRefreshPreserved,
+    assertExpectedCoachRefreshState,
     backfillCoachMessages,
     buildCoachContext,
     buildContextualFallback,
@@ -2997,6 +3318,7 @@ if (process.env.NODE_ENV === "test" || process.env.LILY_COACH_CLI === "1") {
     buildContextualFallbackResult,
     causalPreviousCoachMessages,
     coachForWeight,
+    coachRefreshPreservationSnapshot,
     coachWordCount,
     criticCandidatePayload,
     criticCoachFacts,
@@ -3018,12 +3340,16 @@ if (process.env.NODE_ENV === "test" || process.env.LILY_COACH_CLI === "1") {
     identifyApprovedAction,
     parseCriticResult,
     parseWriterCandidates,
+    publicCoachFacts,
     publicCoach,
     readStore,
     regenerateRecentCoachMessages,
     refreshLatestWeightOnlyCoach,
     refreshIfLatestCoachReferences,
+    refreshLatestCoachForSavedMemories,
     removeWeightAndCoach,
+    reportedCoachEffort,
+    selectSavedPreference,
     selectStrongestCoachEvidence,
     similarityScore,
     validateCoachParagraph,

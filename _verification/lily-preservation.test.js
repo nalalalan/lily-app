@@ -79,6 +79,16 @@ assert.ok(saveWeight.includes("const analysis = beginCoachAnalysis(result.weight
 assert.ok(saveWeight.indexOf("renderWeights()") < saveWeight.indexOf("pollCoachReplacement(analysis)"), "the saved weight and charts must render before background polling begins");
 assert.ok(!saveWeight.includes("await loadWeights()"), "the immediate saved-weight render must not wait for a follow-up GET");
 
+const saveMemoryStart = app.indexOf("async function saveMemory(event)");
+const saveMemoryEnd = app.indexOf("async function saveWeight(event)", saveMemoryStart);
+const saveMemory = app.slice(saveMemoryStart, saveMemoryEnd);
+assert.ok(saveMemoryStart > 0 && saveMemoryEnd > saveMemoryStart, "the saved-note path must remain independently auditable");
+assert.ok(saveMemory.includes("result.coachUpdated && result.latestCoach"), "a qualified saved reaction must refresh the persisted latest coach");
+assert.ok(saveMemory.includes("beginCoachAnalysis(fallbackCoach?.weightId, fallbackCoach)"), "saved-reaction coaching must reuse the bounded analyzing state");
+assert.ok(saveMemory.indexOf("renderWeights()") < saveMemory.indexOf("pollCoachReplacement(analysis)"), "saved-reaction fallback must render before background polling");
+assert.ok(saveMemory.indexOf("beginCoachAnalysis(fallbackCoach?.weightId, fallbackCoach)") < saveMemory.indexOf("await loadMemories()"), "a saved reaction must update the coach immediately instead of waiting on a second GET");
+assert.ok(!saveMemory.includes("state.weights ="), "a saved reaction must not mutate measured weight or chart data in the browser");
+
 const coachPollStart = app.indexOf("async function pollCoachReplacement(analysis)");
 const coachPollEnd = app.indexOf("async function saveTrackerEvent", coachPollStart);
 const coachPoll = app.slice(coachPollStart, coachPollEnd);
@@ -269,5 +279,9 @@ const weightPostEnd = server.indexOf('if (pathname === "/api/memories" && req.me
 const weightPost = server.slice(weightPostStart, weightPostEnd);
 assert.ok(weightPost.indexOf("send(res, 201") < weightPost.indexOf("setImmediate"), "the durable fallback must return before background model generation");
 assert.ok(weightPost.includes("generateAndReplaceCoach(created.id).catch(() => {})"), "background coach generation must not turn a saved weigh-in into an HTTP failure");
+assert.ok(server.includes('pathname === "/api/coach/refresh-saved-context"'), "an authenticated in-process route can safely refresh a note saved before this behavior shipped");
+assert.ok(server.includes("assertExpectedCoachRefreshState(baseline, expected, expectedCoach)"), "the one-time live refresh requires an exact production identity and count baseline");
+assert.ok(server.includes("assertCoachRefreshPreserved(baseline, coachRefreshPreservationSnapshot(prepared.store, prepared.weightId))"), "the live refresh verifies preservation inside the server write queue");
+assert.doesNotMatch(server, /execFile|spawn\([^)]*refresh-latest-saved-context/, "the live refresh never writes the Railway store from a second process");
 
 console.log("Lily preservation tests passed");
