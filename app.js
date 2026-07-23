@@ -510,12 +510,19 @@ async function saveMemory(event) {
     for (const file of files) {
       encodedFiles.push({ name: file.name, type: file.type, dataUrl: await readFileAsDataUrl(file) });
     }
-    await apiFetch("/api/memories", {
+    const result = await apiFetch("/api/memories", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text, files: encodedFiles })
     });
     clearComposer();
+    if (result.coachUpdated && result.latestCoach) {
+      const fallbackCoach = normalizeLatestCoach(result.latestCoach);
+      state.latestCoach = fallbackCoach;
+      const analysis = beginCoachAnalysis(fallbackCoach?.weightId, fallbackCoach);
+      renderWeights();
+      pollCoachReplacement(analysis);
+    }
     await loadMemories();
     showToast("Saved to Lily");
   } catch (error) {
