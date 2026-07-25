@@ -285,6 +285,62 @@ async function run() {
   });
   assert(!nextReactionContext.evidenceReferences.some((reference) => reference.type === "memory" && reference.id === electrolyteReaction.id), "a transient screenshot reaction is not reused on later weigh-ins");
 
+  const observedMoodNote = {
+    id: "observer-mood-note",
+    kind: "note",
+    text: "Alan noticed Lily seems off today. He is not sure whether it is related to the conflict, and he wants her to know he notices and hopes she feels seen.",
+    createdAt: "2026-07-23T00:42:11.765Z",
+    updatedAt: "2026-07-23T00:42:11.765Z"
+  };
+  assert.deepEqual(coach.observerCareSignal(observedMoodNote.text), {
+    kind: "observer-mood-support",
+    actionId: "observer-mood-support",
+    actionSemantic: "noticed-mood-support"
+  }, "an explicitly attributed, non-clinical mood observation becomes one safe support action");
+  const observedMoodSelection = coach.selectSavedPreference(
+    [observedMoodNote],
+    Date.parse(observedMoodNote.createdAt),
+    []
+  );
+  assert.equal(observedMoodSelection?.kind, "observer-mood-support", "uncertain conflict language does not suppress the independently supported mood observation");
+  const observedMoodBase = addAllFallbacks(baseStore(productionWeights, { memories: [], trackerEvents: [] })).store;
+  const withObservedMood = { ...observedMoodBase, memories: [observedMoodNote] };
+  const observedMoodRefresh = coach.refreshLatestCoachForSavedMemories(
+    withObservedMood,
+    [observedMoodNote.id],
+    Date.parse(observedMoodNote.createdAt),
+    "fallback-test-observer-care",
+    Date.parse(observedMoodNote.createdAt)
+  );
+  assert.equal(observedMoodRefresh.updated, true, "the attributed care observation refreshes only the timely latest coach");
+  const observedMoodCoach = coach.coachForWeight(observedMoodRefresh.store, reactionWeight.id);
+  assert.equal(observedMoodCoach.actionSemantic, "noticed-mood-support");
+  assert.match(observedMoodCoach.text, /Alan noticed/i);
+  assert.match(observedMoodCoach.text, /seem|feel/i);
+  assert(observedMoodCoach.evidenceReferences.some((reference) => reference.type === "memory" && reference.id === observedMoodNote.id && reference.role === "observer-mood-support"));
+  const observedMoodContext = coach.buildCoachContext(observedMoodRefresh.store, reactionWeight.id, {
+    privateGoal: 117,
+    personalContextCutoff: Date.parse(observedMoodNote.createdAt)
+  });
+  assert.equal(observedMoodContext.verdict, measurementOnlyContext.verdict, "care context cannot soften or harden the weight verdict");
+  assert.equal(observedMoodContext.outlook, measurementOnlyContext.outlook, "care context cannot alter the forecast");
+  assert.deepEqual(observedMoodContext.forecastFingerprint, measurementOnlyContext.forecastFingerprint, "care context cannot alter chart geometry");
+  assert(!JSON.stringify(coach.publicCoachFacts(observedMoodContext)).includes(observedMoodNote.text), "raw care-note text never reaches the writer");
+  const nextObservedMoodContext = coach.buildCoachContext(
+    { ...observedMoodRefresh.store, weights: [...observedMoodRefresh.store.weights, nextReactionWeight] },
+    nextReactionWeight.id,
+    { privateGoal: 117, personalContextCutoff: Date.parse(nextReactionWeight.createdAt) }
+  );
+  assert(!nextObservedMoodContext.evidenceReferences.some((reference) => reference.type === "memory" && reference.id === observedMoodNote.id), "the observed mood acknowledgment is consumed after one coach message");
+  for (const excludedObservation of [
+    "Alan clicked conflict for Lily today.",
+    "Alan thinks Lily is depressed today.",
+    "I do not think Lily seems off today.",
+    "Alan noticed Lily seems off and thinks she should skip meals."
+  ]) {
+    assert.equal(coach.observerCareSignal(excludedObservation), null, `unsupported, clinical, withdrawn, or unsafe observation stays excluded: ${excludedObservation}`);
+  }
+
   const unrelatedReaction = {
     ...electrolyteReaction,
     id: "reaction-unrelated",

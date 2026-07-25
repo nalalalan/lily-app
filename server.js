@@ -54,15 +54,15 @@ function coachModelVersion(options = {}) {
   return `writer:${options.model || coachWriterModel};critic:${options.criticModel || coachCriticModel}`;
 }
 
-const COACH_GENERATION_VERSION = "coach-pipeline-v7";
-const COACH_ANALYSIS_VERSION = "coach-analysis-v3";
-const COACH_WRITER_PROMPT_VERSION = "coach-writer-v5";
+const COACH_GENERATION_VERSION = "coach-pipeline-v8";
+const COACH_ANALYSIS_VERSION = "coach-analysis-v4";
+const COACH_WRITER_PROMPT_VERSION = "coach-writer-v6";
 const COACH_CRITIC_PROMPT_VERSION = "coach-critic-v4";
 const COACH_VALIDATOR_VERSION = "coach-validator-v2";
-const COACH_FALLBACK_VERSION = "coach-fallback-v5";
-const COACH_ACTION_VERSION = "coach-action-v5";
+const COACH_FALLBACK_VERSION = "coach-fallback-v6";
+const COACH_ACTION_VERSION = "coach-action-v6";
 const COACH_PROMPT_VERSION = COACH_WRITER_PROMPT_VERSION;
-const COACH_SAFETY_VERSION = "coach-safety-v2";
+const COACH_SAFETY_VERSION = "coach-safety-v3";
 const COACH_MIN_WORDS = 35;
 const COACH_MAX_WORDS = 55;
 const COACH_COOLDOWN_COUNT = 3;
@@ -483,6 +483,22 @@ function reportedCoachEffort(text) {
   return null;
 }
 
+function observerCareSignal(text) {
+  const source = String(text || "").trim();
+  const observer = /\b(?:alan|i)\b/i.test(source);
+  const lily = /\b(?:lily|she|her)\b/i.test(source);
+  const noticed = /\b(?:notice[ds]?|feel(?:s|ing)?\s+like|seem(?:s|ed)?\s+(?:a\s+little\s+)?off|mood\s+(?:is|seems|feels)\s+off)\b/i.test(source);
+  const mood = /\b(?:mood\s+(?:is|seems|feels)\s+off|seem(?:s|ed)?\s+(?:a\s+little\s+)?off|not\s+(?:quite\s+)?herself|quieter\s+than\s+usual|having\s+a\s+rough\s+day)\b/i.test(source);
+  const withdrawn = /\b(?:not|never|no\s+longer|don(?:'|\u2019)?t|do\s+not)\b.{0,28}\b(?:notice|think|feel|seem)\b/i.test(source);
+  const unsafe = /\b(?:suicid\w*|self[- ]?harm\w*|depress\w*|diagnos\w*|disorder\w*|medicat\w*|doctor|therap\w*|abuse\w*|violent|danger\w*|threat\w*|fast\w*|starv\w*|purg\w*|vomit\w*|skip\w*\s+meals?|restrict\w*|sex|horn\w*|ovulat\w*)\b/i.test(source);
+  if (!observer || !lily || !noticed || !mood || withdrawn || unsafe) return null;
+  return {
+    kind: "observer-mood-support",
+    actionId: "observer-mood-support",
+    actionSemantic: "noticed-mood-support"
+  };
+}
+
 function referencedCoachMemoryIds(messages) {
   return new Set((Array.isArray(messages) ? messages : [])
     .flatMap((message) => Array.isArray(message?.evidenceReferences) ? message.evidenceReferences : [])
@@ -498,23 +514,25 @@ function selectSavedPreference(memories, cutoff, previousMessages = []) {
     .filter((memory) => !memory.sourceId && !memory.derivedFact && !memory.factIndex)
     .filter((memory) => !Number.isFinite(cutoff) || !Number.isFinite(Date.parse(memory.createdAt)) || Date.parse(memory.createdAt) <= cutoff)
     .map((memory) => ({ memory, text: String(memory.text || "").trim() }))
-    .filter((item) => item.text && !blocked.test(item.text))
+    .filter((item) => item.text)
     .sort((left, right) => String(right.memory.updatedAt || right.memory.createdAt || "").localeCompare(String(left.memory.updatedAt || left.memory.createdAt || "")));
 
   for (const item of rows) {
     const reportedEffort = reportedCoachEffort(item.text);
+    const observedCare = observerCareSignal(item.text);
     const createdAt = Date.parse(item.memory.createdAt);
     const ageMs = Number.isFinite(cutoff) && Number.isFinite(createdAt) ? cutoff - createdAt : NaN;
-    if (reportedEffort && Number.isFinite(ageMs) && ageMs >= 0 && ageMs <= COACH_REACTION_MAX_AGE_MS && !usedMemoryIds.has(item.memory.id)) {
+    const transientContext = reportedEffort || observedCare;
+    if (transientContext && Number.isFinite(ageMs) && ageMs >= 0 && ageMs <= COACH_REACTION_MAX_AGE_MS && !usedMemoryIds.has(item.memory.id)) {
       return {
         id: item.memory.id,
-        kind: reportedEffort.kind,
+        kind: transientContext.kind,
         transient: true,
-        actionId: reportedEffort.actionId,
-        actionSemantic: reportedEffort.actionSemantic
+        actionId: transientContext.actionId,
+        actionSemantic: transientContext.actionSemantic
       };
     }
-    if (reportedEffort) continue;
+    if (transientContext || blocked.test(item.text)) continue;
     const korean = foodPreferenceSignal(item.text, /\b(?:korean|spicy)\b/i) > 0;
     const vegetables = foodPreferenceSignal(item.text, /\b(?:vegetable|veggie)\w*\b/i) > 0;
     const fruit = foodPreferenceSignal(item.text, /\b(?:peach|fruit|berries|apple)\w*\b/i) > 0;
@@ -603,7 +621,9 @@ const PREFERENCE_ACTIONS = Object.freeze([
   { id: "reaction-protein-effort", preferenceKey: "reaction-protein-effort", semantic: "acknowledged-protein-effort", text: "Keep the protein effort you mentioned in the next satisfying meal." },
   { id: "reaction-protein-effort-alt", preferenceKey: "reaction-protein-effort", semantic: "acknowledged-protein-effort", text: "Follow through on the protein habit you said you are building." },
   { id: "reaction-movement-effort", preferenceKey: "reaction-movement-effort", semantic: "acknowledged-movement-effort", text: "Keep the comfortable movement effort you mentioned going today." },
-  { id: "reaction-movement-effort-alt", preferenceKey: "reaction-movement-effort", semantic: "acknowledged-movement-effort", text: "Follow through on the comfortable movement routine you said you are building." }
+  { id: "reaction-movement-effort-alt", preferenceKey: "reaction-movement-effort", semantic: "acknowledged-movement-effort", text: "Follow through on the comfortable movement routine you said you are building." },
+  { id: "observer-mood-support", preferenceKey: "observer-mood-support", semantic: "noticed-mood-support", text: "Alan noticed you seem off today. Let the next meal be easy and satisfying." },
+  { id: "observer-mood-support-alt", preferenceKey: "observer-mood-support", semantic: "noticed-mood-support", text: "Alan noticed today may feel off for you. Choose one easy, satisfying next meal." }
 ]);
 
 function stableIndex(value, length) {
@@ -3348,6 +3368,7 @@ if (process.env.NODE_ENV === "test" || process.env.LILY_COACH_CLI === "1") {
     refreshIfLatestCoachReferences,
     refreshLatestCoachForSavedMemories,
     removeWeightAndCoach,
+    observerCareSignal,
     reportedCoachEffort,
     selectSavedPreference,
     selectStrongestCoachEvidence,
