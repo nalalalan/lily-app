@@ -64,7 +64,7 @@ const fixtures = [
   ["flat-noisy", flatNoisy, "neutral"]
 ];
 
-const banned = /\b(?:not good enough|red alert|warning|wake-up call|trend alarm|fight|attack|hunt|earn|prove|clap back|lock in|no excuses?|failure|lazy|shame|guilt|depress\w*|anxious|anxiety|rejection sensitivity|dysphoria|diagnos\w*|fasting|skip(?:ping)? meals?)\b/i;
+const banned = /\b(?:not good enough|red alert|warning|wake-up call|trend alarm|fight|attack|hunt|earn|prove|clap back|lock in|no excuses?|failure|lazy|shame|guilt|diagnos\w*|clinical label|private health label|fasting|skip(?:ping)? meals?)\b/i;
 const allCopies = [];
 
 for (const [expectedState, points, expectedTone] of fixtures) {

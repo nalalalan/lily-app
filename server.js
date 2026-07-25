@@ -19,6 +19,10 @@ const coachWriterModel = process.env.OPENAI_COACH_WRITER_MODEL || "gpt-4.1-nano"
 const coachCriticModel = process.env.OPENAI_CRITIC_MODEL || "gpt-4.1-mini";
 const visionModel = process.env.OPENAI_VISION_MODEL || "gpt-4o-mini";
 const privateCoachGoal = Number(process.env.LILY_INTERNAL_GOAL_LB);
+const privateCoachBlockedTerms = String(process.env.LILY_PRIVATE_COACH_BLOCKED_TERMS || "")
+  .split("|")
+  .map((term) => term.trim().toLowerCase())
+  .filter(Boolean);
 const coachGenerationTimeoutMs = Math.max(500, Number(process.env.LILY_COACH_TIMEOUT_MS || 8000));
 const trackerTimeZone = process.env.LILY_TRACKER_TIME_ZONE || "America/New_York";
 const defaultPeriodCycleDays = 28;
@@ -54,7 +58,12 @@ function coachModelVersion(options = {}) {
   return `writer:${options.model || coachWriterModel};critic:${options.criticModel || coachCriticModel}`;
 }
 
-const COACH_GENERATION_VERSION = "coach-pipeline-v9";
+function containsPrivateCoachBlockedTerm(text) {
+  const normalized = String(text || "").toLowerCase();
+  return privateCoachBlockedTerms.some((term) => normalized.includes(term));
+}
+
+const COACH_GENERATION_VERSION = "coach-pipeline-v10";
 const COACH_ANALYSIS_VERSION = "coach-analysis-v5";
 const COACH_WRITER_PROMPT_VERSION = "coach-writer-v7";
 const COACH_CRITIC_PROMPT_VERSION = "coach-critic-v5";
@@ -62,7 +71,7 @@ const COACH_VALIDATOR_VERSION = "coach-validator-v2";
 const COACH_FALLBACK_VERSION = "coach-fallback-v7";
 const COACH_ACTION_VERSION = "coach-action-v7";
 const COACH_PROMPT_VERSION = COACH_WRITER_PROMPT_VERSION;
-const COACH_SAFETY_VERSION = "coach-safety-v4";
+const COACH_SAFETY_VERSION = "coach-safety-v5";
 const COACH_STYLE_VERSION = "coach-style-warm-agency-v1";
 const COACH_MIN_WORDS = 35;
 const COACH_MAX_WORDS = 55;
@@ -491,7 +500,8 @@ function observerCareSignal(text) {
   const noticed = /\b(?:notice[ds]?|feel(?:s|ing)?\s+like|seem(?:s|ed)?\s+(?:a\s+little\s+)?off|mood\s+(?:is|seems|feels)\s+off)\b/i.test(source);
   const mood = /\b(?:mood\s+(?:is|seems|feels)\s+off|seem(?:s|ed)?\s+(?:a\s+little\s+)?off|not\s+(?:quite\s+)?herself|quieter\s+than\s+usual|having\s+a\s+rough\s+day)\b/i.test(source);
   const withdrawn = /\b(?:not|never|no\s+longer|don(?:'|\u2019)?t|do\s+not)\b.{0,28}\b(?:notice|think|feel|seem)\b/i.test(source);
-  const unsafe = /\b(?:suicid\w*|self[- ]?harm\w*|depress\w*|diagnos\w*|disorder\w*|medicat\w*|doctor|therap\w*|abuse\w*|violent|danger\w*|threat\w*|fast\w*|starv\w*|purg\w*|vomit\w*|skip\w*\s+meals?|restrict\w*|sex|horn\w*|ovulat\w*)\b/i.test(source);
+  const unsafe = /\b(?:suicid\w*|self[- ]?harm\w*|diagnos\w*|clinical\w*|disorder\w*|medicat\w*|doctor|therap\w*|abuse\w*|violent|danger\w*|threat\w*|fast\w*|starv\w*|purg\w*|vomit\w*|skip\w*\s+meals?|restrict\w*|sex|horn\w*|ovulat\w*)\b/i.test(source)
+    || containsPrivateCoachBlockedTerm(source);
   if (!observer || !lily || !noticed || !mood || withdrawn || unsafe) return null;
   return {
     kind: "observer-mood-support",
@@ -508,7 +518,7 @@ function referencedCoachMemoryIds(messages) {
 }
 
 function selectSavedPreference(memories, cutoff, previousMessages = []) {
-  const blocked = /\b(?:sex|horn|ovulat|conflict|address|phone|diagnos|depress|body image|appearance|relationship|fast\w*|starv\w*|purg\w*|vomit\w*|skip\w*\s+meals?|restrict\w*)\b/i;
+  const blocked = /\b(?:sex|horn|ovulat|conflict|address|phone|diagnos|clinical|body image|appearance|relationship|fast\w*|starv\w*|purg\w*|vomit\w*|skip\w*\s+meals?|restrict\w*)\b/i;
   const usedMemoryIds = referencedCoachMemoryIds(previousMessages);
   const rows = (Array.isArray(memories) ? memories : [])
     .filter((memory) => memory && memory.kind === "note")
@@ -533,7 +543,7 @@ function selectSavedPreference(memories, cutoff, previousMessages = []) {
         actionSemantic: transientContext.actionSemantic
       };
     }
-    if (transientContext || blocked.test(item.text)) continue;
+    if (transientContext || blocked.test(item.text) || containsPrivateCoachBlockedTerm(item.text)) continue;
     const korean = foodPreferenceSignal(item.text, /\b(?:korean|spicy)\b/i) > 0;
     const vegetables = foodPreferenceSignal(item.text, /\b(?:vegetable|veggie)\w*\b/i) > 0;
     const fruit = foodPreferenceSignal(item.text, /\b(?:peach|fruit|berries|apple)\w*\b/i) > 0;
@@ -1914,8 +1924,8 @@ function validateCoachParagraph(text, context, previousMessages = [], options = 
   const words = coachWordCount(paragraph);
   if (/[\r\n]/.test(String(text || ""))) errors.push("multiline");
   if (words < COACH_MIN_WORDS || words > COACH_MAX_WORDS) errors.push("word-count");
-  const unsafe = /\b(?:obese|fat|body|lazy|disgusting|failure|worthless|worth|bmi|jyp|korean idol|fast|fasting|starve|starving|skip(?:ping)?(?:\s+(?:a|the))?\s+meals?|purge|purging|compensat\w*|punish\w*|restrict\w*|under-?eat\w*|overexercis\w*|excessive exercise|depriv\w*|guilt|shame|diagnos\w*|depress\w*|anxiet\w*|anxious|rejection sensitivity|dysphoria|mental health)\b/i;
-  if (unsafe.test(paragraph)) errors.push("unsafe-language");
+  const unsafe = /\b(?:obese|fat|body|lazy|disgusting|failure|worthless|worth|bmi|jyp|korean idol|fast|fasting|starve|starving|skip(?:ping)?(?:\s+(?:a|the))?\s+meals?|purge|purging|compensat\w*|punish\w*|restrict\w*|under-?eat\w*|overexercis\w*|excessive exercise|depriv\w*|guilt|shame|diagnos\w*|clinical label|private health label)\b/i;
+  if (unsafe.test(paragraph) || containsPrivateCoachBlockedTerm(paragraph)) errors.push("unsafe-language");
   errors.push(...supportiveCoachStyleErrors(paragraph));
   if (/\b(?:horn\w*|sex(?:ual)?|ovulat\w*|conflict|phone|address|relationship|appearance)\b/i.test(paragraph)) errors.push("private-context-leak");
   if (/[\u00e2\u00c3\u00c2\ufffd]/.test(paragraph)) errors.push("mojibake");

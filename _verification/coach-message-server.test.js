@@ -8,6 +8,7 @@ process.env.NODE_ENV = "test";
 process.env.DATA_DIR = tempDir;
 process.env.OPENAI_API_KEY = "";
 process.env.LILY_INTERNAL_GOAL_LB = "117";
+process.env.LILY_PRIVATE_COACH_BLOCKED_TERMS = "private-sensitive-label";
 
 const coach = require("../server.js");
 
@@ -343,7 +344,7 @@ async function run() {
   assert.match(refreshedStyleCoach.text, /Alan noticed/i, "the current one-use care context survives the same-message style refresh");
   assert.deepEqual(coach.supportiveCoachStyleErrors(refreshedStyleCoach.text), []);
   assert.doesNotMatch(refreshedStyleCoach.text, /not good enough|warning|red alert|fight|attack|earn|prove|!{2,}/i);
-  assert.doesNotMatch(refreshedStyleCoach.text, /depress\w*|anxiet\w*|anxious|rejection sensitivity|dysphoria|diagnos\w*/i);
+  assert.doesNotMatch(refreshedStyleCoach.text, /private-sensitive-label|diagnos\w*|clinical label/i);
   const idempotentStyleRefresh = coach.refreshLatestCoachStyleInStore(styleRefresh.store, "fallback-test-style-refresh", Date.parse(observedMoodNote.createdAt) + 2000);
   assert.equal(idempotentStyleRefresh.updated, false);
   assert.equal(idempotentStyleRefresh.alreadyCurrent, true, "the style refresh is idempotent once the latest coach is current");
@@ -355,7 +356,7 @@ async function run() {
   assert(!nextObservedMoodContext.evidenceReferences.some((reference) => reference.type === "memory" && reference.id === observedMoodNote.id), "the observed mood acknowledgment is consumed after one coach message");
   for (const excludedObservation of [
     "Alan clicked conflict for Lily today.",
-    "Alan thinks Lily is depressed today.",
+    "Alan noticed Lily seems off and calls it a private-sensitive-label.",
     "I do not think Lily seems off today.",
     "Alan noticed Lily seems off and thinks she should skip meals."
   ]) {
@@ -524,7 +525,7 @@ async function run() {
   assertParagraph(acceptanceExample, "July 22 acceptance example");
   assert.deepEqual(coach.supportiveCoachStyleErrors(acceptanceExample), []);
   assert.doesNotMatch(acceptanceExample, /not good enough|warning|red alert|fight|attack|earn|prove|!{2,}/i);
-  assert.doesNotMatch(acceptanceExample, /depress\w*|anxiet\w*|anxious|rejection sensitivity|dysphoria|diagnos\w*/i);
+  assert.doesNotMatch(acceptanceExample, /private-sensitive-label|diagnos\w*|clinical label/i);
 
   const wrongNumber = fallback.replace("151 lb", "999 lb");
   assert(coach.validateCoachParagraph(wrongNumber, july22, [], { privateGoal: 117 }).errors.includes("unsupported-number"));
@@ -534,6 +535,8 @@ async function run() {
   assert(fallbackClosing, "the fallback ends with one approved supportive closing");
   const leakedPrivateContext = fallback.replace(fallbackClosing, "Ovulation explains this.");
   assert(coach.validateCoachParagraph(leakedPrivateContext, july22, [], { privateGoal: 117 }).errors.includes("private-context-leak"));
+  const leakedPrivateLabel = fallback.replace(fallbackClosing, "This is a private-sensitive-label.");
+  assert(coach.validateCoachParagraph(leakedPrivateLabel, july22, [], { privateGoal: 117 }).errors.includes("unsafe-language"));
   const periodCause = `${fallback} The period caused this.`;
   assert(coach.validateCoachParagraph(periodCause, july22, [], { privateGoal: 117 }).errors.includes("period-causality"));
   assert(coach.validateCoachParagraph(`${fallback}\nSecond paragraph.`, july22, [], { privateGoal: 117 }).errors.includes("multiline"));
