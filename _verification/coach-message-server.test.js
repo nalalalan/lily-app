@@ -327,6 +327,87 @@ async function run() {
   assert.equal(observedMoodContext.outlook, measurementOnlyContext.outlook, "care context cannot alter the forecast");
   assert.deepEqual(observedMoodContext.forecastFingerprint, measurementOnlyContext.forecastFingerprint, "care context cannot alter chart geometry");
   assert(!JSON.stringify(coach.publicCoachFacts(observedMoodContext)).includes(observedMoodNote.text), "raw care-note text never reaches the writer");
+
+  const rawBrainLetter = [
+    "Dear Lily, I am your boyfriend and I love you.",
+    "I am the nerdy PhD boyfriend who likes to yap honestly about everything because that is how I show you my real self.",
+    "You told me the yapping feels genuine, and I want us to be happy and keep enjoying League together.",
+    "This private source also contains depression, anxiety, self-harm, sexual attraction, breakup fears, and other details that must never enter a weight memo."
+  ].join(" ");
+  const brainFile = {
+    id: "brain-letter-one",
+    kind: "generated pdf",
+    sourceText: rawBrainLetter,
+    sourceCreatedAt: "2026-07-23T08:39:02.459Z",
+    createdAt: "2026-07-23T08:39:02.459Z"
+  };
+  const brainSupport = coach.brainRelationshipSupportFromFile(brainFile, {
+    cutoff: Date.parse("2026-07-23T09:00:00.000Z"),
+    operationalNow: Date.parse("2026-07-23T09:00:00.000Z")
+  });
+  assert.deepEqual(brainSupport, {
+    id: brainFile.id,
+    kind: "boyfriend-yap-phd-league",
+    text: coach.BRAIN_RELATIONSHIP_COPY["boyfriend-yap-phd-league"],
+    createdAt: brainFile.createdAt,
+    sourceHash: require("node:crypto").createHash("sha256").update(rawBrainLetter).digest("hex")
+  }, "an Alan-authored Lily letter becomes only a bounded, approved relationship sentence plus source identity");
+  assert.doesNotMatch(brainSupport.text, /depress|anxi|self-harm|sex|attract|breakup|weight/i, "sensitive raw letter material cannot enter the approved sentence");
+
+  const brainRefresh = coach.refreshLatestCoachForBrainRelationship(
+    observedMoodRefresh.store,
+    brainSupport,
+    "fallback-test-brain-relationship",
+    Date.parse("2026-07-23T09:00:00.000Z")
+  );
+  assert.equal(brainRefresh.updated, true, "a fresh letter can add one relationship-safe sentence to the latest coach");
+  const brainCoach = coach.coachForWeight(brainRefresh.store, reactionWeight.id);
+  assert.equal(brainCoach.id, observedMoodCoach.id, "Brain warmth refresh preserves the coach id");
+  assert.equal(brainCoach.createdAt, observedMoodCoach.createdAt, "Brain warmth refresh preserves coach creation time");
+  assert.equal((brainCoach.text.match(/Your nerdy PhD boyfriend/g) || []).length, 1);
+  assert(brainCoach.evidenceReferences.some((reference) => reference.type === "brain-letter" && reference.id === brainFile.id && reference.sourceHash === brainSupport.sourceHash));
+  assert(!JSON.stringify(brainCoach).includes(rawBrainLetter), "the raw Brain letter is never persisted in the coach record");
+  const brainContext = coach.buildCoachContext(brainRefresh.store, reactionWeight.id, {
+    privateGoal: 117,
+    personalContextCutoff: Date.parse(observedMoodNote.createdAt),
+    relationshipSupport: brainSupport
+  });
+  const brainPreviousMessages = coach.causalPreviousCoachMessages(brainRefresh.store, reactionWeight, 10);
+  const brainValidation = coach.validateCoachParagraph(brainCoach.text, brainContext, brainPreviousMessages, { privateGoal: 117 });
+  assert.equal(brainValidation.ok, true, brainValidation.errors.join(", "));
+  assert(brainValidation.wordCount >= coach.COACH_RELATIONSHIP_MIN_WORDS && brainValidation.wordCount <= coach.COACH_RELATIONSHIP_MAX_WORDS);
+  assert.equal(brainContext.verdict, observedMoodContext.verdict, "relationship warmth cannot change the weight verdict");
+  assert.equal(brainContext.outlook, observedMoodContext.outlook, "relationship warmth cannot change the outlook");
+  assert.deepEqual(brainContext.forecastFingerprint, observedMoodContext.forecastFingerprint, "relationship warmth cannot change chart geometry");
+  assert(!JSON.stringify(coach.publicCoachFacts(brainContext)).includes(rawBrainLetter), "the raw letter never enters writer or critic facts");
+  assert.equal(brainContext.analysisPlan.relationshipSupport.kind, "boyfriend-yap-phd-league");
+  assert(!JSON.stringify(brainContext.analysisPlan).includes(brainSupport.sourceHash), "source hashes stay out of the writer analysis plan");
+  assert.equal(coach.brainRelationshipSupportAvailable(brainRefresh.store, brainSupport, "different-weight"), false, "one Brain letter cannot be reused by another weight memo");
+  const repeatedBrainRefresh = coach.refreshLatestCoachForBrainRelationship(
+    brainRefresh.store,
+    brainSupport,
+    "fallback-test-brain-relationship",
+    Date.parse("2026-07-23T09:01:00.000Z")
+  );
+  assert.equal(repeatedBrainRefresh.updated, false);
+  assert.equal(repeatedBrainRefresh.alreadyCurrent, true, "the same Brain relationship refresh is idempotent");
+  const mockedBrainFetch = async () => ({ ok: true, json: async () => ({ files: [brainFile] }) });
+  assert.equal(await coach.fetchLatestBrainRelationshipSupport(brainRefresh.store, {
+    apiBase: "https://brain.test",
+    fetchImpl: mockedBrainFetch,
+    cutoff: Date.parse("2026-07-23T09:00:00.000Z"),
+    operationalNow: Date.parse("2026-07-23T09:00:00.000Z")
+  }), null, "a Brain letter already used once is skipped on future coaching");
+  assert.equal(await coach.fetchLatestBrainRelationshipSupport(observedMoodRefresh.store, {
+    apiBase: "https://brain.test",
+    fetchImpl: async () => { throw new Error("offline"); },
+    cutoff: Date.parse("2026-07-23T09:00:00.000Z"),
+    operationalNow: Date.parse("2026-07-23T09:00:00.000Z")
+  }), null, "Brain downtime leaves the ordinary coach path available without leaking an error");
+  assert.equal(coach.brainRelationshipSupportFromFile({ ...brainFile, id: "unrelated", sourceText: "A long unrelated note without Lily relationship signals. ".repeat(8) }, {
+    cutoff: Date.parse("2026-07-23T09:00:00.000Z"),
+    operationalNow: Date.parse("2026-07-23T09:00:00.000Z")
+  }), null, "an unrelated Brain note cannot become relationship copy");
   const staleStyleStore = {
     ...observedMoodRefresh.store,
     coachMessages: observedMoodRefresh.store.coachMessages.map((message) => message.weightId === reactionWeight.id

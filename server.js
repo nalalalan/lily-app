@@ -24,6 +24,8 @@ const privateCoachBlockedTerms = String(process.env.LILY_PRIVATE_COACH_BLOCKED_T
   .map((term) => term.trim().toLowerCase())
   .filter(Boolean);
 const coachGenerationTimeoutMs = Math.max(500, Number(process.env.LILY_COACH_TIMEOUT_MS || 8000));
+const brainApiBase = String(process.env.BRAIN_API_BASE || "").trim().replace(/\/+$/, "");
+const brainRequestTimeoutMs = Math.max(250, Number(process.env.LILY_BRAIN_TIMEOUT_MS || 2000));
 const trackerTimeZone = process.env.LILY_TRACKER_TIME_ZONE || "America/New_York";
 const defaultPeriodCycleDays = 28;
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || "http://localhost:3000,http://127.0.0.1:3000,https://lily.aolabs.io")
@@ -63,22 +65,25 @@ function containsPrivateCoachBlockedTerm(text) {
   return privateCoachBlockedTerms.some((term) => normalized.includes(term));
 }
 
-const COACH_GENERATION_VERSION = "coach-pipeline-v10";
-const COACH_ANALYSIS_VERSION = "coach-analysis-v5";
-const COACH_WRITER_PROMPT_VERSION = "coach-writer-v7";
-const COACH_CRITIC_PROMPT_VERSION = "coach-critic-v5";
-const COACH_VALIDATOR_VERSION = "coach-validator-v2";
-const COACH_FALLBACK_VERSION = "coach-fallback-v7";
+const COACH_GENERATION_VERSION = "coach-pipeline-v11";
+const COACH_ANALYSIS_VERSION = "coach-analysis-v6";
+const COACH_WRITER_PROMPT_VERSION = "coach-writer-v8";
+const COACH_CRITIC_PROMPT_VERSION = "coach-critic-v6";
+const COACH_VALIDATOR_VERSION = "coach-validator-v3";
+const COACH_FALLBACK_VERSION = "coach-fallback-v8";
 const COACH_ACTION_VERSION = "coach-action-v7";
 const COACH_PROMPT_VERSION = COACH_WRITER_PROMPT_VERSION;
-const COACH_SAFETY_VERSION = "coach-safety-v5";
-const COACH_STYLE_VERSION = "coach-style-warm-agency-v1";
+const COACH_SAFETY_VERSION = "coach-safety-v6";
+const COACH_STYLE_VERSION = "coach-style-authentic-connection-v2";
 const COACH_MIN_WORDS = 35;
 const COACH_MAX_WORDS = 55;
+const COACH_RELATIONSHIP_MIN_WORDS = 45;
+const COACH_RELATIONSHIP_MAX_WORDS = 80;
 const COACH_COOLDOWN_COUNT = 3;
 const COACH_CANDIDATE_COUNT = 3;
 const COACH_REACTION_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
 const COACH_REACTION_REFRESH_MAX_AGE_MS = 48 * 60 * 60 * 1000;
+const BRAIN_RELATIONSHIP_MAX_AGE_MS = 48 * 60 * 60 * 1000;
 const KG_TO_LB = 2.2046226218;
 
 async function ensureDataDir() {
@@ -357,6 +362,12 @@ function coachWordCount(text) {
   return String(text || "").trim().match(/[A-Za-z0-9]+(?:[’'][A-Za-z0-9]+)*/g)?.length || 0;
 }
 
+function coachWordBounds(context) {
+  return context?.relationshipSupport
+    ? { min: COACH_RELATIONSHIP_MIN_WORDS, max: COACH_RELATIONSHIP_MAX_WORDS }
+    : { min: COACH_MIN_WORDS, max: COACH_MAX_WORDS };
+}
+
 function normalizeCoachParagraph(text) {
   return String(text || "")
     .replace(/^```(?:text)?\s*|\s*```$/gi, "")
@@ -508,6 +519,88 @@ function observerCareSignal(text) {
     actionId: "observer-mood-support",
     actionSemantic: "noticed-mood-support"
   };
+}
+
+const BRAIN_RELATIONSHIP_COPY = Object.freeze({
+  "boyfriend-yap-phd-league": "Your nerdy PhD boyfriend is here, yapping honestly, loving you, and wanting you safe and happy for many more League nights together",
+  "boyfriend-yap-phd": "Your nerdy PhD boyfriend is here, yapping honestly, loving you, and wanting you safe, happy, and fully yourself",
+  "boyfriend-yap": "Your yappy boyfriend is right here, loving you steadily and wanting you safe, happy, and fully yourself"
+});
+
+function referencedBrainLetterIds(messages, excludedWeightId = "") {
+  return new Set((Array.isArray(messages) ? messages : [])
+    .filter((message) => !excludedWeightId || message?.weightId !== excludedWeightId)
+    .flatMap((message) => Array.isArray(message?.evidenceReferences) ? message.evidenceReferences : [])
+    .filter((reference) => reference?.type === "brain-letter" && reference.id)
+    .map((reference) => reference.id));
+}
+
+function brainRelationshipSupportFromFile(file, options = {}) {
+  if (!file || typeof file !== "object" || !file.id) return null;
+  const text = String(file.sourceText || "").trim();
+  const createdAt = String(file.sourceCreatedAt || file.createdAt || "");
+  const createdTime = Date.parse(createdAt);
+  const cutoff = Number(options.cutoff);
+  const operationalNow = Number(options.operationalNow);
+  const maxAgeMs = Math.max(1, Number(options.maxAgeMs || BRAIN_RELATIONSHIP_MAX_AGE_MS));
+  if (!text || text.length < 200 || !Number.isFinite(createdTime)) return null;
+  if (Number.isFinite(cutoff) && createdTime > cutoff) return null;
+  if (Number.isFinite(operationalNow) && (createdTime > operationalNow || operationalNow - createdTime > maxAgeMs)) return null;
+
+  const addressedToLily = /\b(?:lily|leelee)\b/i.test(text);
+  const boyfriend = /\bboyfriend\b/i.test(text);
+  const affection = /\b(?:i\s+love\s+you|love\s+you|loving\s+you)\b/i.test(text);
+  const yapping = /\byap\w*\b/i.test(text);
+  const phd = /\bph\.?d\.?\b/i.test(text);
+  const league = /\bleague\b/i.test(text);
+  const happiness = /\bhapp\w*\b/i.test(text);
+  if (!addressedToLily || !boyfriend || !affection || !yapping || !happiness) return null;
+
+  const kind = phd && league ? "boyfriend-yap-phd-league" : phd ? "boyfriend-yap-phd" : "boyfriend-yap";
+  return {
+    id: String(file.id),
+    kind,
+    text: BRAIN_RELATIONSHIP_COPY[kind],
+    createdAt: new Date(createdTime).toISOString(),
+    sourceHash: crypto.createHash("sha256").update(text).digest("hex")
+  };
+}
+
+async function fetchLatestBrainRelationshipSupport(store, options = {}) {
+  const apiBase = String(Object.prototype.hasOwnProperty.call(options, "apiBase") ? options.apiBase : brainApiBase).trim().replace(/\/+$/, "");
+  if (!apiBase) return null;
+  const fetchImpl = options.fetchImpl || fetch;
+  const timeoutMs = Math.max(1, Number(options.timeoutMs || brainRequestTimeoutMs));
+  const controller = new AbortController();
+  let timeoutId;
+  try {
+    timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    const response = await fetchImpl(`${apiBase}/api/files`, {
+      method: "GET",
+      headers: { "Accept": "application/json" },
+      signal: controller.signal
+    });
+    if (!response.ok) return null;
+    const payload = await response.json();
+    const files = Array.isArray(payload?.files) ? payload.files : (Array.isArray(payload) ? payload : []);
+    const usedIds = referencedBrainLetterIds(store?.coachMessages, options.excludedWeightId);
+    const rows = files.slice().sort((left, right) => String(right?.sourceCreatedAt || right?.createdAt || "").localeCompare(String(left?.sourceCreatedAt || left?.createdAt || "")));
+    for (const file of rows) {
+      if (usedIds.has(String(file?.id || ""))) continue;
+      const support = brainRelationshipSupportFromFile(file, options);
+      if (support) return support;
+    }
+    return null;
+  } catch (error) {
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+function brainRelationshipSupportAvailable(store, support, weightId = "") {
+  if (!support?.id) return false;
+  return !referencedBrainLetterIds(store?.coachMessages, weightId).has(support.id);
 }
 
 function referencedCoachMemoryIds(messages) {
@@ -898,7 +991,8 @@ function buildAnalysisPlan(context) {
     savedContext: context.preference ? {
       kind: context.preference.kind,
       transient: context.preference.transient === true
-    } : null
+    } : null,
+    relationshipSupport: context.relationshipSupport ? { kind: context.relationshipSupport.kind } : null
   };
 }
 
@@ -925,6 +1019,15 @@ function buildCoachContext(store, weightId, options = {}) {
     ? causalPreviousCoachMessages(store, current, Math.max(10, (store.weights || []).length))
     : [];
   const preference = includePersonalContext ? selectSavedPreference(store.memories, personalContextCutoff, causalCoachHistory) : null;
+  const relationshipSupport = includePersonalContext && options.relationshipSupport?.id && options.relationshipSupport?.text
+    ? {
+      id: String(options.relationshipSupport.id),
+      kind: String(options.relationshipSupport.kind || "boyfriend-yap"),
+      text: String(options.relationshipSupport.text),
+      createdAt: String(options.relationshipSupport.createdAt || ""),
+      sourceHash: String(options.relationshipSupport.sourceHash || "")
+    }
+    : null;
   const outlier = isWeightOutlier(points);
   const streak = recentWeightStreak(points);
   const movements = movementMap(points);
@@ -1002,7 +1105,13 @@ function buildCoachContext(store, weightId, options = {}) {
     ...selectedEvidenceReferences,
     ...(trackerModifier ? [{ type: "tracker", id: trackerModifier.id, role: trackerModifier.type }] : []),
     ...(recentConflict ? [{ type: "tracker", id: recentConflict.id, role: "recent-conflict" }] : []),
-    ...(selectedPreference ? [{ type: "memory", id: selectedPreference.id, role: selectedPreference.kind }] : [])
+    ...(selectedPreference ? [{ type: "memory", id: selectedPreference.id, role: selectedPreference.kind }] : []),
+    ...(relationshipSupport ? [{
+      type: "brain-letter",
+      id: relationshipSupport.id,
+      role: relationshipSupport.kind,
+      sourceHash: relationshipSupport.sourceHash
+    }] : [])
   ];
   const privateGoal = Object.prototype.hasOwnProperty.call(options, "privateGoal") ? Number(options.privateGoal) : privateCoachGoal;
   const context = {
@@ -1029,6 +1138,7 @@ function buildCoachContext(store, weightId, options = {}) {
     outlookEvidenceRelation: outlookReinforces ? "reinforces" : outlookContradicts ? "contradicts" : outlookDirectionFlip ? "direction-flip" : "material-movement",
     verdict,
     trackerModifier,
+    relationshipSupport,
     preference: selectedPreference ? { id: selectedPreference.id, kind: selectedPreference.kind, transient: selectedPreference.transient === true } : null,
     action: actionSelection.text,
     actionId: actionSelection.id,
@@ -1369,28 +1479,29 @@ const WRITER_SAFE_CLOSINGS = Object.freeze({
 
 const FALLBACK_CLOSINGS = WRITER_SAFE_CLOSINGS;
 
-function composeFallbackParagraph(opening, current, evidence, outlook, action, close, separators) {
+function composeFallbackParagraph(opening, current, evidence, outlook, action, close, separators, relationshipSupport = "") {
   const clean = (value) => String(value || "").trim().replace(/[.!?]+$/g, "");
   const facts = [clean(current), clean(evidence), clean(outlook)].filter(Boolean);
   const factSeparators = [separators.currentEvidence, separators.evidenceOutlook];
   let body = `${clean(opening)}${separators.openingCurrent}${facts[0] || ""}`;
   for (let index = 1; index < facts.length; index += 1) body += `${factSeparators[index - 1] || ". "}${facts[index]}`;
+  if (relationshipSupport) body += `. ${clean(relationshipSupport)}`;
   return `${body}. ${clean(action)}. ${String(close || "").trim()}`;
 }
 
 const FALLBACK_STRUCTURES = Object.freeze([
-  (opening, current, evidence, outlook, action, close) => composeFallbackParagraph(opening, current, evidence, outlook, action, close, { openingCurrent: "—", currentEvidence: ". ", evidenceOutlook: ". " }),
-  (opening, current, evidence, outlook, action, close) => composeFallbackParagraph(opening, current, evidence, outlook, action, close, { openingCurrent: ": ", currentEvidence: ". ", evidenceOutlook: ". " }),
-  (opening, current, evidence, outlook, action, close) => composeFallbackParagraph(opening, current, evidence, outlook, action, close, { openingCurrent: ". ", currentEvidence: ". ", evidenceOutlook: ". " }),
-  (opening, current, evidence, outlook, action, close) => composeFallbackParagraph(opening, current, evidence, outlook, action, close, { openingCurrent: "—", currentEvidence: "; ", evidenceOutlook: ". " }),
-  (opening, current, evidence, outlook, action, close) => composeFallbackParagraph(opening, current, evidence, outlook, action, close, { openingCurrent: ": ", currentEvidence: "; ", evidenceOutlook: ". " }),
-  (opening, current, evidence, outlook, action, close) => composeFallbackParagraph(opening, current, evidence, outlook, action, close, { openingCurrent: ". ", currentEvidence: "; ", evidenceOutlook: ". " }),
-  (opening, current, evidence, outlook, action, close) => composeFallbackParagraph(opening, current, evidence, outlook, action, close, { openingCurrent: "—", currentEvidence: "—", evidenceOutlook: ". " }),
-  (opening, current, evidence, outlook, action, close) => composeFallbackParagraph(opening, current, evidence, outlook, action, close, { openingCurrent: ": ", currentEvidence: "—", evidenceOutlook: ". " }),
-  (opening, current, evidence, outlook, action, close) => composeFallbackParagraph(opening, current, evidence, outlook, action, close, { openingCurrent: ". ", currentEvidence: "—", evidenceOutlook: ". " }),
-  (opening, current, evidence, outlook, action, close) => composeFallbackParagraph(opening, current, evidence, outlook, action, close, { openingCurrent: "—", currentEvidence: ". ", evidenceOutlook: "; " }),
-  (opening, current, evidence, outlook, action, close) => composeFallbackParagraph(opening, current, evidence, outlook, action, close, { openingCurrent: ": ", currentEvidence: ". ", evidenceOutlook: "; " }),
-  (opening, current, evidence, outlook, action, close) => composeFallbackParagraph(opening, current, evidence, outlook, action, close, { openingCurrent: ". ", currentEvidence: ". ", evidenceOutlook: "; " })
+  (opening, current, evidence, outlook, action, close, support) => composeFallbackParagraph(opening, current, evidence, outlook, action, close, { openingCurrent: "—", currentEvidence: ". ", evidenceOutlook: ". " }, support),
+  (opening, current, evidence, outlook, action, close, support) => composeFallbackParagraph(opening, current, evidence, outlook, action, close, { openingCurrent: ": ", currentEvidence: ". ", evidenceOutlook: ". " }, support),
+  (opening, current, evidence, outlook, action, close, support) => composeFallbackParagraph(opening, current, evidence, outlook, action, close, { openingCurrent: ". ", currentEvidence: ". ", evidenceOutlook: ". " }, support),
+  (opening, current, evidence, outlook, action, close, support) => composeFallbackParagraph(opening, current, evidence, outlook, action, close, { openingCurrent: "—", currentEvidence: "; ", evidenceOutlook: ". " }, support),
+  (opening, current, evidence, outlook, action, close, support) => composeFallbackParagraph(opening, current, evidence, outlook, action, close, { openingCurrent: ": ", currentEvidence: "; ", evidenceOutlook: ". " }, support),
+  (opening, current, evidence, outlook, action, close, support) => composeFallbackParagraph(opening, current, evidence, outlook, action, close, { openingCurrent: ". ", currentEvidence: "; ", evidenceOutlook: ". " }, support),
+  (opening, current, evidence, outlook, action, close, support) => composeFallbackParagraph(opening, current, evidence, outlook, action, close, { openingCurrent: "—", currentEvidence: "—", evidenceOutlook: ". " }, support),
+  (opening, current, evidence, outlook, action, close, support) => composeFallbackParagraph(opening, current, evidence, outlook, action, close, { openingCurrent: ": ", currentEvidence: "—", evidenceOutlook: ". " }, support),
+  (opening, current, evidence, outlook, action, close, support) => composeFallbackParagraph(opening, current, evidence, outlook, action, close, { openingCurrent: ". ", currentEvidence: "—", evidenceOutlook: ". " }, support),
+  (opening, current, evidence, outlook, action, close, support) => composeFallbackParagraph(opening, current, evidence, outlook, action, close, { openingCurrent: "—", currentEvidence: ". ", evidenceOutlook: "; " }, support),
+  (opening, current, evidence, outlook, action, close, support) => composeFallbackParagraph(opening, current, evidence, outlook, action, close, { openingCurrent: ": ", currentEvidence: ". ", evidenceOutlook: "; " }, support),
+  (opening, current, evidence, outlook, action, close, support) => composeFallbackParagraph(opening, current, evidence, outlook, action, close, { openingCurrent: ". ", currentEvidence: ". ", evidenceOutlook: "; " }, support)
 ]);
 
 function fallbackFactClauseVariants(context) {
@@ -1506,6 +1617,11 @@ function coachPresentationSeed(context) {
     outlook: context.includeOutlook ? Number(context.outlook.toFixed(3)) : null,
     outlookDirection: context.includeOutlook ? context.outlookDirection : null,
     trackerModifier: context.trackerModifier?.type || null,
+    relationshipSupport: context.relationshipSupport ? {
+      id: context.relationshipSupport.id,
+      kind: context.relationshipSupport.kind,
+      sourceHash: context.relationshipSupport.sourceHash
+    } : null,
     preference: context.preference?.kind || null,
     actionSemantic: context.actionSemantic
   })).digest("hex");
@@ -1645,6 +1761,7 @@ function buildContextualFallbackCandidates(context, previousMessages = [], limit
     ? (WRITER_SAFE_CLOSINGS[context.verdict] || WRITER_SAFE_CLOSINGS["not-good-enough"])
     : (FALLBACK_CLOSINGS[context.verdict] || FALLBACK_CLOSINGS["not-good-enough"]);
   const facts = fallbackFactClauseVariants(context);
+  const wordBounds = coachWordBounds(context);
   const presentationSeed = coachPresentationSeed(context);
   const start = stableIndex(`${presentationSeed}|fallback`, FALLBACK_STRUCTURES.length);
   const rejectionCounts = {};
@@ -1678,10 +1795,11 @@ function buildContextualFallbackCandidates(context, previousMessages = [], limit
               facts.evidence[evidenceIndex],
               facts.outlook[outlookIndex],
               realization.text,
-              closingEntry.text
+              closingEntry.text,
+              context.relationshipSupport?.text || ""
             ));
             const wordCount = coachWordCount(text);
-            if (wordCount < COACH_MIN_WORDS || wordCount > COACH_MAX_WORDS) {
+            if (wordCount < wordBounds.min || wordCount > wordBounds.max) {
               rejectionCounts["word-count"] = (rejectionCounts["word-count"] || 0) + 1;
               continue;
             }
@@ -1843,6 +1961,7 @@ function approvedCoachCopyComponents(context) {
     evidenceFacts: facts.evidence,
     outlookFacts: context?.includeOutlook ? facts.outlook.filter(Boolean) : [],
     modifiers: context?.trackerModifier?.text ? [context.trackerModifier.text] : [],
+    relationshipSupport: context?.relationshipSupport?.text ? [context.relationshipSupport.text] : [],
     closings: FALLBACK_CLOSINGS[context?.verdict] || FALLBACK_CLOSINGS["not-good-enough"]
   };
 }
@@ -1873,11 +1992,12 @@ function closedCoachGrammarErrors(text, context, selectedAction) {
   const outlook = components.outlookFacts.length ? slot("outlook-fact", components.outlookFacts) : null;
   let modifier = null;
   if (components.modifiers.length) modifier = slot("modifier", components.modifiers, false);
+  const relationshipSupport = components.relationshipSupport.length ? slot("relationship-support", components.relationshipSupport) : null;
   const actionStart = lower.indexOf(selectedAction.text.toLowerCase());
   const action = actionStart >= 0 ? { name: "action", text: selectedAction.text, start: actionStart, end: actionStart + selectedAction.text.length } : null;
   if (!action) errors.push("closed-action");
   const closing = slot("closing", components.closings);
-  const ordered = [opening, current, evidence, outlook, modifier, action, closing].filter(Boolean);
+  const ordered = [opening, current, evidence, outlook, modifier, relationshipSupport, action, closing].filter(Boolean);
   if (ordered.length >= 2) {
     if (source.slice(0, ordered[0].start).trim() || source.slice(ordered.at(-1).end).trim()) errors.push("closed-copy-residue");
     for (let index = 1; index < ordered.length; index += 1) {
@@ -1899,7 +2019,7 @@ function closedCoachGrammarErrors(text, context, selectedAction) {
       if (!allowed) errors.push(`closed-separator-${prior.name}-${next.name}`);
     }
   }
-  const expectedNames = ["opening", "current-fact", "evidence-fact", ...(outlook ? ["outlook-fact"] : []), ...(modifier ? ["modifier"] : []), "action", "closing"];
+  const expectedNames = ["opening", "current-fact", "evidence-fact", ...(outlook ? ["outlook-fact"] : []), ...(modifier ? ["modifier"] : []), ...(relationshipSupport ? ["relationship-support"] : []), "action", "closing"];
   if (ordered.map((entry) => entry.name).join("|") !== expectedNames.join("|")) errors.push("closed-slot-order");
   return Array.from(new Set(errors));
 }
@@ -1922,12 +2042,15 @@ function validateCoachParagraph(text, context, previousMessages = [], options = 
   const paragraph = normalizeCoachParagraph(text);
   const errors = [];
   const words = coachWordCount(paragraph);
+  const wordBounds = coachWordBounds(context);
   if (/[\r\n]/.test(String(text || ""))) errors.push("multiline");
-  if (words < COACH_MIN_WORDS || words > COACH_MAX_WORDS) errors.push("word-count");
-  const unsafe = /\b(?:obese|fat|body|lazy|disgusting|failure|worthless|worth|bmi|jyp|korean idol|fast|fasting|starve|starving|skip(?:ping)?(?:\s+(?:a|the))?\s+meals?|purge|purging|compensat\w*|punish\w*|restrict\w*|under-?eat\w*|overexercis\w*|excessive exercise|depriv\w*|guilt|shame|diagnos\w*|clinical label|private health label)\b/i;
+  if (words < wordBounds.min || words > wordBounds.max) errors.push("word-count");
+  const unsafe = /\b(?:obese|fat|body|lazy|disgusting|failure|worthless|worth|bmi|jyp|korean idol|fast|fasting|starve|starving|skip(?:ping)?(?:\s+(?:a|the))?\s+meals?|purge|purging|compensat\w*|punish\w*|restrict\w*|under-?eat\w*|overexercis\w*|excessive exercise|depriv\w*|guilt|shame|diagnos\w*|clinical label|private health label|suicid\w*|self[- ]?harm\w*|depress\w*|anxi\w*|dysphoria|adhd|autis\w*|break\s*up|block(?:ed|ing)?\s+me|sexual|attract\w*)\b/i;
   if (unsafe.test(paragraph) || containsPrivateCoachBlockedTerm(paragraph)) errors.push("unsafe-language");
   errors.push(...supportiveCoachStyleErrors(paragraph));
   if (/\b(?:horn\w*|sex(?:ual)?|ovulat\w*|conflict|phone|address|relationship|appearance)\b/i.test(paragraph)) errors.push("private-context-leak");
+  if (context?.relationshipSupport && countLiteralOccurrences(paragraph, context.relationshipSupport.text) !== 1) errors.push("relationship-support");
+  if (!context?.relationshipSupport && /\b(?:boyfriend|yapp\w*|league nights?)\b/i.test(paragraph)) errors.push("unsupported-relationship-copy");
   if (/[\u00e2\u00c3\u00c2\ufffd]/.test(paragraph)) errors.push("mojibake");
   if (/\b(?:safety-held|high-safe-urgency|steady-safe)\b/i.test(paragraph)) errors.push("private-strategy-leak");
   if (/\b(?:goal|goal weight|internal target|target weight)\b/i.test(paragraph)) errors.push("goal-reference");
@@ -1939,7 +2062,10 @@ function validateCoachParagraph(text, context, previousMessages = [], options = 
   const recognizedActions = recognizedActionMatches(paragraph);
   if (context && !actionMatch) errors.push(recognizedActions.length > 1 ? "multiple-actions" : "required-action-realization");
   if (context) {
-    const withoutSelectedAction = paragraph.replace(actionMatch?.text || "", "").replace(context.trackerModifier?.text || "", "");
+    const withoutSelectedAction = paragraph
+      .replace(actionMatch?.text || "", "")
+      .replace(context.trackerModifier?.text || "", "")
+      .replace(context.relationshipSupport?.text || "", "");
     if (containsAdditionalBehaviorAction(withoutSelectedAction)) errors.push("extra-action");
     errors.push(...closedCoachGrammarErrors(paragraph, context, actionMatch));
   }
@@ -2126,6 +2252,7 @@ function publicCoachFacts(context) {
   return {
     analysis: context.analysisPlan,
     periodModifier: context.trackerModifier?.text || null,
+    relationshipSupport: context.relationshipSupport ? { kind: context.relationshipSupport.kind, approvedText: context.relationshipSupport.text } : null,
     communicationStyle: "warm, clear, hopeful, low-overwhelm, data-directed, and non-coercive",
     urgency: "one doable next action with no alarm, rejection, or pressure",
     approvedCopyComponents: approvedCoachCopyComponents(context)
@@ -2140,6 +2267,7 @@ function criticCoachFacts(context) {
     relationToPrior: context.analysisPlan.relationToPrior,
     outlook: context.analysisPlan.outlook,
     periodModifier: context.trackerModifier?.text || null,
+    relationshipSupport: context.relationshipSupport ? { kind: context.relationshipSupport.kind, approvedText: context.relationshipSupport.text } : null,
     communicationStyle: "warm, clear, hopeful, low-overwhelm, data-directed, and non-coercive",
     urgency: "one doable next action with no alarm, rejection, or pressure"
   };
@@ -2243,6 +2371,7 @@ async function generateCoachParagraph(context, previousMessages = [], options = 
     if (remaining <= 0) throw new Error("coach model timeout");
     return Math.max(1, remaining);
   };
+  const wordBounds = coachWordBounds(context);
   const fallback = buildContextualFallbackResult(context, previousMessages);
   const configuredKey = Object.prototype.hasOwnProperty.call(options, "apiKey") ? options.apiKey : openaiApiKey;
   if (!configuredKey) {
@@ -2278,9 +2407,10 @@ async function generateCoachParagraph(context, previousMessages = [], options = 
     try {
       const system = [
         "Select three genuinely different evidence-first, warm fitness-coach paragraphs for Lily from the supplied approved candidate pool and return only the required JSON.",
-        `Each candidate must be ${COACH_MIN_WORDS}-${COACH_MAX_WORDS} words in one paragraph.`,
+        `Each candidate must be ${wordBounds.min}-${wordBounds.max} words in one paragraph.`,
         "Copy each selected candidate exactly. Every pool entry has already passed the factual, one-action, privacy, safety, originality, and closed-grammar checks.",
         "Prefer candidates whose framing makes the strongest new evidence and its relationship to the prior read immediately clear while keeping the result about data, never Lily's worth or identity.",
+        "When an approved relationship-support sentence is present, preserve it exactly as a brief unconditional reminder of connection; never invent, expand, diagnose, sexualize, or make affection conditional on weight.",
         "Use three different openings, closings, structures, and action realizations when the pool permits.",
         "Every pool entry already satisfies the recent-message originality and action-cooldown gates.",
         "Never mention a goal, target weight, private strategy, BMI, diagnosis, mental-health context, appearance, worth, fasting, skipped meals, restriction, compensation, punishment, JYP, or idol training. Never select alarmist, rejecting, coercive, all-caps, or exclamation-heavy copy."
@@ -2331,7 +2461,7 @@ async function generateCoachParagraph(context, previousMessages = [], options = 
       const criticText = await requestCoachResponse([
         {
           role: "system",
-          content: "Select exactly one of the three alternatives that makes the strongest new story clearest, then independently evaluate all six critic checks for that selected candidate only. Never combine the alternatives or count language from an unselected candidate; they are separate paragraph choices. Every candidate has already passed deterministic fact, evidence, verdict, single-action, privacy, safety, style, and originality checks. Approve only if every check passes for the selected candidate; reject with a concrete reason for any failed check. For verdict, FACTS.verdict is an internal classification, not required copy. verdictEvidence.approvedFamilyOpening is an exact deterministic family check. Set verdict=true when it is true unless the paragraph praises an adverse result, condemns a good-progress result, treats a verify outlier as settled, or claims a trend from a baseline. For privacySafety, reject diagnosis references, mental-health labels, alarmist framing, rejection-coded language, coercion, shame, blame, all-caps pressure, or exclamation overload even when the facts are correct. For actionCompliance, inspect only the selected annotatedText. The one instruction is enclosed once by <approved_action> tags. Set actionCompliance=true when text outside those tags has no additional concrete instruction. The tags are critic-only metadata. Never count factual weight-change language, comparison material, or an unselected alternative. Ingredients and flavor inside the marked sentence are one instruction. For originality, use originalityEvidence as exact measurements: set originality=true when every freshness/cooldown flag is true and maxOrderedTrigramSimilarity is below rejectionThreshold. Do not subjectively reject required facts or similarities already below that threshold. If all six checks pass, return approved=true, the selected index, and reasonCode approved. Return only the required JSON."
+          content: "Select exactly one of the three alternatives that makes the strongest new story clearest, then independently evaluate all six critic checks for that selected candidate only. Never combine the alternatives or count language from an unselected candidate; they are separate paragraph choices. Every candidate has already passed deterministic fact, evidence, verdict, single-action, privacy, safety, style, originality, and closed-copy checks. Approve only if every check passes for the selected candidate; reject with a concrete reason for any failed check. For verdict, FACTS.verdict is an internal classification, not required copy. verdictEvidence.approvedFamilyOpening is an exact deterministic family check. Set verdict=true when it is true unless the paragraph praises an adverse result, condemns a good-progress result, treats a verify outlier as settled, or claims a trend from a baseline. For privacySafety, reject diagnosis references, mental-health labels, alarmist framing, rejection-coded language, coercion, shame, blame, all-caps pressure, exclamation overload, sexual detail, conditional affection, or invented relationship claims. An exact FACTS.relationshipSupport.approvedText is allowed when present and must not be expanded. For actionCompliance, inspect only the selected annotatedText. The one instruction is enclosed once by <approved_action> tags. Set actionCompliance=true when text outside those tags has no additional concrete instruction. The tags are critic-only metadata. Never count factual weight-change language, comparison material, an approved relationship-support sentence, or an unselected alternative. Ingredients and flavor inside the marked sentence are one instruction. For originality, use originalityEvidence as exact measurements: set originality=true when every freshness/cooldown flag is true and maxOrderedTrigramSimilarity is below rejectionThreshold. Do not subjectively reject required facts or similarities already below that threshold. If all six checks pass, return approved=true, the selected index, and reasonCode approved. Return only the required JSON."
         },
         {
           role: "user",
@@ -2522,6 +2652,55 @@ function refreshLatestCoachForSavedMemories(store, memoryIds, personalContextCut
   return { store: nextStore, updated: true, weightId: latestWeight.id, latestCoach: publicCoach(replacement) };
 }
 
+function refreshLatestCoachForBrainRelationship(store, relationshipSupport, status = "fallback-brain-relationship", operationalNow = Date.now()) {
+  const latestWeight = (Array.isArray(store.weights) ? store.weights : [])
+    .slice()
+    .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)) || String(right.id).localeCompare(String(left.id)))[0];
+  if (!latestWeight || !relationshipSupport?.id || !relationshipSupport?.text) {
+    return { store, updated: false, alreadyCurrent: false, weightId: latestWeight?.id || "", latestCoach: publicCoach(latestWeight ? coachForWeight(store, latestWeight.id) : null) };
+  }
+  const existing = coachForWeight(store, latestWeight.id);
+  const alreadyCurrent = Boolean(existing?.evidenceReferences?.some((reference) => reference.type === "brain-letter" && reference.id === relationshipSupport.id));
+  if (alreadyCurrent) return { store, updated: false, alreadyCurrent: true, weightId: latestWeight.id, latestCoach: publicCoach(existing) };
+  const weightTime = Date.parse(latestWeight.createdAt);
+  const supportTime = Date.parse(relationshipSupport.createdAt);
+  const now = Number(operationalNow);
+  if (!Number.isFinite(weightTime) || !Number.isFinite(supportTime) || !Number.isFinite(now)
+    || supportTime < weightTime || supportTime - weightTime > COACH_REACTION_REFRESH_MAX_AGE_MS
+    || supportTime > now || now - supportTime > BRAIN_RELATIONSHIP_MAX_AGE_MS
+    || !brainRelationshipSupportAvailable(store, relationshipSupport, latestWeight.id)) {
+    return { store, updated: false, alreadyCurrent: false, weightId: latestWeight.id, latestCoach: publicCoach(existing) };
+  }
+
+  const personalContextCutoff = latestCoachPersonalContextCutoff(store, existing);
+  const context = buildCoachContext(store, latestWeight.id, {
+    privateGoal: privateCoachGoal,
+    personalContextCutoff: Number.isFinite(personalContextCutoff) ? personalContextCutoff : undefined,
+    relationshipSupport
+  });
+  if (!context) return { store, updated: false, alreadyCurrent: false, weightId: latestWeight.id, latestCoach: publicCoach(existing) };
+  const previousMessages = causalPreviousCoachMessages(store, latestWeight, 10);
+  const fallback = buildContextualFallbackResult(context, previousMessages);
+  const replacement = createCoachMessageRecord(context, fallback.text, status, new Date(now).toISOString(), existing, {
+    action: fallback.action,
+    structureId: fallback.structureId,
+    previousMessages,
+    diagnostics: generationDiagnostics("brain-relationship", 0, [], now)
+  });
+  const nextStore = {
+    ...store,
+    coachMessages: [replacement, ...(store.coachMessages || []).filter((message) => message.id !== existing?.id && message.weightId !== latestWeight.id)]
+  };
+  return {
+    store: nextStore,
+    updated: true,
+    alreadyCurrent: false,
+    weightId: latestWeight.id,
+    latestCoach: publicCoach(replacement),
+    personalContextCutoff
+  };
+}
+
 function jsonHash(value) {
   return crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
@@ -2668,21 +2847,38 @@ async function backfillCoachMessages() {
 
 async function generateAndReplaceCoach(weightId, options = {}) {
   const snapshot = await readStore();
-  const context = buildCoachContext(snapshot, weightId, {
+  const baseContext = buildCoachContext(snapshot, weightId, {
     privateGoal: Object.prototype.hasOwnProperty.call(options, "privateGoal") ? options.privateGoal : privateCoachGoal,
     personalContextCutoff: options.personalContextCutoff
   });
+  const currentWeight = (snapshot.weights || []).find((weight) => weight.id === weightId);
+  const relationshipCutoff = Number.isFinite(Number(options.relationshipContextCutoff))
+    ? Number(options.relationshipContextCutoff)
+    : Date.parse(currentWeight?.createdAt);
+  const relationshipSupport = Object.prototype.hasOwnProperty.call(options, "relationshipSupport")
+    ? options.relationshipSupport
+    : await fetchLatestBrainRelationshipSupport(snapshot, {
+      cutoff: relationshipCutoff,
+      operationalNow: Date.now(),
+      excludedWeightId: weightId
+    });
+  const context = relationshipSupport ? buildCoachContext(snapshot, weightId, {
+    privateGoal: Object.prototype.hasOwnProperty.call(options, "privateGoal") ? options.privateGoal : privateCoachGoal,
+    personalContextCutoff: options.personalContextCutoff,
+    relationshipSupport
+  }) : baseContext;
   const fallbackRecord = coachForWeight(snapshot, weightId);
   if (!context || !fallbackRecord) return publicCoach(fallbackRecord);
-  const currentWeight = (snapshot.weights || []).find((weight) => weight.id === weightId);
   const previousMessages = causalPreviousCoachMessages(snapshot, currentWeight, 10);
   const result = await generateCoachParagraph(context, previousMessages, options);
+  const expectedContextHashes = new Set([baseContext?.contextHash, context.contextHash].filter(Boolean));
   if (result.status.startsWith("fallback-")) {
     let savedFallback = fallbackRecord;
     await writeStore((store) => {
       const existing = coachForWeight(store, weightId);
       const weightStillExists = (store.weights || []).some((weight) => weight.id === weightId);
-      if (!existing || !weightStillExists || existing.contextHash !== context.contextHash) return store;
+      if (!existing || !weightStillExists || !expectedContextHashes.has(existing.contextHash)) return store;
+      if (relationshipSupport && !brainRelationshipSupportAvailable(store, relationshipSupport, weightId)) return store;
       savedFallback = createCoachMessageRecord(context, result.text, result.status, new Date().toISOString(), existing, {
         action: result.action,
         structureId: result.structureId,
@@ -2702,7 +2898,8 @@ async function generateAndReplaceCoach(weightId, options = {}) {
   await writeStore((store) => {
     const existing = coachForWeight(store, weightId);
     const weightStillExists = (store.weights || []).some((weight) => weight.id === weightId);
-    if (!existing || !weightStillExists || existing.contextHash !== context.contextHash) return store;
+    if (!existing || !weightStillExists || !expectedContextHashes.has(existing.contextHash)) return store;
+    if (relationshipSupport && !brainRelationshipSupportAvailable(store, relationshipSupport, weightId)) return store;
     saved = createCoachMessageRecord(context, result.text, result.status, new Date().toISOString(), existing, {
       action: result.action,
       structureId: result.structureId,
@@ -3229,6 +3426,70 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  if (pathname === "/api/coach/refresh-brain-relationship" && req.method === "POST") {
+    const body = await readJson(req);
+    const expected = body.expected && typeof body.expected === "object" ? body.expected : {};
+    const expectedCoach = body.expectedCoach && typeof body.expectedCoach === "object" ? body.expectedCoach : {};
+    const operationalNow = Date.now();
+    const initialStore = await readStore();
+    const initialSnapshot = coachRefreshPreservationSnapshot(initialStore);
+    assertExpectedCoachRefreshState(initialSnapshot, expected, expectedCoach);
+    const relationshipSupport = await fetchLatestBrainRelationshipSupport(initialStore, {
+      cutoff: operationalNow,
+      operationalNow,
+      excludedWeightId: initialSnapshot.targetWeightId
+    });
+    if (!relationshipSupport) {
+      throw Object.assign(new Error("No recent eligible Brain letter was available for a safe one-use connection note."), { status: 409 });
+    }
+
+    let baseline = null;
+    let prepared = null;
+    let backupFile = "";
+    await writeStore(async (store) => {
+      baseline = coachRefreshPreservationSnapshot(store);
+      assertExpectedCoachRefreshState(baseline, expected, expectedCoach);
+      prepared = refreshLatestCoachForBrainRelationship(store, relationshipSupport, "fallback-brain-relationship-maintenance", operationalNow);
+      if (!prepared.updated) {
+        if (prepared.alreadyCurrent) return store;
+        throw Object.assign(new Error("The recent Brain letter was not eligible for the latest coach."), { status: 409 });
+      }
+      const backupsDir = path.join(dataDir, "backups");
+      await fsp.mkdir(backupsDir, { recursive: true });
+      backupFile = `store-before-brain-relationship-${new Date().toISOString().replace(/[:.]/g, "-")}-${crypto.randomBytes(3).toString("hex")}.json`;
+      await fsp.copyFile(storePath, path.join(backupsDir, backupFile));
+      assertCoachRefreshPreserved(baseline, coachRefreshPreservationSnapshot(prepared.store, prepared.weightId));
+      return prepared.store;
+    });
+
+    if (prepared?.updated) {
+      await generateAndReplaceCoach(prepared.weightId, {
+        personalContextCutoff: Number.isFinite(prepared.personalContextCutoff) ? prepared.personalContextCutoff : undefined,
+        relationshipContextCutoff: operationalNow,
+        relationshipSupport
+      });
+    }
+    const finalStore = await readStore();
+    const finalSnapshot = coachRefreshPreservationSnapshot(finalStore, prepared?.weightId || baseline?.targetWeightId);
+    assertCoachRefreshPreserved(baseline, finalSnapshot);
+    const finalRecord = coachForWeight(finalStore, finalSnapshot.targetWeightId);
+    const brainReferenced = Boolean(finalRecord?.evidenceReferences?.some((reference) => reference.type === "brain-letter" && reference.id === relationshipSupport.id));
+    if (!brainReferenced || !finalRecord?.text?.includes(relationshipSupport.text)) {
+      throw Object.assign(new Error("The refreshed coach did not retain the safe Brain relationship signal."), { status: 409 });
+    }
+    send(res, 200, {
+      updated: Boolean(prepared?.updated),
+      alreadyCurrent: Boolean(prepared?.alreadyCurrent),
+      latestCoach: publicCoach(finalRecord),
+      status: finalRecord?.status || "missing",
+      brainReferenced,
+      backup: backupFile || null,
+      counts: finalSnapshot.counts,
+      preserved: true
+    });
+    return;
+  }
+
   if (pathname === "/api/coach/refresh-style" && req.method === "POST") {
     const body = await readJson(req);
     const expected = body.expected && typeof body.expected === "object" ? body.expected : {};
@@ -3649,11 +3910,15 @@ if (process.env.NODE_ENV === "test" || process.env.LILY_COACH_CLI === "1") {
     COACH_GENERATION_VERSION,
     COACH_MAX_WORDS,
     COACH_MIN_WORDS,
+    COACH_RELATIONSHIP_MAX_WORDS,
+    COACH_RELATIONSHIP_MIN_WORDS,
     COACH_REACTION_MAX_AGE_MS,
     COACH_REACTION_REFRESH_MAX_AGE_MS,
     COACH_STYLE_VERSION,
     COACH_VALIDATOR_VERSION,
     COACH_WRITER_PROMPT_VERSION,
+    BRAIN_RELATIONSHIP_MAX_AGE_MS,
+    BRAIN_RELATIONSHIP_COPY,
     FALLBACK_CLOSINGS,
     FALLBACK_OPENINGS,
     FALLBACK_STRUCTURES,
@@ -3665,6 +3930,8 @@ if (process.env.NODE_ENV === "test" || process.env.LILY_COACH_CLI === "1") {
     assertExpectedCoachRefreshState,
     backfillCoachMessages,
     buildCoachContext,
+    brainRelationshipSupportAvailable,
+    brainRelationshipSupportFromFile,
     buildContextualFallback,
     buildContextualFallbackCandidates,
     buildContextualFallbackResult,
@@ -3672,12 +3939,14 @@ if (process.env.NODE_ENV === "test" || process.env.LILY_COACH_CLI === "1") {
     coachForWeight,
     coachRefreshPreservationSnapshot,
     coachWordCount,
+    coachWordBounds,
     criticCandidatePayload,
     criticCoachFacts,
     createCoachMessageRecord,
     ensureDataDir,
     fallbackFactClauseVariants,
     fallbackFactClauses,
+    fetchLatestBrainRelationshipSupport,
     coachPresentationSeed,
     generateAndReplaceCoach,
     generateCoachParagraph,
@@ -3699,10 +3968,12 @@ if (process.env.NODE_ENV === "test" || process.env.LILY_COACH_CLI === "1") {
     refreshLatestWeightOnlyCoach,
     refreshIfLatestCoachReferences,
     refreshLatestCoachForSavedMemories,
+    refreshLatestCoachForBrainRelationship,
     refreshLatestCoachStyleInStore,
     removeWeightAndCoach,
     observerCareSignal,
     reportedCoachEffort,
+    referencedBrainLetterIds,
     selectSavedPreference,
     selectStrongestCoachEvidence,
     similarityScore,

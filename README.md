@@ -36,13 +36,15 @@ Set `public/config.js` to an empty API base for same-origin local API testing, o
 
 The one-year trend outlook calculates one point for every calendar-day median using only the measurements available through that date. The existing causal annual target remains bounded by the robust walk-forward model and momentum diagnostics. The displayed annual series has no retained velocity: confirmed multi-reading evidence moves 30% toward the current target with a 2 lb cap, while weak, flat, isolated, or reversal evidence moves 25% with a 0.75 lb cap. Every step moves toward its current target without overshoot. The current headline exactly matches the final plotted point.
 
-Every weigh-in first persists a deterministic, contextual 35–55-word fallback paragraph. Model generation happens outside the write lock, uses only selected source facts, and is accepted only after deterministic validation plus a second critic pass. Invalid numbers, unsafe advice, sensitive tracker context, repetition, multiline output, timeouts, and private-strategy leakage retain the safe fallback. Public weight responses expose only `latestCoach: { weightId, text, createdAt }`; evidence references and generation metadata stay in the private store.
+Every weigh-in first persists a deterministic, contextual 35–55-word fallback paragraph. A one-use relationship-support sentence may extend a timely memo to 45–80 words. Model generation happens outside the write lock, uses only selected source facts, and is accepted only after deterministic validation plus a second critic pass. Invalid numbers, unsafe advice, sensitive tracker context, repetition, multiline output, timeouts, and private-strategy leakage retain the safe fallback. Public weight responses expose only `latestCoach: { weightId, text, createdAt }`; evidence references and generation metadata stay in the private store.
 
 Coach language stays warm, clear, hopeful, and low-overwhelm while keeping the data verdict unmistakable. Worsening evidence is framed as a result that needs a reset, never as rejection of Lily; every paragraph preserves agency, avoids alarmist all-caps or coercive pressure, and gives exactly one doable action. Private health or diagnostic context is not copied into messages, APIs, logs, source constants, Spec, Progress, or papers. The coach supports sustainable momentum rather than promoting rapid-loss promises, fasting, meal skipping, restriction, or compensatory exercise.
 
 A recent direct note reporting Lily's own safe hydration, vegetable, protein, or comfortable-movement effort can tailor one current or next coach action. The server maps the note to an approved semantic action without sending or echoing its raw text, records the memory reference, refreshes only a timely latest coach record, and consumes transient reactions once. Saved reactions never alter verdicts, weight evidence, forecasts, charts, or earlier coach records; unrelated, stale, sensitive, medical, or unsafe notes remain stored but are excluded from coaching.
 
 A recent note can also carry one explicitly attributed, non-clinical observation that Alan noticed Lily seems off and wants her to feel seen. That observation may add one warm acknowledgment plus one easy, safe action to the timely current or next coach message. It does not claim a conflict caused her mood, diagnose her, soften the weight verdict, or change any forecast; the raw note remains private to the memory store and the acknowledgment is consumed after one use.
+
+A recent Alan-authored Brain letter addressed to Lily may contribute one short, pre-approved sentence of authentic boyfriend connection to a timely memo. The server recognizes only a narrow set of relationship-safe signals, immediately reduces them to fixed copy, and never sends, persists, logs, or exposes the raw letter. Sensitive details, diagnoses, sexual material, breakup fears, conditional affection, and weight-linked relationship claims are ineligible. One Brain letter can appear in only one memo and cannot alter the verdict, evidence, action, forecast, chart geometry, or public API shape. Brain downtime leaves the ordinary evidence-first coach path unchanged.
 
 The weight card is ordered for one screenshot: latest weight and compact outlook, one coach paragraph, actual weight versus time, one-year trend outlook versus time, then the entry form. The actual chart uses only measured weights and their robust trend. The outlook chart has its own scale and directly labels its current value and direction. Photos, videos, tracker history, bottom weight history, delete controls, and the centered media/right-rail layout remain separate and preserved.
 
@@ -55,6 +57,8 @@ Railway variables:
 - `SESSION_SECRET`
 - `OPENAI_API_KEY`
 - `LILY_INTERNAL_GOAL_LB=<private server-only value>`
+- `BRAIN_API_BASE=<private Brain service base URL>`
+- `LILY_BRAIN_TIMEOUT_MS=2000`
 - `ALLOWED_ORIGINS=https://lily.aolabs.io,http://localhost:3000,http://127.0.0.1:3000`
 
 ## Deploy To GitHub Pages
