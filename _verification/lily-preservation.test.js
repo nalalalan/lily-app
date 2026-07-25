@@ -5,6 +5,7 @@ const vm = require("node:vm");
 
 const root = path.join(__dirname, "..");
 const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
 const styles = fs.readFileSync(path.join(root, "public", "styles.css"), "utf8");
 const index = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
 
@@ -77,7 +78,25 @@ assert.ok(saveWeightStart > 0 && saveWeightEnd > saveWeightStart, "the save path
 assert.ok(saveWeight.includes("state.weights = mergeSavedWeight(state.weights, result.weight)"), "the POST response must update the weight and charts without a second fetch");
 assert.ok(saveWeight.includes("const analysis = beginCoachAnalysis(result.weight?.id, fallbackCoach)"), "the saved weight must enter the bounded analyzing state");
 assert.ok(saveWeight.indexOf("renderWeights()") < saveWeight.indexOf("pollCoachReplacement(analysis)"), "the saved weight and charts must render before background polling begins");
+assert.ok(saveWeight.includes("scheduleCoachContextFollowups(result.weight?.id)"), "the save path must revisit private context after delayed Brain indexing instead of taking one shot");
 assert.ok(!saveWeight.includes("await loadWeights()"), "the immediate saved-weight render must not wait for a follow-up GET");
+const contextFollowupsMatch = app.match(/const COACH_CONTEXT_FOLLOWUP_MS = Object\.freeze\(\[([^\]]+)\]\);/);
+assert.ok(contextFollowupsMatch, "late private-context reconciliation must use explicit follow-up checkpoints");
+const contextFollowups = contextFollowupsMatch[1].split(",").map((value) => Number(value.trim()));
+assert(contextFollowups.some((value) => value >= 60000), "a follow-up must outlast Brain's observed 51-second indexing delay");
+assert(contextFollowups.at(-1) >= 300000, "browser reconciliation must cover the full bounded five-minute Brain indexing window");
+const followupStart = app.indexOf("function scheduleCoachContextFollowups(weightId)");
+const followupEnd = app.indexOf("function mergeSavedWeight", followupStart);
+const followup = app.slice(followupStart, followupEnd);
+assert.ok(followup.includes("String(latestWeight.id) !== expectedWeightId"), "a delayed follow-up cannot rewrite a newer weigh-in");
+assert.ok(followup.includes("loadWeights({ silent: true })"), "late context refresh must remain quiet and update from persisted server truth");
+assert.ok(server.includes("scheduleBrainContextReconciliation(created.id)"), "the server must retry Brain reconciliation even if the browser closes");
+assert.ok(server.includes("await reconcileLatestCoachBrainContext()"), "authenticated weight reads must repair a missed delayed Brain source");
+assert.ok(server.includes("BRAIN_WEIGHT_INDEX_GRACE_MS = 5 * 60 * 1000"), "Brain processing timestamps need a bounded post-weight grace window");
+assert.ok(server.includes("BRAIN_CONTEXT_RECHECK_MS = Object.freeze([15 * 1000, 65 * 1000, 150 * 1000, 310 * 1000])"), "server reconciliation must survive through the entire bounded indexing window even if the browser closes");
+assert.ok(server.includes('String(file?.kind || "").trim().toLowerCase() === "generated pdf"'), "only authored Brain-note records can supply authentic voice cues");
+assert.ok(server.includes("brainSourceWithinWeightWindow(initialWeight, relationshipSupport, operationalNow)"), "manual maintenance and automatic reconciliation must share the same bounded source window");
+assert.ok(!server.includes("generateAndReplaceCoach(created.id).catch(() => {})"), "terminal coach failures cannot remain silently swallowed");
 
 const saveMemoryStart = app.indexOf("async function saveMemory(event)");
 const saveMemoryEnd = app.indexOf("async function saveWeight(event)", saveMemoryStart);
@@ -273,12 +292,11 @@ assert.match(liveAcceptance.tooltip, /one-year trend outlook 145\.4 lb/);
 assert.match(liveAcceptance.ariaLabel, /Exact current endpoint 145\.4 lb\. The latest outlook worsened 0\.8 lb since Jul 20\./);
 assert.doesNotMatch(liveAcceptance.ariaLabel, /[↑↓→]/, "accessibility text must say improved, worsened, or held instead of relying on glyphs");
 
-const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
 const weightPostStart = server.indexOf('if (pathname === "/api/weights" && req.method === "POST")');
 const weightPostEnd = server.indexOf('if (pathname === "/api/memories" && req.method === "POST")', weightPostStart);
 const weightPost = server.slice(weightPostStart, weightPostEnd);
 assert.ok(weightPost.indexOf("send(res, 201") < weightPost.indexOf("setImmediate"), "the durable fallback must return before background model generation");
-assert.ok(weightPost.includes("generateAndReplaceCoach(created.id).catch(() => {})"), "background coach generation must not turn a saved weigh-in into an HTTP failure");
+assert.ok(weightPost.includes('console.warn("Lily coach generation failed", String(error?.name || "error"))'), "background coach generation must remain non-blocking while recording only a sanitized failure stage");
 assert.ok(server.includes('pathname === "/api/coach/refresh-saved-context"'), "an authenticated in-process route can safely refresh a note saved before this behavior shipped");
 assert.ok(server.includes('pathname === "/api/coach/refresh-style"'), "an authenticated exact-preservation route can refresh only the latest coach style");
 assert.ok(server.includes("assertExpectedCoachRefreshState(baseline, expected, expectedCoach)"), "the one-time live refresh requires an exact production identity and count baseline");

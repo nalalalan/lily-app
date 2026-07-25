@@ -336,14 +336,17 @@ async function run() {
   ].join(" ");
   const brainFile = {
     id: "brain-letter-one",
+    name: "brain-text-20260722-160100.pdf",
+    mime: "application/pdf",
     kind: "generated pdf",
+    generatedNoteLayoutVersion: "test-authored-note-v1",
     sourceText: rawBrainLetter,
-    sourceCreatedAt: "2026-07-23T08:39:02.459Z",
-    createdAt: "2026-07-23T08:39:02.459Z"
+    sourceCreatedAt: "2026-07-22T16:01:02.459Z",
+    createdAt: "2026-07-22T16:01:02.459Z"
   };
   const brainSupport = coach.brainRelationshipSupportFromFile(brainFile, {
-    cutoff: Date.parse("2026-07-23T09:00:00.000Z"),
-    operationalNow: Date.parse("2026-07-23T09:00:00.000Z")
+    cutoff: Date.parse("2026-07-22T16:02:00.000Z"),
+    operationalNow: Date.parse("2026-07-22T16:02:00.000Z")
   });
   assert.deepEqual(brainSupport, {
     id: brainFile.id,
@@ -358,14 +361,14 @@ async function run() {
     observedMoodRefresh.store,
     brainSupport,
     "fallback-test-brain-relationship",
-    Date.parse("2026-07-23T09:00:00.000Z")
+    Date.parse("2026-07-22T16:02:00.000Z")
   );
   assert.equal(brainRefresh.updated, true, "a fresh letter can add one relationship-safe sentence to the latest coach");
   const brainCoach = coach.coachForWeight(brainRefresh.store, reactionWeight.id);
   assert.equal(brainCoach.id, observedMoodCoach.id, "Brain warmth refresh preserves the coach id");
   assert.equal(brainCoach.createdAt, observedMoodCoach.createdAt, "Brain warmth refresh preserves coach creation time");
   assert.equal((brainCoach.text.match(/Your nerdy PhD boyfriend/g) || []).length, 1);
-  assert(brainCoach.evidenceReferences.some((reference) => reference.type === "brain-letter" && reference.id === brainFile.id && reference.sourceHash === brainSupport.sourceHash));
+  assert(brainCoach.evidenceReferences.some((reference) => reference.type === "brain-letter" && reference.id === brainFile.id && reference.sourceHash === brainSupport.sourceHash && reference.sourceCreatedAt === brainSupport.createdAt));
   assert(!JSON.stringify(brainCoach).includes(rawBrainLetter), "the raw Brain letter is never persisted in the coach record");
   const brainContext = coach.buildCoachContext(brainRefresh.store, reactionWeight.id, {
     privateGoal: 117,
@@ -387,7 +390,7 @@ async function run() {
     brainRefresh.store,
     brainSupport,
     "fallback-test-brain-relationship",
-    Date.parse("2026-07-23T09:01:00.000Z")
+    Date.parse("2026-07-22T16:03:00.000Z")
   );
   assert.equal(repeatedBrainRefresh.updated, false);
   assert.equal(repeatedBrainRefresh.alreadyCurrent, true, "the same Brain relationship refresh is idempotent");
@@ -395,19 +398,155 @@ async function run() {
   assert.equal(await coach.fetchLatestBrainRelationshipSupport(brainRefresh.store, {
     apiBase: "https://brain.test",
     fetchImpl: mockedBrainFetch,
-    cutoff: Date.parse("2026-07-23T09:00:00.000Z"),
-    operationalNow: Date.parse("2026-07-23T09:00:00.000Z")
+    cutoff: Date.parse("2026-07-22T16:02:00.000Z"),
+    operationalNow: Date.parse("2026-07-22T16:02:00.000Z")
   }), null, "a Brain letter already used once is skipped on future coaching");
   assert.equal(await coach.fetchLatestBrainRelationshipSupport(observedMoodRefresh.store, {
     apiBase: "https://brain.test",
     fetchImpl: async () => { throw new Error("offline"); },
-    cutoff: Date.parse("2026-07-23T09:00:00.000Z"),
-    operationalNow: Date.parse("2026-07-23T09:00:00.000Z")
+    cutoff: Date.parse("2026-07-22T16:02:00.000Z"),
+    operationalNow: Date.parse("2026-07-22T16:02:00.000Z")
   }), null, "Brain downtime leaves the ordinary coach path available without leaking an error");
   assert.equal(coach.brainRelationshipSupportFromFile({ ...brainFile, id: "unrelated", sourceText: "A long unrelated note without Lily relationship signals. ".repeat(8) }, {
-    cutoff: Date.parse("2026-07-23T09:00:00.000Z"),
-    operationalNow: Date.parse("2026-07-23T09:00:00.000Z")
+    cutoff: Date.parse("2026-07-22T16:02:00.000Z"),
+    operationalNow: Date.parse("2026-07-22T16:02:00.000Z")
   }), null, "an unrelated Brain note cannot become relationship copy");
+  assert.equal(coach.brainRelationshipSupportFromFile({
+    ...brainFile,
+    id: "uploaded-transcript",
+    name: "uploaded-interview.pdf",
+    kind: "file",
+    generatedNoteLayoutVersion: "",
+    sourceText: "I can yap about a game and my random thoughts for a long time. ".repeat(8)
+  }, {
+    cutoff: Date.parse("2026-07-22T16:02:00.000Z"),
+    operationalNow: Date.parse("2026-07-22T16:02:00.000Z")
+  }), null, "uploaded or third-party text cannot masquerade as Alan-authored Brain yapping");
+  assert.equal(coach.brainRelationshipSupportFromFile({
+    ...brainFile,
+    id: "sensitive-generic-yap",
+    sourceText: "I am yapping about my depression and weight because I have a lot of random thoughts about medication. ".repeat(5)
+  }, {
+    cutoff: Date.parse("2026-07-22T16:02:00.000Z"),
+    operationalNow: Date.parse("2026-07-22T16:02:00.000Z")
+  }), null, "a generic yap with sensitive context is excluded instead of generating invented relationship copy");
+
+  const delayedWeight = recordWeight("delayed-brain-weight", "2026-07-25", 150.5, "T19:23:00.749Z");
+  const authenticGameYapText = [
+    "I started with one small game thought and somehow turned it into a full yap.",
+    "That is honestly how my brain works: I keep following a random thought until it becomes a whole story.",
+    "I like sharing the unpolished version instead of pretending every thought arrived perfectly organized.",
+    "The point is not the game itself; it is that the rambling is part of my real voice."
+  ].join(" ");
+  const delayedBrainFile = {
+    id: "brain-authentic-yap-delayed",
+    name: "brain-text-20260725-192351.pdf",
+    mime: "application/pdf",
+    kind: "generated pdf",
+    generatedNoteLayoutVersion: "test-authored-note-v1",
+    sourceText: authenticGameYapText,
+    sourceCreatedAt: "2026-07-25T19:23:51.301Z",
+    createdAt: "2026-07-25T19:23:51.301Z"
+  };
+  const delayedBrainSupport = coach.brainRelationshipSupportFromFile(delayedBrainFile, {
+    earliest: Date.parse(delayedWeight.createdAt) - coach.BRAIN_WEIGHT_CONTEXT_LOOKBACK_MS,
+    cutoff: Date.parse(delayedWeight.createdAt) + coach.BRAIN_WEIGHT_INDEX_GRACE_MS,
+    operationalNow: Date.parse("2026-07-25T19:24:00.000Z")
+  });
+  assert.equal(delayedBrainSupport.kind, "boyfriend-authentic-game-yap", "ordinary first-person game yapping becomes a safe authentic connection cue without requiring love-letter keywords");
+  assert(coach.BRAIN_RELATIONSHIP_COPY[delayedBrainSupport.kind].includes(delayedBrainSupport.text));
+  assert.equal(coach.brainSourceWithinWeightWindow(delayedWeight, delayedBrainSupport, Date.parse("2026-07-25T19:24:00.000Z")), true, "a Brain upload finishing 51 seconds after its weight remains in the indexing grace window");
+  assert.equal(coach.brainSourceWithinWeightWindow(delayedWeight, { ...delayedBrainSupport, createdAt: "2026-07-25T19:29:01.000Z" }, Date.parse("2026-07-25T19:30:00.000Z")), false, "an unrelated later Brain source cannot drift into the weigh-in");
+
+  const delayedBase = addAllFallbacks(baseStore([...productionWeights, delayedWeight], { memories: [], trackerEvents: [] })).store;
+  const delayedBefore = coach.coachRefreshPreservationSnapshot(delayedBase, delayedWeight.id);
+  const delayedRefresh = coach.refreshLatestCoachForBrainRelationship(
+    delayedBase,
+    delayedBrainSupport,
+    "fallback-test-delayed-brain-authenticity",
+    Date.parse("2026-07-25T19:24:00.000Z")
+  );
+  assert.equal(delayedRefresh.updated, true, "the late-indexed Brain entry repairs the latest weight memo instead of leaving weight-only copy");
+  const delayedCoach = coach.coachForWeight(delayedRefresh.store, delayedWeight.id);
+  assert(delayedCoach.text.includes(delayedBrainSupport.text));
+  assert(delayedCoach.evidenceReferences.some((reference) => reference.type === "brain-letter" && reference.id === delayedBrainFile.id));
+  assert(!JSON.stringify(delayedCoach).includes(authenticGameYapText), "the delayed raw Brain entry is never persisted");
+  assert.equal(coach.assertCoachRefreshPreserved(delayedBefore, coach.coachRefreshPreservationSnapshot(delayedRefresh.store, delayedWeight.id)), true);
+  const delayedContext = coach.buildCoachContext(delayedRefresh.store, delayedWeight.id, { privateGoal: 117, relationshipSupport: delayedBrainSupport });
+  const delayedValidation = coach.validateCoachParagraph(delayedCoach.text, delayedContext, coach.causalPreviousCoachMessages(delayedRefresh.store, delayedWeight, 10), { privateGoal: 117 });
+  assert.equal(delayedValidation.ok, true, delayedValidation.errors.join(", "));
+
+  const olderBrainFile = {
+    ...delayedBrainFile,
+    id: "brain-authentic-yap-before-weight",
+    name: "brain-text-20260725-192200.pdf",
+    sourceText: `${authenticGameYapText} This was the earlier version of my thought.`,
+    sourceCreatedAt: "2026-07-25T19:22:00.000Z",
+    createdAt: "2026-07-25T19:22:00.000Z"
+  };
+  const olderBrainSupport = coach.brainRelationshipSupportFromFile(olderBrainFile, {
+    earliest: Date.parse(delayedWeight.createdAt) - coach.BRAIN_WEIGHT_CONTEXT_LOOKBACK_MS,
+    cutoff: Date.parse(delayedWeight.createdAt),
+    operationalNow: Date.parse("2026-07-25T19:23:01.000Z")
+  });
+  const olderRefresh = coach.refreshLatestCoachForBrainRelationship(
+    delayedBase,
+    olderBrainSupport,
+    "fallback-test-earlier-brain-context",
+    Date.parse("2026-07-25T19:23:01.000Z")
+  );
+  assert.equal(olderRefresh.updated, true);
+  assert(coach.coachForWeight(olderRefresh.store, delayedWeight.id).text.includes(olderBrainSupport.text));
+  await coach.writeStore(() => olderRefresh.store);
+  let delayedFetchCount = 0;
+  const reconciled = await coach.reconcileLatestCoachBrainContext({
+    operationalNow: Date.parse("2026-07-25T19:24:00.000Z"),
+    bypassCooldown: true,
+    awaitGeneration: true,
+    apiBase: "https://brain.test",
+    fetchImpl: async (url) => {
+      delayedFetchCount += 1;
+      assert.equal(url, "https://brain.test/api/files");
+      return { ok: true, json: async () => ({ files: [olderBrainFile, delayedBrainFile] }) };
+    }
+  });
+  assert.deepEqual(
+    { updated: reconciled.updated, status: reconciled.status, weightId: reconciled.weightId, sourceKind: reconciled.sourceKind },
+    { updated: true, status: "reconciled", weightId: delayedWeight.id, sourceKind: "boyfriend-authentic-game-yap" },
+    "the full read-fetch-write-generation path upgrades an earlier cue when the intended delayed Brain entry arrives"
+  );
+  assert.equal(delayedFetchCount, 1);
+  const reconciledStore = await coach.readStore();
+  const reconciledCoach = coach.coachForWeight(reconciledStore, delayedWeight.id);
+  assert(reconciledCoach.text.includes(delayedBrainSupport.text), "the final persisted memo keeps the authentic connection after generation");
+  assert(reconciledCoach.evidenceReferences.some((reference) => reference.type === "brain-letter" && reference.id === delayedBrainFile.id));
+  assert(!reconciledCoach.evidenceReferences.some((reference) => reference.type === "brain-letter" && reference.id === olderBrainFile.id), "the earlier provisional cue cannot block the newer adjacent entry");
+  assert(!JSON.stringify(reconciledStore).includes(authenticGameYapText), "the full reconciliation path never persists raw Brain text");
+  assert.equal(coach.assertCoachRefreshPreserved(delayedBefore, coach.coachRefreshPreservationSnapshot(reconciledStore, delayedWeight.id)), true);
+
+  const idempotentReconcile = await coach.reconcileLatestCoachBrainContext({
+    operationalNow: Date.parse("2026-07-25T19:24:10.000Z"),
+    bypassCooldown: true,
+    awaitGeneration: true,
+    apiBase: "https://brain.test",
+    fetchImpl: async () => ({ ok: true, json: async () => ({ files: [olderBrainFile, delayedBrainFile] }) })
+  });
+  assert.equal(idempotentReconcile.updated, false);
+  assert.equal(idempotentReconcile.status, "already-current", "reconciliation stays idempotent once the newest eligible source is attached");
+
+  const authenticVariants = new Set();
+  for (let index = 0; index < 30; index += 1) {
+    const support = coach.brainRelationshipSupportFromFile({
+      ...delayedBrainFile,
+      id: `brain-authentic-variant-${index}`,
+      sourceText: `${authenticGameYapText} Variation ${index}.`
+    }, {
+      cutoff: Date.parse("2026-07-25T19:25:00.000Z"),
+      operationalNow: Date.parse("2026-07-25T19:25:00.000Z")
+    });
+    authenticVariants.add(support.text);
+  }
+  assert(authenticVariants.size >= 3, "source-hash selection keeps successive authentic-yap notes from collapsing to one canned sentence");
   const staleStyleStore = {
     ...observedMoodRefresh.store,
     coachMessages: observedMoodRefresh.store.coachMessages.map((message) => message.weightId === reactionWeight.id

@@ -55,6 +55,7 @@ const imageExtensions = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif"]);
 const videoExtensions = new Set([".mp4", ".m4v", ".mov", ".webm"]);
 
 let writeQueue = Promise.resolve();
+const brainContextLastCheckedAtByWeight = new Map();
 
 function coachModelVersion(options = {}) {
   return `writer:${options.model || coachWriterModel};critic:${options.criticModel || coachCriticModel}`;
@@ -65,8 +66,8 @@ function containsPrivateCoachBlockedTerm(text) {
   return privateCoachBlockedTerms.some((term) => normalized.includes(term));
 }
 
-const COACH_GENERATION_VERSION = "coach-pipeline-v11";
-const COACH_ANALYSIS_VERSION = "coach-analysis-v6";
+const COACH_GENERATION_VERSION = "coach-pipeline-v12";
+const COACH_ANALYSIS_VERSION = "coach-analysis-v7";
 const COACH_WRITER_PROMPT_VERSION = "coach-writer-v8";
 const COACH_CRITIC_PROMPT_VERSION = "coach-critic-v6";
 const COACH_VALIDATOR_VERSION = "coach-validator-v3";
@@ -74,7 +75,7 @@ const COACH_FALLBACK_VERSION = "coach-fallback-v8";
 const COACH_ACTION_VERSION = "coach-action-v7";
 const COACH_PROMPT_VERSION = COACH_WRITER_PROMPT_VERSION;
 const COACH_SAFETY_VERSION = "coach-safety-v6";
-const COACH_STYLE_VERSION = "coach-style-authentic-connection-v2";
+const COACH_STYLE_VERSION = "coach-style-authentic-connection-v3";
 const COACH_MIN_WORDS = 35;
 const COACH_MAX_WORDS = 55;
 const COACH_RELATIONSHIP_MIN_WORDS = 45;
@@ -84,6 +85,10 @@ const COACH_CANDIDATE_COUNT = 3;
 const COACH_REACTION_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
 const COACH_REACTION_REFRESH_MAX_AGE_MS = 48 * 60 * 60 * 1000;
 const BRAIN_RELATIONSHIP_MAX_AGE_MS = 48 * 60 * 60 * 1000;
+const BRAIN_WEIGHT_INDEX_GRACE_MS = 5 * 60 * 1000;
+const BRAIN_WEIGHT_CONTEXT_LOOKBACK_MS = 6 * 60 * 60 * 1000;
+const BRAIN_CONTEXT_RECHECK_COOLDOWN_MS = 12 * 1000;
+const BRAIN_CONTEXT_RECHECK_MS = Object.freeze([15 * 1000, 65 * 1000, 150 * 1000, 310 * 1000]);
 const KG_TO_LB = 2.2046226218;
 
 async function ensureDataDir() {
@@ -524,8 +529,41 @@ function observerCareSignal(text) {
 const BRAIN_RELATIONSHIP_COPY = Object.freeze({
   "boyfriend-yap-phd-league": "Your nerdy PhD boyfriend is here, yapping honestly, loving you, and wanting you safe and happy for many more League nights together",
   "boyfriend-yap-phd": "Your nerdy PhD boyfriend is here, yapping honestly, loving you, and wanting you safe, happy, and fully yourself",
-  "boyfriend-yap": "Your yappy boyfriend is right here, loving you steadily and wanting you safe, happy, and fully yourself"
+  "boyfriend-yap": "Your yappy boyfriend is right here, loving you steadily and wanting you safe, happy, and fully yourself",
+  "boyfriend-authentic-game-yap": Object.freeze([
+    "Your boyfriend is still in full game-yap mode, trusting you with the random, unfiltered version of his brain that he does not show everyone",
+    "Your boyfriend is somewhere turning one game thought into a whole yap, because you are the person he trusts with his unedited brain",
+    "Your boyfriend still has a game thought becoming a full yap, and you are the person who gets the wonderfully unpolished version of him"
+  ]),
+  "boyfriend-authentic-yap": Object.freeze([
+    "Your boyfriend still brings you the random yaps and unfiltered thoughts because you are the person he trusts with his real, slightly all-over-the-place self",
+    "Your boyfriend is still himself—thinking too much, yapping it out, and trusting you with the version that is honest before it is polished",
+    "The real boyfriend is still here: unfiltered and one stray thought away from a full yap he somehow wants to share with you"
+  ])
 });
+
+function brainConnectionCopy(kind, sourceHash = "") {
+  const value = BRAIN_RELATIONSHIP_COPY[kind];
+  if (!Array.isArray(value)) return String(value || "");
+  const seed = parseInt(String(sourceHash || "0").slice(0, 8), 16);
+  return value[Number.isFinite(seed) ? seed % value.length : 0];
+}
+
+function brainFileIsAuthoredNote(file) {
+  return String(file?.kind || "").trim().toLowerCase() === "generated pdf"
+    && String(file?.mime || "").trim().toLowerCase() === "application/pdf"
+    && /^brain-text-\d{8}-\d{6}\.pdf$/i.test(String(file?.name || "").trim())
+    && Boolean(String(file?.generatedNoteLayoutVersion || "").trim());
+}
+
+function genericBrainYapIsSafe(text) {
+  const source = String(text || "");
+  const firstPersonCount = (source.match(/\b(?:i|me|my|mine)\b/gi) || []).length;
+  const authoredYap = /\b(?:i|me|my|mine)\b[\s\S]{0,160}\b(?:yap\w*|rambl\w*|random\s+thoughts?|unfiltered\s+thoughts?|talk(?:ing)?\s+too\s+much)\b|\b(?:yap\w*|rambl\w*|random\s+thoughts?|unfiltered\s+thoughts?|talk(?:ing)?\s+too\s+much)\b[\s\S]{0,160}\b(?:i|me|my|mine)\b/i.test(source);
+  const unsafeTopic = /\b(?:diagnos\w*|depress\w*|anxi\w*|suicid\w*|self[- ]?harm\w*|sex\w*|horn\w*|ovulat\w*|menstr\w*|period|break(?:up|ing\s+up)|abandon\w*|trauma\w*|abus\w*|medicat\w*|therap\w*|weight|pounds?|calori\w*|starv\w*|purge\w*|vomit\w*)\b/i.test(source);
+  const quotedOrThirdPartySource = /\b(?:transcript|speaker\s*\d*|interviewer|quoted?|cop(?:y|ied|ying)|past(?:e|ed|ing))\b/i.test(source);
+  return firstPersonCount >= 2 && authoredYap && !unsafeTopic && !quotedOrThirdPartySource;
+}
 
 function referencedBrainLetterIds(messages, excludedWeightId = "") {
   return new Set((Array.isArray(messages) ? messages : [])
@@ -537,16 +575,20 @@ function referencedBrainLetterIds(messages, excludedWeightId = "") {
 
 function brainRelationshipSupportFromFile(file, options = {}) {
   if (!file || typeof file !== "object" || !file.id) return null;
+  if (!brainFileIsAuthoredNote(file)) return null;
   const text = String(file.sourceText || "").trim();
   const createdAt = String(file.sourceCreatedAt || file.createdAt || "");
   const createdTime = Date.parse(createdAt);
   const cutoff = Number(options.cutoff);
+  const earliest = Number(options.earliest);
   const operationalNow = Number(options.operationalNow);
   const maxAgeMs = Math.max(1, Number(options.maxAgeMs || BRAIN_RELATIONSHIP_MAX_AGE_MS));
   if (!text || text.length < 200 || !Number.isFinite(createdTime)) return null;
+  if (Number.isFinite(earliest) && createdTime < earliest) return null;
   if (Number.isFinite(cutoff) && createdTime > cutoff) return null;
   if (Number.isFinite(operationalNow) && (createdTime > operationalNow || operationalNow - createdTime > maxAgeMs)) return null;
 
+  const sourceHash = crypto.createHash("sha256").update(text).digest("hex");
   const addressedToLily = /\b(?:lily|leelee)\b/i.test(text);
   const boyfriend = /\bboyfriend\b/i.test(text);
   const affection = /\b(?:i\s+love\s+you|love\s+you|loving\s+you)\b/i.test(text);
@@ -554,15 +596,22 @@ function brainRelationshipSupportFromFile(file, options = {}) {
   const phd = /\bph\.?d\.?\b/i.test(text);
   const league = /\bleague\b/i.test(text);
   const happiness = /\bhapp\w*\b/i.test(text);
-  if (!addressedToLily || !boyfriend || !affection || !yapping || !happiness) return null;
-
-  const kind = phd && league ? "boyfriend-yap-phd-league" : phd ? "boyfriend-yap-phd" : "boyfriend-yap";
+  const firstPerson = /\b(?:i|me|my|mine)\b/i.test(text);
+  const authenticYap = /\b(?:yap\w*|rambl\w*|random\s+thoughts?|unfiltered\s+thoughts?|talk(?:ing)?\s+too\s+much)\b/i.test(text);
+  const gameYap = /\b(?:game\w*|league|play\w*)\b/i.test(text);
+  let kind = "";
+  if (addressedToLily && boyfriend && affection && yapping && happiness) {
+    kind = phd && league ? "boyfriend-yap-phd-league" : phd ? "boyfriend-yap-phd" : "boyfriend-yap";
+  } else if (firstPerson && authenticYap && genericBrainYapIsSafe(text)) {
+    kind = gameYap ? "boyfriend-authentic-game-yap" : "boyfriend-authentic-yap";
+  }
+  if (!kind) return null;
   return {
     id: String(file.id),
     kind,
-    text: BRAIN_RELATIONSHIP_COPY[kind],
+    text: brainConnectionCopy(kind, sourceHash),
     createdAt: new Date(createdTime).toISOString(),
-    sourceHash: crypto.createHash("sha256").update(text).digest("hex")
+    sourceHash
   };
 }
 
@@ -580,7 +629,10 @@ async function fetchLatestBrainRelationshipSupport(store, options = {}) {
       headers: { "Accept": "application/json" },
       signal: controller.signal
     });
-    if (!response.ok) return null;
+    if (!response.ok) {
+      options.onDiagnostic?.({ status: "http-error", statusCode: Number(response.status) || 0 });
+      return null;
+    }
     const payload = await response.json();
     const files = Array.isArray(payload?.files) ? payload.files : (Array.isArray(payload) ? payload : []);
     const usedIds = referencedBrainLetterIds(store?.coachMessages, options.excludedWeightId);
@@ -588,10 +640,15 @@ async function fetchLatestBrainRelationshipSupport(store, options = {}) {
     for (const file of rows) {
       if (usedIds.has(String(file?.id || ""))) continue;
       const support = brainRelationshipSupportFromFile(file, options);
-      if (support) return support;
+      if (support) {
+        options.onDiagnostic?.({ status: "selected", sourceId: support.id, sourceKind: support.kind });
+        return support;
+      }
     }
+    options.onDiagnostic?.({ status: "no-eligible-source" });
     return null;
   } catch (error) {
+    options.onDiagnostic?.({ status: error?.name === "AbortError" ? "timeout" : "request-error" });
     return null;
   } finally {
     clearTimeout(timeoutId);
@@ -1110,7 +1167,8 @@ function buildCoachContext(store, weightId, options = {}) {
       type: "brain-letter",
       id: relationshipSupport.id,
       role: relationshipSupport.kind,
-      sourceHash: relationshipSupport.sourceHash
+      sourceHash: relationshipSupport.sourceHash,
+      sourceCreatedAt: relationshipSupport.createdAt
     }] : [])
   ];
   const privateGoal = Object.prototype.hasOwnProperty.call(options, "privateGoal") ? Number(options.privateGoal) : privateCoachGoal;
@@ -2660,14 +2718,16 @@ function refreshLatestCoachForBrainRelationship(store, relationshipSupport, stat
     return { store, updated: false, alreadyCurrent: false, weightId: latestWeight?.id || "", latestCoach: publicCoach(latestWeight ? coachForWeight(store, latestWeight.id) : null) };
   }
   const existing = coachForWeight(store, latestWeight.id);
-  const alreadyCurrent = Boolean(existing?.evidenceReferences?.some((reference) => reference.type === "brain-letter" && reference.id === relationshipSupport.id));
+  const existingBrainReference = existing?.evidenceReferences?.find((reference) => reference?.type === "brain-letter") || null;
+  const alreadyCurrent = existingBrainReference?.id === relationshipSupport.id;
   if (alreadyCurrent) return { store, updated: false, alreadyCurrent: true, weightId: latestWeight.id, latestCoach: publicCoach(existing) };
   const weightTime = Date.parse(latestWeight.createdAt);
   const supportTime = Date.parse(relationshipSupport.createdAt);
   const now = Number(operationalNow);
-  if (!Number.isFinite(weightTime) || !Number.isFinite(supportTime) || !Number.isFinite(now)
-    || supportTime < weightTime || supportTime - weightTime > COACH_REACTION_REFRESH_MAX_AGE_MS
-    || supportTime > now || now - supportTime > BRAIN_RELATIONSHIP_MAX_AGE_MS
+  const existingSupportTime = Date.parse(existingBrainReference?.sourceCreatedAt || "");
+  if (!brainSourceWithinWeightWindow(latestWeight, relationshipSupport, now)
+    || (Number.isFinite(existingSupportTime) && supportTime <= existingSupportTime)
+    || (existingBrainReference && !Number.isFinite(existingSupportTime) && supportTime < weightTime)
     || !brainRelationshipSupportAvailable(store, relationshipSupport, latestWeight.id)) {
     return { store, updated: false, alreadyCurrent: false, weightId: latestWeight.id, latestCoach: publicCoach(existing) };
   }
@@ -2699,6 +2759,97 @@ function refreshLatestCoachForBrainRelationship(store, relationshipSupport, stat
     latestCoach: publicCoach(replacement),
     personalContextCutoff
   };
+}
+
+function latestWeightRecord(store) {
+  return (Array.isArray(store?.weights) ? store.weights : [])
+    .slice()
+    .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)) || String(right.id).localeCompare(String(left.id)))[0] || null;
+}
+
+function brainSourceWithinWeightWindow(weight, relationshipSupport, operationalNow = Date.now()) {
+  const weightTime = Date.parse(weight?.createdAt);
+  const supportTime = Date.parse(relationshipSupport?.createdAt);
+  const now = Number(operationalNow);
+  return Number.isFinite(weightTime)
+    && Number.isFinite(supportTime)
+    && Number.isFinite(now)
+    && supportTime >= weightTime - BRAIN_WEIGHT_CONTEXT_LOOKBACK_MS
+    && supportTime <= weightTime + BRAIN_WEIGHT_INDEX_GRACE_MS
+    && supportTime <= now
+    && now - supportTime <= BRAIN_RELATIONSHIP_MAX_AGE_MS;
+}
+
+async function reconcileLatestCoachBrainContext(options = {}) {
+  const operationalNow = Number(options.operationalNow || Date.now());
+  const initialStore = await readStore();
+  const latestWeight = latestWeightRecord(initialStore);
+  if (!latestWeight || (options.weightId && String(options.weightId) !== String(latestWeight.id))) {
+    return { updated: false, status: "weight-not-current", weightId: latestWeight?.id || "" };
+  }
+  const existing = coachForWeight(initialStore, latestWeight.id);
+  const weightTime = Date.parse(latestWeight.createdAt);
+  if (!Number.isFinite(weightTime) || operationalNow - weightTime > BRAIN_RELATIONSHIP_MAX_AGE_MS) {
+    return { updated: false, status: "weight-outside-window", weightId: latestWeight.id };
+  }
+  const lastCheckedAt = brainContextLastCheckedAtByWeight.get(latestWeight.id) || 0;
+  if (!options.bypassCooldown && operationalNow - lastCheckedAt < BRAIN_CONTEXT_RECHECK_COOLDOWN_MS) {
+    return { updated: false, status: "cooldown", weightId: latestWeight.id };
+  }
+  brainContextLastCheckedAtByWeight.set(latestWeight.id, operationalNow);
+  let sourceDiagnostic = { status: "not-checked" };
+  const relationshipSupport = await fetchLatestBrainRelationshipSupport(initialStore, {
+    apiBase: options.apiBase,
+    fetchImpl: options.fetchImpl,
+    cutoff: Math.min(operationalNow, weightTime + BRAIN_WEIGHT_INDEX_GRACE_MS),
+    earliest: weightTime - BRAIN_WEIGHT_CONTEXT_LOOKBACK_MS,
+    operationalNow,
+    excludedWeightId: latestWeight.id,
+    onDiagnostic: (diagnostic) => { sourceDiagnostic = diagnostic; }
+  });
+  if (!relationshipSupport || !brainSourceWithinWeightWindow(latestWeight, relationshipSupport, operationalNow)) {
+    return { updated: false, status: sourceDiagnostic.status || "no-eligible-source", weightId: latestWeight.id };
+  }
+
+  let prepared = null;
+  await writeStore((store) => {
+    const currentLatestWeight = latestWeightRecord(store);
+    if (!currentLatestWeight || currentLatestWeight.id !== latestWeight.id) return store;
+    prepared = refreshLatestCoachForBrainRelationship(
+      store,
+      relationshipSupport,
+      "fallback-brain-authentic-connection-reconciled",
+      operationalNow
+    );
+    return prepared.updated ? prepared.store : store;
+  });
+  if (!prepared?.updated) {
+    return { updated: false, status: prepared?.alreadyCurrent ? "already-current" : "not-updated", weightId: latestWeight.id };
+  }
+  const generationOptions = {
+    personalContextCutoff: Number.isFinite(prepared.personalContextCutoff) ? prepared.personalContextCutoff : undefined,
+    relationshipContextCutoff: Math.min(operationalNow, weightTime + BRAIN_WEIGHT_INDEX_GRACE_MS),
+    relationshipSupport
+  };
+  if (options.awaitGeneration) {
+    await generateAndReplaceCoach(prepared.weightId, generationOptions);
+  } else {
+    setImmediate(() => {
+      generateAndReplaceCoach(prepared.weightId, generationOptions)
+        .catch((error) => console.warn("Lily Brain-context generation retry failed", String(error?.name || "error")));
+    });
+  }
+  return { updated: true, status: "reconciled", weightId: prepared.weightId, sourceKind: relationshipSupport.kind };
+}
+
+function scheduleBrainContextReconciliation(weightId) {
+  for (const delayMs of BRAIN_CONTEXT_RECHECK_MS) {
+    const timer = setTimeout(() => {
+      reconcileLatestCoachBrainContext({ weightId, bypassCooldown: true })
+        .catch((error) => console.warn("Lily Brain-context recheck failed", String(error?.name || "error")));
+    }, delayMs);
+    if (typeof timer.unref === "function") timer.unref();
+  }
 }
 
 function jsonHash(value) {
@@ -2852,13 +3003,17 @@ async function generateAndReplaceCoach(weightId, options = {}) {
     personalContextCutoff: options.personalContextCutoff
   });
   const currentWeight = (snapshot.weights || []).find((weight) => weight.id === weightId);
+  const currentWeightTime = Date.parse(currentWeight?.createdAt);
   const relationshipCutoff = Number.isFinite(Number(options.relationshipContextCutoff))
     ? Number(options.relationshipContextCutoff)
-    : Date.parse(currentWeight?.createdAt);
+    : Number.isFinite(currentWeightTime)
+      ? Math.min(Date.now(), currentWeightTime + BRAIN_WEIGHT_INDEX_GRACE_MS)
+      : Date.now();
   const relationshipSupport = Object.prototype.hasOwnProperty.call(options, "relationshipSupport")
     ? options.relationshipSupport
     : await fetchLatestBrainRelationshipSupport(snapshot, {
       cutoff: relationshipCutoff,
+      earliest: Number.isFinite(currentWeightTime) ? currentWeightTime - BRAIN_WEIGHT_CONTEXT_LOOKBACK_MS : undefined,
       operationalNow: Date.now(),
       excludedWeightId: weightId
     });
@@ -3327,6 +3482,11 @@ async function handleApi(req, res, pathname) {
   }
 
   if (pathname === "/api/weights" && req.method === "GET") {
+    try {
+      await reconcileLatestCoachBrainContext();
+    } catch (error) {
+      console.warn("Lily Brain-context read reconciliation failed", String(error?.name || "error"));
+    }
     const store = await readStore();
     send(res, 200, {
       weights: publicWeights(store.weights).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))),
@@ -3434,12 +3594,15 @@ async function handleApi(req, res, pathname) {
     const initialStore = await readStore();
     const initialSnapshot = coachRefreshPreservationSnapshot(initialStore);
     assertExpectedCoachRefreshState(initialSnapshot, expected, expectedCoach);
+    const initialWeight = (initialStore.weights || []).find((weight) => weight.id === initialSnapshot.targetWeightId);
+    const initialWeightTime = Date.parse(initialWeight?.createdAt);
     const relationshipSupport = await fetchLatestBrainRelationshipSupport(initialStore, {
-      cutoff: operationalNow,
+      cutoff: Number.isFinite(initialWeightTime) ? Math.min(operationalNow, initialWeightTime + BRAIN_WEIGHT_INDEX_GRACE_MS) : operationalNow,
+      earliest: Number.isFinite(initialWeightTime) ? initialWeightTime - BRAIN_WEIGHT_CONTEXT_LOOKBACK_MS : undefined,
       operationalNow,
       excludedWeightId: initialSnapshot.targetWeightId
     });
-    if (!relationshipSupport) {
+    if (!relationshipSupport || !brainSourceWithinWeightWindow(initialWeight, relationshipSupport, operationalNow)) {
       throw Object.assign(new Error("No recent eligible Brain letter was available for a safe one-use connection note."), { status: 409 });
     }
 
@@ -3667,8 +3830,10 @@ async function handleApi(req, res, pathname) {
     });
     send(res, 201, { weight: publicWeight(created), latestCoach: publicCoach(coachForWeight(savedStore, created.id)) });
     setImmediate(() => {
-      generateAndReplaceCoach(created.id).catch(() => {});
+      generateAndReplaceCoach(created.id)
+        .catch((error) => console.warn("Lily coach generation failed", String(error?.name || "error")));
     });
+    scheduleBrainContextReconciliation(created.id);
     return;
   }
 
@@ -3918,6 +4083,9 @@ if (process.env.NODE_ENV === "test" || process.env.LILY_COACH_CLI === "1") {
     COACH_VALIDATOR_VERSION,
     COACH_WRITER_PROMPT_VERSION,
     BRAIN_RELATIONSHIP_MAX_AGE_MS,
+    BRAIN_WEIGHT_CONTEXT_LOOKBACK_MS,
+    BRAIN_WEIGHT_INDEX_GRACE_MS,
+    BRAIN_CONTEXT_RECHECK_MS,
     BRAIN_RELATIONSHIP_COPY,
     FALLBACK_CLOSINGS,
     FALLBACK_OPENINGS,
@@ -3932,6 +4100,9 @@ if (process.env.NODE_ENV === "test" || process.env.LILY_COACH_CLI === "1") {
     buildCoachContext,
     brainRelationshipSupportAvailable,
     brainRelationshipSupportFromFile,
+    brainConnectionCopy,
+    brainFileIsAuthoredNote,
+    brainSourceWithinWeightWindow,
     buildContextualFallback,
     buildContextualFallbackCandidates,
     buildContextualFallbackResult,
@@ -3969,6 +4140,7 @@ if (process.env.NODE_ENV === "test" || process.env.LILY_COACH_CLI === "1") {
     refreshIfLatestCoachReferences,
     refreshLatestCoachForSavedMemories,
     refreshLatestCoachForBrainRelationship,
+    reconcileLatestCoachBrainContext,
     refreshLatestCoachStyleInStore,
     removeWeightAndCoach,
     observerCareSignal,
