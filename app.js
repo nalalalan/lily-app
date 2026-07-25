@@ -14,6 +14,7 @@ const COACH_EMPTY_TEXT = "No coach message yet.";
 const COACH_UNAVAILABLE_TEXT = "Coach message unavailable.";
 const COACH_ANALYSIS_WINDOW_MS = 8000;
 const COACH_POLL_CHECKPOINTS_MS = Object.freeze([500, 1200, 2200, 3500, 5000, 6500, 7800]);
+const COACH_CONTEXT_FOLLOWUP_MS = Object.freeze([20000, 70000, 155000, 315000]);
 
 const state = {
   authenticated: false,
@@ -402,7 +403,7 @@ async function loadMemories() {
   }
 }
 
-async function loadWeights() {
+async function loadWeights(options = {}) {
   if (!hasStoredToken()) return;
   try {
     const result = await apiFetch("/api/weights");
@@ -411,7 +412,7 @@ async function loadWeights() {
     cancelCoachAnalysisIfLatestChanged();
     renderWeights();
   } catch (error) {
-    showToast(error.message);
+    if (!options.silent) showToast(error.message);
   }
 }
 
@@ -556,10 +557,23 @@ async function saveWeight(event) {
     renderWeights();
     showToast("Weight saved");
     pollCoachReplacement(analysis);
+    scheduleCoachContextFollowups(result.weight?.id);
   } catch (error) {
     showToast(error.message);
   } finally {
     setBusy(false);
+  }
+}
+
+function scheduleCoachContextFollowups(weightId) {
+  const expectedWeightId = String(weightId || "");
+  if (!expectedWeightId) return;
+  for (const delayMs of COACH_CONTEXT_FOLLOWUP_MS) {
+    window.setTimeout(() => {
+      const latestWeight = weightRows()[0];
+      if (!hasStoredToken() || !latestWeight || String(latestWeight.id) !== expectedWeightId) return;
+      loadWeights({ silent: true });
+    }, delayMs);
   }
 }
 
