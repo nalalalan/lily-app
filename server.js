@@ -549,7 +549,7 @@ function brainConnectionCopy(kind, sourceHash = "") {
   return value[Number.isFinite(seed) ? seed % value.length : 0];
 }
 
-function brainFileIsAuthoredNote(file) {
+function brainFileIsGeneratedNoteRecord(file) {
   return String(file?.kind || "").trim().toLowerCase() === "generated pdf"
     && String(file?.mime || "").trim().toLowerCase() === "application/pdf"
     && /^brain-text-\d{8}-\d{6}\.pdf$/i.test(String(file?.name || "").trim())
@@ -559,10 +559,13 @@ function brainFileIsAuthoredNote(file) {
 function genericBrainYapIsSafe(text) {
   const source = String(text || "");
   const firstPersonCount = (source.match(/\b(?:i|me|my|mine)\b/gi) || []).length;
+  const thirdPersonCount = (source.match(/\b(?:he|him|his|she|her|hers|they|them|their|theirs)\b/gi) || []).length;
   const authoredYap = /\b(?:i|me|my|mine)\b[\s\S]{0,160}\b(?:yap\w*|rambl\w*|random\s+thoughts?|unfiltered\s+thoughts?|talk(?:ing)?\s+too\s+much)\b|\b(?:yap\w*|rambl\w*|random\s+thoughts?|unfiltered\s+thoughts?|talk(?:ing)?\s+too\s+much)\b[\s\S]{0,160}\b(?:i|me|my|mine)\b/i.test(source);
   const unsafeTopic = /\b(?:diagnos\w*|depress\w*|anxi\w*|suicid\w*|self[- ]?harm\w*|sex\w*|horn\w*|ovulat\w*|menstr\w*|period|break(?:up|ing\s+up)|abandon\w*|trauma\w*|abus\w*|medicat\w*|therap\w*|weight|pounds?|calori\w*|starv\w*|purge\w*|vomit\w*)\b/i.test(source);
   const quotedOrThirdPartySource = /\b(?:transcript|speaker\s*\d*|interviewer|quoted?|cop(?:y|ied|ying)|past(?:e|ed|ing))\b/i.test(source);
-  return firstPersonCount >= 2 && authoredYap && !unsafeTopic && !quotedOrThirdPartySource;
+  const privateThirdPartyFraming = /\b(?:coworker|colleague|manager|boss|client|patient|therapist|doctor|ex(?:es)?|wife|husband|girlfriend|mother|father|mom|dad|sister|brother)\b/i.test(source);
+  const firstPersonDominates = firstPersonCount >= 4 && thirdPersonCount <= Math.max(2, Math.floor(firstPersonCount / 4));
+  return firstPersonDominates && authoredYap && !unsafeTopic && !quotedOrThirdPartySource && !privateThirdPartyFraming;
 }
 
 function referencedBrainLetterIds(messages, excludedWeightId = "") {
@@ -575,7 +578,7 @@ function referencedBrainLetterIds(messages, excludedWeightId = "") {
 
 function brainRelationshipSupportFromFile(file, options = {}) {
   if (!file || typeof file !== "object" || !file.id) return null;
-  if (!brainFileIsAuthoredNote(file)) return null;
+  if (!brainFileIsGeneratedNoteRecord(file)) return null;
   const text = String(file.sourceText || "").trim();
   const createdAt = String(file.sourceCreatedAt || file.createdAt || "");
   const createdTime = Date.parse(createdAt);
@@ -4101,7 +4104,7 @@ if (process.env.NODE_ENV === "test" || process.env.LILY_COACH_CLI === "1") {
     brainRelationshipSupportAvailable,
     brainRelationshipSupportFromFile,
     brainConnectionCopy,
-    brainFileIsAuthoredNote,
+    brainFileIsGeneratedNoteRecord,
     brainSourceWithinWeightWindow,
     buildContextualFallback,
     buildContextualFallbackCandidates,

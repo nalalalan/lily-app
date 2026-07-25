@@ -430,6 +430,14 @@ async function run() {
     cutoff: Date.parse("2026-07-22T16:02:00.000Z"),
     operationalNow: Date.parse("2026-07-22T16:02:00.000Z")
   }), null, "a generic yap with sensitive context is excluded instead of generating invented relationship copy");
+  assert.equal(coach.brainRelationshipSupportFromFile({
+    ...brainFile,
+    id: "third-party-generic-yap",
+    sourceText: "I started yapping about my coworker and what he said, then I kept rambling about his private situation. ".repeat(5)
+  }, {
+    cutoff: Date.parse("2026-07-22T16:02:00.000Z"),
+    operationalNow: Date.parse("2026-07-22T16:02:00.000Z")
+  }), null, "a generic third-party story cannot be converted into boyfriend-authenticity copy");
 
   const delayedWeight = recordWeight("delayed-brain-weight", "2026-07-25", 150.5, "T19:23:00.749Z");
   const authenticGameYapText = [
