@@ -94,6 +94,7 @@ assert.ok(server.includes("scheduleBrainContextReconciliation(created.id)"), "th
 assert.ok(server.includes("await reconcileLatestCoachBrainContext()"), "authenticated weight reads must repair a missed delayed Brain source");
 assert.ok(server.includes("BRAIN_WEIGHT_INDEX_GRACE_MS = 5 * 60 * 1000"), "Brain processing timestamps need a bounded post-weight grace window");
 assert.ok(server.includes("BRAIN_CONTEXT_RECHECK_MS = Object.freeze([15 * 1000, 65 * 1000, 150 * 1000, 310 * 1000])"), "server reconciliation must survive through the entire bounded indexing window even if the browser closes");
+assert.ok(server.includes('return String(override || fallback || "").trim()'), "an omitted reconciliation override must fall back to the configured Brain service instead of becoming an invalid literal address");
 assert.ok(server.includes('String(file?.kind || "").trim().toLowerCase() === "generated pdf"'), "only authored Brain-note records can supply authentic voice cues");
 assert.ok(server.includes("brainSourceWithinWeightWindow(initialWeight, relationshipSupport, operationalNow)"), "manual maintenance and automatic reconciliation must share the same bounded source window");
 assert.ok(!server.includes("generateAndReplaceCoach(created.id).catch(() => {})"), "terminal coach failures cannot remain silently swallowed");

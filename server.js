@@ -618,8 +618,12 @@ function brainRelationshipSupportFromFile(file, options = {}) {
   };
 }
 
+function resolveBrainApiBase(override, fallback = brainApiBase) {
+  return String(override || fallback || "").trim().replace(/\/+$/, "");
+}
+
 async function fetchLatestBrainRelationshipSupport(store, options = {}) {
-  const apiBase = String(Object.prototype.hasOwnProperty.call(options, "apiBase") ? options.apiBase : brainApiBase).trim().replace(/\/+$/, "");
+  const apiBase = resolveBrainApiBase(options.apiBase);
   if (!apiBase) return null;
   const fetchImpl = options.fetchImpl || fetch;
   const timeoutMs = Math.max(1, Number(options.timeoutMs || brainRequestTimeoutMs));
@@ -4105,6 +4109,7 @@ if (process.env.NODE_ENV === "test" || process.env.LILY_COACH_CLI === "1") {
     brainRelationshipSupportFromFile,
     brainConnectionCopy,
     brainFileIsGeneratedNoteRecord,
+    resolveBrainApiBase,
     brainSourceWithinWeightWindow,
     buildContextualFallback,
     buildContextualFallbackCandidates,

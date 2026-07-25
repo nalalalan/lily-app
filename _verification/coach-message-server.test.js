@@ -395,6 +395,7 @@ async function run() {
   assert.equal(repeatedBrainRefresh.updated, false);
   assert.equal(repeatedBrainRefresh.alreadyCurrent, true, "the same Brain relationship refresh is idempotent");
   const mockedBrainFetch = async () => ({ ok: true, json: async () => ({ files: [brainFile] }) });
+  assert.equal(coach.resolveBrainApiBase(undefined, "https://brain.test/"), "https://brain.test", "an omitted per-call override must retain the configured Brain service instead of becoming the literal string undefined");
   assert.equal(await coach.fetchLatestBrainRelationshipSupport(brainRefresh.store, {
     apiBase: "https://brain.test",
     fetchImpl: mockedBrainFetch,
