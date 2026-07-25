@@ -8,13 +8,13 @@
   const DAY_MS = 24 * 60 * 60 * 1000;
   const NUMBER_WORDS = ["ZERO", "ONE", "TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN", "EIGHT"];
   const STATE_VERDICTS = Object.freeze({
-    "accelerating-loss": "I LOVE THIS—ABSOLUTELY AWESOME!!!",
-    "steady-loss": "YES—THIS IS GOOD PROGRESS!!!",
-    "turning-loss": "I LIKE THIS WEIGH-IN—NOW PROVE THE TURN!!!",
-    "flat-noisy": "I’M NOT SATISFIED YET—THIS TREND NEEDS TO MOVE!!!",
-    "turning-gain": "I DON’T LIKE THIS WEIGH-IN—IT WENT THE WRONG WAY!!!",
-    "steady-gain": "I DON’T LIKE THIS TREND—IT IS MOVING THE WRONG WAY!!!",
-    "accelerating-gain": "THIS IS GETTING WORSE—RED ALERT!!!"
+    "accelerating-loss": "This is excellent progress—the trend is strengthening!",
+    "steady-loss": "This is solid progress in the right direction!",
+    "turning-loss": "This is an encouraging turn in the right direction!",
+    "flat-noisy": "The trend is mixed today, so this is a reset—not a judgment.",
+    "turning-gain": "Today moved away from the direction we want, but this is one result.",
+    "steady-gain": "The recent trend is moving away from the direction we want.",
+    "accelerating-gain": "The upward trend strengthened, so a gentle reset matters now."
   });
 
   function trimWeight(value) {
@@ -283,7 +283,7 @@
     ][read.seed % 6];
   }
 
-  function verdict(read) {
+  function legacyVerdict(read) {
     if (!read) return "READY FOR THE FIRST WEIGH-IN!!!";
     if (read.pointCount === 1) return "TOO EARLY TO JUDGE—FIRST NUMBER LOGGED, NOW LET’S BUILD THE TREND!!!";
     if (read.isOutlier) return "THIS NUMBER IS TOO EXTREME TO JUDGE YET—CONFIRM IT!!!";
@@ -297,7 +297,7 @@
     return "negative";
   }
 
-  function composeDetail(read) {
+  function legacyComposeDetail(read) {
     if (!read) return "DROP IN A WEIGH-IN AND LET’S LIGHT THIS TRACKER UP!!!";
     if (read.pointCount === 1) return firstEntryCopy(read);
     if (read.isOutlier) return outlierCopy(read);
@@ -308,6 +308,78 @@
     if (read.state === "steady-gain") return gainCopy(read, false);
     if (read.state === "turning-gain") return turningGainCopy(read);
     return flatNoisyCopy(read);
+  }
+
+  function legacyCompose(read) {
+    return `${legacyVerdict(read)} ${legacyComposeDetail(read)}`;
+  }
+
+  function supportiveAction(read) {
+    if (read.isOutlier) return "Repeat the next weigh-in under the same scale conditions.";
+    if (read.state === "flat-noisy") return "Choose one satisfying planned snack before you need it.";
+    if (["accelerating-loss", "steady-loss", "turning-loss"].includes(read.state)) {
+      return read.seed % 2
+        ? "Take one comfortable walk after the next meal."
+        : "Build the next meal around protein, vegetables, and a satisfying portion.";
+    }
+    return read.seed % 2
+      ? "Make the next meal a simple mix of protein, vegetables, and a satisfying portion."
+      : "Have a full glass of water alongside the next satisfying meal.";
+  }
+
+  function supportiveDetail(read) {
+    const latest = trimWeight(read.latestWeight);
+    if (read.pointCount === 1) {
+      return `${latest} lb is the starting point, with no earlier movement to judge. Save the next weigh-in under the same scale conditions. This first number is information, not identity, and the rest of the trend is still unwritten.`;
+    }
+    if (read.isOutlier) {
+      const change = trimWeight(Math.abs(read.recentChange));
+      return `${latest} lb is ${change} lb from the previous reading, which is too unusual to call a trend yet. ${supportiveAction(read)} One extreme point cannot define your progress; a fair follow-up will make the direction clearer.`;
+    }
+    const movement = trimWeight(read.totalMovement);
+    const action = supportiveAction(read);
+    const positive = ["accelerating-loss", "steady-loss", "turning-loss"].includes(read.state);
+    const flat = read.state === "flat-noisy";
+    const evidence = flat
+      ? `${latest} lb keeps the recent direction mixed rather than settled`
+      : positive
+        ? `${latest} lb puts the current run ${movement} lb lower`
+        : `${latest} lb puts the current run ${movement} lb higher`;
+    const closings = positive ? [
+      "This progress is real—let yourself enjoy it!",
+      "The better direction is showing up clearly!",
+      "This is encouraging evidence, and it is yours!",
+      "A better trend is taking shape right here!",
+      "The line moved your way, and that matters!",
+      "This move counts, and the momentum is alive!"
+    ] : flat ? [
+      "Mixed data is not rejection; the story is still open.",
+      "This is information, not identity, and the direction can still change.",
+      "Nothing is settled yet; one doable step is enough for today.",
+      "The line is undecided, not hopeless, and there is room to move.",
+      "Today is one chapter, and the next point can clarify it.",
+      "You are not stuck; the trend simply needs more context."
+    ] : [
+      "One result does not define you; the next step can still help!",
+      "You are not starting over; there is room to turn this!",
+      "This is data, not a judgment; the path forward is open!",
+      "The line can turn without solving everything at once!",
+      "Today is one chapter, and the story can still improve!",
+      "Better direction is possible from exactly where you are!"
+    ];
+    return `${evidence}. ${action} ${closings[read.seed % closings.length]}`;
+  }
+
+  function verdict(read) {
+    if (!read) return "The coach is ready for the first weigh-in.";
+    if (read.pointCount === 1) return "The baseline is set, with no judgment on day one.";
+    if (read.isOutlier) return "This reading needs confirmation before judgment.";
+    return STATE_VERDICTS[read.state] || STATE_VERDICTS["flat-noisy"];
+  }
+
+  function composeDetail(read) {
+    if (!read) return "Save one honest weigh-in when you are ready. The first number is only a starting point, and the direction remains open.";
+    return supportiveDetail(read);
   }
 
   function compose(read) {

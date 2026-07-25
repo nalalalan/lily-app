@@ -54,15 +54,16 @@ function coachModelVersion(options = {}) {
   return `writer:${options.model || coachWriterModel};critic:${options.criticModel || coachCriticModel}`;
 }
 
-const COACH_GENERATION_VERSION = "coach-pipeline-v8";
-const COACH_ANALYSIS_VERSION = "coach-analysis-v4";
-const COACH_WRITER_PROMPT_VERSION = "coach-writer-v6";
-const COACH_CRITIC_PROMPT_VERSION = "coach-critic-v4";
+const COACH_GENERATION_VERSION = "coach-pipeline-v9";
+const COACH_ANALYSIS_VERSION = "coach-analysis-v5";
+const COACH_WRITER_PROMPT_VERSION = "coach-writer-v7";
+const COACH_CRITIC_PROMPT_VERSION = "coach-critic-v5";
 const COACH_VALIDATOR_VERSION = "coach-validator-v2";
-const COACH_FALLBACK_VERSION = "coach-fallback-v6";
-const COACH_ACTION_VERSION = "coach-action-v6";
+const COACH_FALLBACK_VERSION = "coach-fallback-v7";
+const COACH_ACTION_VERSION = "coach-action-v7";
 const COACH_PROMPT_VERSION = COACH_WRITER_PROMPT_VERSION;
-const COACH_SAFETY_VERSION = "coach-safety-v3";
+const COACH_SAFETY_VERSION = "coach-safety-v4";
+const COACH_STYLE_VERSION = "coach-style-warm-agency-v1";
 const COACH_MIN_WORDS = 35;
 const COACH_MAX_WORDS = 55;
 const COACH_COOLDOWN_COUNT = 3;
@@ -622,8 +623,8 @@ const PREFERENCE_ACTIONS = Object.freeze([
   { id: "reaction-protein-effort-alt", preferenceKey: "reaction-protein-effort", semantic: "acknowledged-protein-effort", text: "Follow through on the protein habit you said you are building." },
   { id: "reaction-movement-effort", preferenceKey: "reaction-movement-effort", semantic: "acknowledged-movement-effort", text: "Keep the comfortable movement effort you mentioned going today." },
   { id: "reaction-movement-effort-alt", preferenceKey: "reaction-movement-effort", semantic: "acknowledged-movement-effort", text: "Follow through on the comfortable movement routine you said you are building." },
-  { id: "observer-mood-support", preferenceKey: "observer-mood-support", semantic: "noticed-mood-support", text: "Alan noticed you seem off today. Let the next meal be easy and satisfying." },
-  { id: "observer-mood-support-alt", preferenceKey: "observer-mood-support", semantic: "noticed-mood-support", text: "Alan noticed today may feel off for you. Choose one easy, satisfying next meal." }
+  { id: "observer-mood-support", preferenceKey: "observer-mood-support", semantic: "noticed-mood-support", text: "Alan noticed you seem off. Choose one easy, satisfying meal." },
+  { id: "observer-mood-support-alt", preferenceKey: "observer-mood-support", semantic: "noticed-mood-support", text: "Alan noticed today feels off. Keep the next meal easy." }
 ]);
 
 function stableIndex(value, length) {
@@ -855,6 +856,7 @@ function buildAnalysisPlan(context) {
   const evidence = context.strongestEvidence;
   return {
     version: COACH_ANALYSIS_VERSION,
+    communicationStyle: COACH_STYLE_VERSION,
     verdict: context.verdict,
     current: {
       weight: Number(trimCoachNumber(context.currentWeight)),
@@ -1027,6 +1029,7 @@ function buildCoachContext(store, weightId, options = {}) {
     recentActionTexts: actionSelection.recentActionTexts,
     evidenceReferences,
     hiddenStrategy: hiddenStrategyState(privateGoal, weightInPounds(current)),
+    communicationStyle: COACH_STYLE_VERSION,
     forecastFingerprint: history.map((point) => ({ day: point.day, weight: point.weight, outlookTargetWeight: point.outlookTargetWeight }))
   };
   context.analysisPlan = buildAnalysisPlan(context);
@@ -1046,7 +1049,7 @@ function outlookPhrase(context) {
   return `is holding at about ${rounded} lb`;
 }
 
-const WRITER_SAFE_OPENINGS = Object.freeze({
+const LEGACY_WRITER_SAFE_OPENINGS = Object.freeze({
   "not-good-enough": [
     "THE LATEST RESULT IS NOT GOOD ENOUGH", "THIS RESULT IS MOVING THE WRONG WAY", "TODAY'S SIGNAL IS A SETBACK", "THE TREND JUST TOOK A WRONG-WAY STEP",
     "THIS WEIGH-IN IS NOT A WIN", "THE CURRENT DIRECTION IS NOT GOOD ENOUGH", "THIS NUMBER IS A CLEAR WARNING", "THE LATEST SIGNAL HAS WORSENED",
@@ -1077,31 +1080,31 @@ const WRITER_SAFE_OPENINGS = Object.freeze({
   ]
 });
 
-const FALLBACK_OPENINGS = Object.freeze({
+const LEGACY_FALLBACK_OPENINGS = Object.freeze({
   "not-good-enough": [
     "NOT GOOD ENOUGH YET", "WRONG-WAY SIGNAL—TIME TO RESPOND", "TODAY NEEDS A STRONG RESPONSE", "THIS RESULT NEEDS WORK",
     "THE LINE MOVED THE WRONG WAY", "NOT THE RESULT WE WANTED", "THIS SETBACK NEEDS AN ANSWER", "THE TREND IS ASKING FOR A COMEBACK",
     "COURSE CORRECTION STARTS NOW", "TODAY PUSHED BACK", "THIS NUMBER DOES NOT GET A PASS", "THE NEXT TURN MATTERS NOW",
-    "THIS IS MOVING THE WRONG WAY", ...WRITER_SAFE_OPENINGS["not-good-enough"]
+    "THIS IS MOVING THE WRONG WAY", ...LEGACY_WRITER_SAFE_OPENINGS["not-good-enough"]
   ],
   "good-progress": [
     "YES—THIS IS REAL PROGRESS", "RIGHT WAY—KEEP IT MOVING", "THIS WEIGH-IN IS A WIN", "THE WORK IS SHOWING UP",
     "STRONG PROGRESS IS ON THE BOARD", "THIS LINE IS MOVING OUR WAY", "GOOD—THE SIGNAL GOT BETTER", "MOMENTUM JUST LEANED FORWARD",
-    "THAT IS THE RESPONSE WE WANTED", "THE TREND JUST EARNED A CHEER", "LOWER AND MOVING—YES", "THIS STEP LANDED THE RIGHT WAY", ...WRITER_SAFE_OPENINGS["good-progress"]
+    "THAT IS THE RESPONSE WE WANTED", "THE TREND JUST EARNED A CHEER", "LOWER AND MOVING—YES", "THIS STEP LANDED THE RIGHT WAY", ...LEGACY_WRITER_SAFE_OPENINGS["good-progress"]
   ],
   verify: [
     "PAUSE—THIS READING NEEDS CONFIRMATION", "VERIFY THIS BEFORE WE JUDGE IT", "THIS SWING NEEDS ONE CLEAN CHECK", "CONFIRMATION COMES BEFORE THE VERDICT",
     "THE SIGNAL IS TOO EXTREME TO TRUST YET", "CHECK THIS NUMBER BEFORE REACTING", "ONE OUTLIER DOES NOT OWN THE STORY", "THIS READING IS ON HOLD",
-    "THE SCALE JUST THREW A CURVEBALL", "FIRST WE CONFIRM THE SIGNAL", "THIS JUMP NEEDS A FAIR RECHECK", "NO PRAISE OR PANIC UNTIL CONFIRMED", ...WRITER_SAFE_OPENINGS.verify
+    "THE SCALE JUST THREW A CURVEBALL", "FIRST WE CONFIRM THE SIGNAL", "THIS JUMP NEEDS A FAIR RECHECK", "NO PRAISE OR PANIC UNTIL CONFIRMED", ...LEGACY_WRITER_SAFE_OPENINGS.verify
   ],
   baseline: [
     "BASELINE LOGGED—THIS IS THE STARTING LINE", "FIRST NUMBER DOWN—NOW THE TREND CAN START", "THE STARTING POINT IS OFFICIALLY HERE", "ONE HONEST NUMBER OPENS THE STORY",
     "THE FIRST WEIGH-IN IS ON THE BOARD", "STARTING LINE SET—LET’S BUILD", "THE BASELINE IS READY", "THIS IS WHERE THE LINE BEGINS",
-    "FIRST DATA POINT—FULL ATTENTION", "THE TREND HAS ITS FIRST ANCHOR", "WE HAVE THE STARTING NUMBER", "DAY ONE OF THE WEIGHT STORY IS HERE", ...WRITER_SAFE_OPENINGS.baseline
+    "FIRST DATA POINT—FULL ATTENTION", "THE TREND HAS ITS FIRST ANCHOR", "WE HAVE THE STARTING NUMBER", "DAY ONE OF THE WEIGHT STORY IS HERE", ...LEGACY_WRITER_SAFE_OPENINGS.baseline
   ]
 });
 
-const WRITER_SAFE_CLOSINGS = Object.freeze({
+const LEGACY_WRITER_SAFE_CLOSINGS = Object.freeze({
   "not-good-enough": [
     "THE COMEBACK ENERGY IS HERE!!!", "THIS STORY IS READY FOR A TURNAROUND!!!", "A BETTER DIRECTION IS ABSOLUTELY POSSIBLE!!!", "THIS WRONG-WAY MOMENT IS NOT THE WHOLE STORY!!!",
     "THE TURNAROUND WINDOW IS WIDE OPEN!!!", "THE FIGHT IS STILL VERY MUCH ALIVE!!!", "THIS SETBACK IS ONLY ONE CHAPTER!!!", "BETTER MOMENTUM IS STILL AVAILABLE!!!",
@@ -1132,29 +1135,229 @@ const WRITER_SAFE_CLOSINGS = Object.freeze({
   ]
 });
 
-const FALLBACK_CLOSINGS = Object.freeze({
+const LEGACY_FALLBACK_CLOSINGS = Object.freeze({
   "not-good-enough": [
     "TURN THE NEXT ARROW DOWN—LET’S GO!!!", "ANSWER THIS WITH THE NEXT CHECK!!!", "MAKE THE NEXT NUMBER PUSH BACK!!!", "THE COMEBACK STARTS WITH THIS MOVE!!!",
     "NOW FIGHT FOR THE TURN!!!", "PUT THE NEXT POINT BACK ON TRACK!!!", "THIS LINE CAN TURN—GO GET IT!!!", "THE RESPONSE STARTS NOW!!!",
     "MAKE THE NEXT WEIGH-IN ANSWER!!!", "RESET THE DIRECTION—COME ON!!!", "GO EARN THE DOWNWARD ARROW!!!", "THE NEXT POINT IS THE COMEBACK CHANCE!!!",
-    "WE KNOW WHAT NEEDS TO CHANGE—COME ON!!!", ...WRITER_SAFE_CLOSINGS["not-good-enough"]
+    "WE KNOW WHAT NEEDS TO CHANGE—COME ON!!!", ...LEGACY_WRITER_SAFE_CLOSINGS["not-good-enough"]
   ],
   "good-progress": [
     "KEEP STACKING DOWNWARD PROOF!!!", "PROTECT THIS DIRECTION—LET’S GO!!!", "MAKE THE NEXT POINT AGREE!!!", "PRESS THIS ADVANTAGE!!!",
     "KEEP THE GOOD SIGNAL MOVING!!!", "STACK ANOTHER RIGHT-WAY ARROW!!!", "THIS IS MOMENTUM—USE IT!!!", "GO COLLECT THE NEXT WIN!!!",
-    "KEEP THE LINE WORKING FOR YOU!!!", "BUILD ON THIS RIGHT NOW!!!", "ONE MORE GOOD POINT—LET’S GO!!!", "HOLD THE RHYTHM AND KEEP PRESSING!!!", ...WRITER_SAFE_CLOSINGS["good-progress"]
+    "KEEP THE LINE WORKING FOR YOU!!!", "BUILD ON THIS RIGHT NOW!!!", "ONE MORE GOOD POINT—LET’S GO!!!", "HOLD THE RHYTHM AND KEEP PRESSING!!!", ...LEGACY_WRITER_SAFE_CLOSINGS["good-progress"]
   ],
   verify: [
     "CONFIRM IT, THEN WE JUDGE THE TREND!!!", "LET THE NEXT CLEAN CHECK SETTLE IT!!!", "VERIFY FIRST, THEN ATTACK THE REAL SIGNAL!!!", "ONE FAIR RECHECK COMES NEXT!!!",
     "MAKE THE NEXT READING THE TIEBREAKER!!!", "CONFIRM THE NUMBER BEFORE THE HYPE!!!", "THE NEXT CLEAN POINT GETS THE VERDICT!!!", "CHECK IT ONCE, THEN WE MOVE!!!",
-    "ONE CONFIRMING POINT WILL CLEAR THIS UP!!!", "VERIFY THE SWING AND BRING THE REAL STORY!!!", "THE TREND WAITS FOR ONE CLEAN ANSWER!!!", "CONFIRMATION FIRST—THEN FULL ENERGY!!!", ...WRITER_SAFE_CLOSINGS.verify
+    "ONE CONFIRMING POINT WILL CLEAR THIS UP!!!", "VERIFY THE SWING AND BRING THE REAL STORY!!!", "THE TREND WAITS FOR ONE CLEAN ANSWER!!!", "CONFIRMATION FIRST—THEN FULL ENERGY!!!", ...LEGACY_WRITER_SAFE_CLOSINGS.verify
   ],
   baseline: [
     "THE NEXT POINT GIVES THIS LINE DIRECTION!!!", "NOW GIVE THE BASELINE A STRONG FOLLOW-UP!!!", "THE TREND STARTS WITH THE NEXT CHECK!!!", "COME BACK AND MAKE THE DIRECTION LOUD!!!",
     "ONE MORE POINT TURNS DATA INTO MOMENTUM!!!", "THE NEXT WEIGH-IN STARTS THE REAL READ!!!", "BUILD THE LINE ONE HONEST POINT AT A TIME!!!", "NOW LET THE NEXT NUMBER MOVE THE STORY!!!",
-    "THE FOLLOW-UP IS WHERE MOMENTUM BEGINS!!!", "BRING THE NEXT POINT AND WE READ THE TURN!!!", "THE START IS SET—NOW BUILD ON IT!!!", "NEXT CHECK, NEXT SIGNAL—LET’S GO!!!", ...WRITER_SAFE_CLOSINGS.baseline
+    "THE FOLLOW-UP IS WHERE MOMENTUM BEGINS!!!", "BRING THE NEXT POINT AND WE READ THE TURN!!!", "THE START IS SET—NOW BUILD ON IT!!!", "NEXT CHECK, NEXT SIGNAL—LET’S GO!!!", ...LEGACY_WRITER_SAFE_CLOSINGS.baseline
   ]
 });
+
+const SUPPORTIVE_VERBOSE_OPENINGS = Object.freeze({
+  "not-good-enough": [
+    "This result moved away from the direction we want",
+    "Today’s data calls for a calm reset",
+    "The latest trend needs a course correction",
+    "This weigh-in points away from progress",
+    "The short-term direction needs to change",
+    "Today’s result is a setback, not a judgment",
+    "The current signal needs a gentle reset",
+    "This reading moved the trend off course",
+    "The latest pattern is not moving our way",
+    "Today’s direction needs a thoughtful response",
+    "The line took an unhelpful turn today",
+    "This result needs a steady course correction",
+    "The newest evidence moved against the plan",
+    "Today did not move in the direction we want",
+    "The trend stepped away from progress today",
+    "This data point asks for a simple reset"
+  ],
+  "good-progress": [
+    "This is real progress",
+    "Today’s data moved in the right direction",
+    "The latest trend just improved",
+    "This weigh-in moved the line our way",
+    "Today’s result is a genuine win",
+    "The short-term direction is getting better",
+    "This reading gives us encouraging progress",
+    "The latest signal moved toward progress",
+    "Today’s number improved the story",
+    "The line took a welcome turn today",
+    "This result landed in the right direction",
+    "The newest evidence is moving our way",
+    "Today added a clear sign of progress",
+    "The trend just gave us a better read",
+    "This data point strengthened the good direction",
+    "The latest result brings a reason to celebrate"
+  ],
+  verify: [
+    "This reading needs confirmation before judgment",
+    "This swing is an outlier, not a verdict",
+    "The current signal needs one fair recheck",
+    "This number is still unsettled",
+    "The latest reading needs a clean confirmation",
+    "This result is too unusual to judge yet",
+    "The trend is waiting for a confirming point",
+    "This point sits outside the usual pattern",
+    "The scale produced an unconfirmed outlier",
+    "This swing has not settled the direction",
+    "The current story is still uncertain",
+    "This data point needs a fair follow-up",
+    "The latest signal remains unconfirmed",
+    "This number is on hold for one recheck",
+    "The direction is still open",
+    "The real trend is not clear from this point"
+  ],
+  baseline: [
+    "The baseline is now set",
+    "This is the starting point",
+    "The first weigh-in is on the board",
+    "The trend now has its first point",
+    "This number opens the story",
+    "The starting line is official",
+    "The data now has a baseline",
+    "This is the first honest read",
+    "The weight story has begun",
+    "The first signal is here",
+    "This line now has an anchor",
+    "The run has an official beginning",
+    "This is point one",
+    "The trend starts here",
+    "The opening number has landed",
+    "The story now has a start"
+  ]
+});
+
+const WRITER_SAFE_OPENINGS = Object.freeze({
+  "not-good-enough": [
+    "Today needs a calm reset", "The direction needs a reset", "This result moved off course", "Today moved away from progress",
+    "The line took a setback", "This signal needs to change", "Today needs a course correction", "The trend moved against the plan",
+    "This result needs a gentle reset", "The newest evidence moved away", "The line is not moving our way", "Today calls for a simple reset"
+  ],
+  "good-progress": [
+    "This is real progress", "Today moved in the right direction", "The latest trend improved", "This weigh-in moved our way",
+    "Today brought a genuine win", "The direction is getting better", "This reading shows encouraging progress", "The latest signal improved",
+    "Today improved the story", "The line took a welcome turn", "This result landed the right way", "The newest evidence is moving our way"
+  ],
+  verify: [
+    "This reading needs confirmation", "This swing is an outlier", "The signal needs one fair recheck", "This number is still unsettled",
+    "The latest reading remains unconfirmed", "This result is unusual to judge", "The trend needs a confirming point", "This point sits outside the usual pattern",
+    "The scale produced an outlier", "This swing has not settled", "The current story is uncertain", "This point needs a fair follow-up"
+  ],
+  baseline: [
+    "The baseline is now set", "This is the starting point", "The first weigh-in is here", "The trend has its first point",
+    "This number opens the story", "The starting line is official", "The data has a baseline", "This is the first honest read",
+    "The weight story has begun", "The first signal is here", "This line has an anchor", "The run has a beginning"
+  ]
+});
+
+const FALLBACK_OPENINGS = WRITER_SAFE_OPENINGS;
+
+const SUPPORTIVE_VERBOSE_CLOSINGS = Object.freeze({
+  "not-good-enough": [
+    "One result does not define you; the next step can still help!",
+    "You are not starting over; there is room to turn this!",
+    "This is data, not a judgment; the path forward is open!",
+    "One helpful step is enough for today!",
+    "You are still fully capable of changing this direction!",
+    "A steadier direction is still within reach!",
+    "The line can turn without solving everything at once!",
+    "There is still plenty of room for a kinder comeback!",
+    "This setback is information, not identity; better momentum is possible!",
+    "Today is one chapter, and the story can still improve!",
+    "A calm next step can move this back toward progress!",
+    "The way forward is open, one doable choice at a time!",
+    "You are allowed a reset, and this direction can change!",
+    "This number cannot define you; it can only guide the next step!",
+    "You can meet this moment with care and still move forward!",
+    "Better direction is possible from exactly where you are!"
+  ],
+  "good-progress": [
+    "This progress is real—let yourself enjoy it!",
+    "Look at that line move; this is working!",
+    "Small wins are becoming a real trend!",
+    "That is progress you can trust and build on!",
+    "Let this result add confidence—the line is moving!",
+    "That is a genuine win; take the good news!",
+    "This move counts, and the momentum is alive!",
+    "The data is giving you a real reason to feel proud!",
+    "This is a bright step in the right direction!",
+    "The better direction is showing up clearly!",
+    "This result brings real, hopeful momentum!",
+    "The line moved your way, and that matters!",
+    "This good direction is becoming easier to see!",
+    "The progress is visible—what a good moment!",
+    "This is encouraging evidence, and it is yours!",
+    "A better trend is taking shape right here!"
+  ],
+  verify: [
+    "No praise or blame yet; one fair check will settle it.",
+    "This point does not get to define the whole trend.",
+    "The story is still open, and a clean check will clarify it.",
+    "One unusual reading cannot judge your progress.",
+    "The fair verdict waits for one confirming point.",
+    "This number is information, not a conclusion.",
+    "The real direction deserves one calm confirmation.",
+    "There is nothing to fear or celebrate until this settles.",
+    "The trend remains open, so this point carries no judgment.",
+    "One clean follow-up will give this swing proper context.",
+    "This outlier stands alone until another point supports it.",
+    "The direction is still undecided, and that is okay.",
+    "A single extreme point cannot own the story.",
+    "The next fair reading will make this clearer.",
+    "This signal is waiting for context, not a reaction.",
+    "The trend has not spoken clearly yet."
+  ],
+  baseline: [
+    "The story begins here, with plenty of room to grow!",
+    "One honest point is a strong place to start!",
+    "The line exists now, and the direction is wide open!",
+    "This first point gives tomorrow something real to build on!",
+    "The baseline is here; no judgment belongs on day one.",
+    "This is a clean start, and showing up counts!",
+    "The trend has an anchor, and the rest is still open!",
+    "This first number is information, not identity.",
+    "The story now has a beginning and room for progress!",
+    "Point one is real, and the next chapter is unwritten!",
+    "The data has started, gently and honestly.",
+    "This is where the trend begins, not where it ends.",
+    "The starting line is set, and possibility is still wide open!",
+    "One saved number gives the journey a clear beginning.",
+    "The first point landed; the trend will grow from here.",
+    "This baseline is a beginning, never a judgment."
+  ]
+});
+
+const WRITER_SAFE_CLOSINGS = Object.freeze({
+  "not-good-enough": [
+    "You can still turn this!", "The path forward is open!", "Better momentum is still possible!", "This number cannot define you!",
+    "One step is enough today!", "The next chapter stays open!", "You are not starting over!", "This direction can still change!",
+    "Progress remains within reach!", "Room for a comeback remains!", "This is information, not identity!", "You can move forward gently!"
+  ],
+  "good-progress": [
+    "This progress is real—enjoy it!", "The better direction is clear!", "This is encouraging evidence!", "A better trend is taking shape!",
+    "The line moved your way!", "This momentum is alive!", "That is a genuine win!", "The good direction is visible!",
+    "This result can build confidence!", "The progress is yours!", "Today gave you a good moment!", "The story just improved!"
+  ],
+  verify: [
+    "One fair check will settle it.", "This point cannot define the trend.", "The story is still open.", "One unusual reading carries no judgment.",
+    "The fair verdict needs context.", "This number is only information.", "The direction remains open.", "One point cannot judge progress.",
+    "The signal still needs context.", "A calm confirmation is enough.", "The outlier stands alone.", "Clarity can come next."
+  ],
+  baseline: [
+    "The story is wide open!", "One honest point is enough!", "The direction remains open!", "This start can grow!",
+    "No judgment belongs here.", "Showing up counts today!", "The rest is still unwritten!", "This is information, not identity.",
+    "There is room for progress!", "The next chapter stays open!", "The beginning is real!", "The trend can grow from here!"
+  ]
+});
+
+const FALLBACK_CLOSINGS = WRITER_SAFE_CLOSINGS;
 
 function composeFallbackParagraph(opening, current, evidence, outlook, action, close, separators) {
   const clean = (value) => String(value || "").trim().replace(/[.!?]+$/g, "");
@@ -1282,6 +1485,7 @@ function fallbackFactClauses(context) {
 
 function coachPresentationSeed(context) {
   return crypto.createHash("sha256").update(JSON.stringify({
+    communicationStyle: context.communicationStyle || COACH_STYLE_VERSION,
     measurementAt: context.measurementAt,
     currentWeight: Number(trimCoachNumber(context.currentWeight)),
     latestDailyChange: Number(trimCoachNumber(context.latestDailyChange)),
@@ -1421,7 +1625,7 @@ function noveltyErrors(text, context, previousMessages = [], selectedAction = id
 function buildContextualFallbackCandidates(context, previousMessages = [], limit = 1, options = {}) {
   const requestedLimit = Math.max(1, Math.min(24, Number(limit) || 1));
   if (!context) {
-    const text = "WEIGH-IN SAVED—THE DATA IS HERE, AND THE NEXT CONSISTENT CHECK WILL MAKE THE DIRECTION CLEARER. Build the next meal around protein, vegetables, and a satisfying portion. KEEP SHOWING UP FOR THE TREND—LET’S GO!!!";
+    const text = "The weigh-in is saved, and the next consistent check will make the direction clearer. Build the next meal around protein, vegetables, and a satisfying portion. This is data, not a judgment; one useful step is enough for today.";
     return [{ text, structureId: "empty", errors: [], wordCount: coachWordCount(text) }];
   }
   const openings = options.writerSafe
@@ -1690,14 +1894,29 @@ function closedCoachGrammarErrors(text, context, selectedAction) {
   return Array.from(new Set(errors));
 }
 
+function supportiveCoachStyleErrors(text) {
+  const paragraph = String(text || "");
+  const errors = [];
+  const allCapsWords = paragraph.match(/\b[A-Z]{4,}\b/g) || [];
+  if (allCapsWords.length > 1 || /!{2,}/.test(paragraph)) errors.push("alarmist-style");
+  if (/\b(?:not good enough|does not get a pass|red alert|warning shot|wake-up call|trend alarm|bad direction|missed the mark|no excuses?|fight|attack|hunt|earn|prove|clap back|lock in|pushed? hard|failure|failed|disappoint\w*|should have|must|urgently)\b/i.test(paragraph)) {
+    errors.push("coercive-style");
+  }
+  if (!/\b(?:not a judgment|does not define|cannot define|not identity|can|possible|within reach|room|open|progress|win|encouraging|proud|enjoy|good moment|okay|honest point|beginning|no praise or blame|information|clearer|unwritten|grow|improve)\b/i.test(paragraph)) {
+    errors.push("missing-agency");
+  }
+  return errors;
+}
+
 function validateCoachParagraph(text, context, previousMessages = [], options = {}) {
   const paragraph = normalizeCoachParagraph(text);
   const errors = [];
   const words = coachWordCount(paragraph);
   if (/[\r\n]/.test(String(text || ""))) errors.push("multiline");
   if (words < COACH_MIN_WORDS || words > COACH_MAX_WORDS) errors.push("word-count");
-  const unsafe = /\b(?:obese|fat|body|lazy|disgusting|failure|worthless|worth|bmi|jyp|korean idol|fast|fasting|starve|starving|skip(?:ping)?(?:\s+(?:a|the))?\s+meals?|purge|purging|compensat\w*|punish\w*|restrict\w*|under-?eat\w*|overexercis\w*|excessive exercise|depriv\w*|guilt|shame|diagnos\w*|depress\w*)\b/i;
+  const unsafe = /\b(?:obese|fat|body|lazy|disgusting|failure|worthless|worth|bmi|jyp|korean idol|fast|fasting|starve|starving|skip(?:ping)?(?:\s+(?:a|the))?\s+meals?|purge|purging|compensat\w*|punish\w*|restrict\w*|under-?eat\w*|overexercis\w*|excessive exercise|depriv\w*|guilt|shame|diagnos\w*|depress\w*|anxiet\w*|anxious|rejection sensitivity|dysphoria|mental health)\b/i;
   if (unsafe.test(paragraph)) errors.push("unsafe-language");
+  errors.push(...supportiveCoachStyleErrors(paragraph));
   if (/\b(?:horn\w*|sex(?:ual)?|ovulat\w*|conflict|phone|address|relationship|appearance)\b/i.test(paragraph)) errors.push("private-context-leak");
   if (/[\u00e2\u00c3\u00c2\ufffd]/.test(paragraph)) errors.push("mojibake");
   if (/\b(?:safety-held|high-safe-urgency|steady-safe)\b/i.test(paragraph)) errors.push("private-strategy-leak");
@@ -1726,9 +1945,9 @@ function validateCoachParagraph(text, context, previousMessages = [], options = 
   }
   const leadVerdict = paragraph.slice(0, 150);
   const verdictPattern = context && {
-    "not-good-enough": /\b(?:not good enough|wrong[- ]way|needs? (?:work|a response|attention|a correction|to change)|setback|regression|worsen\w*|course correction|red flag|bad signal|pushed back|does not get a pass|moving (?:the )?wrong way)\b/i,
+    "not-good-enough": /\b(?:moved away|points? away|needs? (?:work|a response|attention|a correction|to change|a (?:calm|gentle|steady) reset)|setback|regression|worsen\w*|course correction|off course|not moving our way|unhelpful turn|against the plan|did not move in the direction|stepped away|simple reset|moving (?:the )?wrong way)\b/i,
     "good-progress": /\b(?:real progress|right way|a win|strong progress|moving our way|got better|improv\w*|positive signal|lower and moving|landed the right way|momentum)\b/i,
-    verify: /\b(?:pause|verify|confirmation|confirm\w*|outlier|recheck|too extreme to trust|on hold|curved?ball|tie[ -]?breaker)\b/i,
+    verify: /\b(?:pause|verify|confirmation|confirm\w*|unconfirmed|outlier|recheck|unsettled|uncertain|unusual to judge|outside the usual pattern|on hold|follow-up|direction is still open|not clear)\b/i,
     baseline: /\b(?:baseline|starting (?:line|point)|first (?:number|weigh-in|data point|anchor)|where the line begins|trend has its first|day one)\b/i
   }[context.verdict];
   if (verdictPattern && !verdictPattern.test(leadVerdict)) errors.push("verdict");
@@ -1897,7 +2116,8 @@ function publicCoachFacts(context) {
   return {
     analysis: context.analysisPlan,
     periodModifier: context.trackerModifier?.text || null,
-    urgency: context.hiddenStrategy === "high-safe-urgency" ? "high but safe" : context.hiddenStrategy === "safety-held" ? "firm and safety-conscious" : "steady and safe",
+    communicationStyle: "warm, clear, hopeful, low-overwhelm, data-directed, and non-coercive",
+    urgency: "one doable next action with no alarm, rejection, or pressure",
     approvedCopyComponents: approvedCoachCopyComponents(context)
   };
 }
@@ -1910,7 +2130,8 @@ function criticCoachFacts(context) {
     relationToPrior: context.analysisPlan.relationToPrior,
     outlook: context.analysisPlan.outlook,
     periodModifier: context.trackerModifier?.text || null,
-    urgency: context.hiddenStrategy === "high-safe-urgency" ? "high but safe" : context.hiddenStrategy === "safety-held" ? "firm and safety-conscious" : "steady and safe"
+    communicationStyle: "warm, clear, hopeful, low-overwhelm, data-directed, and non-coercive",
+    urgency: "one doable next action with no alarm, rejection, or pressure"
   };
 }
 
@@ -2046,13 +2267,13 @@ async function generateCoachParagraph(context, previousMessages = [], options = 
     attempts += 1;
     try {
       const system = [
-        "Select three genuinely different evidence-first fitness-coach paragraphs for Lily from the supplied approved candidate pool and return only the required JSON.",
+        "Select three genuinely different evidence-first, warm fitness-coach paragraphs for Lily from the supplied approved candidate pool and return only the required JSON.",
         `Each candidate must be ${COACH_MIN_WORDS}-${COACH_MAX_WORDS} words in one paragraph.`,
         "Copy each selected candidate exactly. Every pool entry has already passed the factual, one-action, privacy, safety, originality, and closed-grammar checks.",
-        "Prefer candidates whose framing makes the strongest new evidence and its relationship to the prior read immediately clear.",
+        "Prefer candidates whose framing makes the strongest new evidence and its relationship to the prior read immediately clear while keeping the result about data, never Lily's worth or identity.",
         "Use three different openings, closings, structures, and action realizations when the pool permits.",
         "Every pool entry already satisfies the recent-message originality and action-cooldown gates.",
-        "Never mention a goal, target weight, private strategy, BMI, diagnosis, appearance, worth, fasting, skipped meals, restriction, compensation, punishment, JYP, or idol training."
+        "Never mention a goal, target weight, private strategy, BMI, diagnosis, mental-health context, appearance, worth, fasting, skipped meals, restriction, compensation, punishment, JYP, or idol training. Never select alarmist, rejecting, coercive, all-caps, or exclamation-heavy copy."
       ].join(" ");
       const writerText = await requestCoachResponse([
         { role: "system", content: system },
@@ -2100,7 +2321,7 @@ async function generateCoachParagraph(context, previousMessages = [], options = 
       const criticText = await requestCoachResponse([
         {
           role: "system",
-          content: "Select exactly one of the three alternatives that makes the strongest new story clearest, then independently evaluate all six critic checks for that selected candidate only. Never combine the alternatives or count language from an unselected candidate; they are separate paragraph choices. Every candidate has already passed deterministic fact, evidence, verdict, single-action, privacy, safety, and originality checks. Approve only if every check passes for the selected candidate; reject with a concrete reason for any failed check. For verdict, FACTS.verdict is an internal classification, not required copy. verdictEvidence.approvedFamilyOpening is an exact deterministic family check. Set verdict=true when it is true unless the paragraph makes one of these narrow contradictions: praises an adverse not-good-enough result, condemns a good-progress result, treats a verify outlier as settled, or claims a trend from a baseline. Hype intensity, uppercase, firmness, or excitement cannot fail verdict. For actionCompliance, inspect only the selected annotatedText. The one instruction is enclosed once by <approved_action> tags. Set actionCompliance=true when text outside those tags has no additional concrete instruction. The tags are critic-only metadata. Never count factual weight-change language, comparison material, or an unselected alternative. Ingredients and flavor inside the marked sentence are one instruction. For originality, use originalityEvidence as exact measurements: set originality=true when every freshness/cooldown flag is true and maxOrderedTrigramSimilarity is below rejectionThreshold. Do not subjectively reject required facts, a generic coaching tone, or similarities already below that threshold. Declarative hype is framing, not another instruction. Energetic uppercase wording is not itself a safety failure. If all six checks pass, return approved=true, the selected index, and reasonCode approved. Return only the required JSON."
+          content: "Select exactly one of the three alternatives that makes the strongest new story clearest, then independently evaluate all six critic checks for that selected candidate only. Never combine the alternatives or count language from an unselected candidate; they are separate paragraph choices. Every candidate has already passed deterministic fact, evidence, verdict, single-action, privacy, safety, style, and originality checks. Approve only if every check passes for the selected candidate; reject with a concrete reason for any failed check. For verdict, FACTS.verdict is an internal classification, not required copy. verdictEvidence.approvedFamilyOpening is an exact deterministic family check. Set verdict=true when it is true unless the paragraph praises an adverse result, condemns a good-progress result, treats a verify outlier as settled, or claims a trend from a baseline. For privacySafety, reject diagnosis references, mental-health labels, alarmist framing, rejection-coded language, coercion, shame, blame, all-caps pressure, or exclamation overload even when the facts are correct. For actionCompliance, inspect only the selected annotatedText. The one instruction is enclosed once by <approved_action> tags. Set actionCompliance=true when text outside those tags has no additional concrete instruction. The tags are critic-only metadata. Never count factual weight-change language, comparison material, or an unselected alternative. Ingredients and flavor inside the marked sentence are one instruction. For originality, use originalityEvidence as exact measurements: set originality=true when every freshness/cooldown flag is true and maxOrderedTrigramSimilarity is below rejectionThreshold. Do not subjectively reject required facts or similarities already below that threshold. If all six checks pass, return approved=true, the selected index, and reasonCode approved. Return only the required JSON."
         },
         {
           role: "user",
@@ -2169,6 +2390,7 @@ function createCoachMessageRecord(context, text, status, now = new Date().toISOS
     modelVersion: metadata.modelVersion || coachModelVersion(),
     promptVersion: COACH_PROMPT_VERSION,
     safetyVersion: COACH_SAFETY_VERSION,
+    styleVersion: COACH_STYLE_VERSION,
     actionId: selectedAction.id,
     actionSemantic: selectedAction.semantic,
     actionText: selectedAction.text,
@@ -2367,6 +2589,50 @@ function assertExpectedCoachRefreshState(snapshot, expected = {}, expectedCoach 
     throw Object.assign(new Error("The latest weight must have exactly one coach record before refresh."), { status: 409 });
   }
   return true;
+}
+
+function latestCoachPersonalContextCutoff(store, coach) {
+  const memoryIds = new Set((coach?.evidenceReferences || [])
+    .filter((reference) => reference?.type === "memory" && reference.id)
+    .map((reference) => reference.id));
+  const timestamps = (store.memories || [])
+    .filter((memory) => memoryIds.has(memory.id))
+    .map((memory) => Date.parse(memory.createdAt))
+    .filter(Number.isFinite);
+  return timestamps.length ? Math.max(...timestamps) : NaN;
+}
+
+function refreshLatestCoachStyleInStore(store, status = "fallback-style-refresh", now = Date.now()) {
+  const snapshot = coachRefreshPreservationSnapshot(store);
+  const latestWeight = (store.weights || []).find((weight) => weight.id === snapshot.latestWeightId);
+  const existing = coachForWeight(store, snapshot.latestWeightId);
+  if (!latestWeight || !existing) return { store, updated: false, alreadyCurrent: false, weightId: snapshot.latestWeightId, personalContextCutoff: NaN };
+  if (existing.styleVersion === COACH_STYLE_VERSION) {
+    return { store, updated: false, alreadyCurrent: true, weightId: latestWeight.id, personalContextCutoff: latestCoachPersonalContextCutoff(store, existing) };
+  }
+  const personalContextCutoff = latestCoachPersonalContextCutoff(store, existing);
+  const context = buildCoachContext(store, latestWeight.id, {
+    personalContextCutoff: Number.isFinite(personalContextCutoff) ? personalContextCutoff : undefined
+  });
+  if (!context) return { store, updated: false, alreadyCurrent: false, weightId: latestWeight.id, personalContextCutoff };
+  const previousMessages = causalPreviousCoachMessages(store, latestWeight, 10);
+  const fallback = buildContextualFallbackResult(context, previousMessages);
+  const replacement = createCoachMessageRecord(context, fallback.text, status, new Date(now).toISOString(), existing, {
+    action: fallback.action,
+    structureId: fallback.structureId,
+    previousMessages,
+    diagnostics: generationDiagnostics("style-refresh", 0, [], now)
+  });
+  return {
+    store: {
+      ...store,
+      coachMessages: [replacement, ...(store.coachMessages || []).filter((message) => message.id !== existing.id && message.weightId !== latestWeight.id)]
+    },
+    updated: true,
+    alreadyCurrent: false,
+    weightId: latestWeight.id,
+    personalContextCutoff
+  };
 }
 
 function removeWeightAndCoach(store, weightId) {
@@ -2953,6 +3219,61 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  if (pathname === "/api/coach/refresh-style" && req.method === "POST") {
+    const body = await readJson(req);
+    const expected = body.expected && typeof body.expected === "object" ? body.expected : {};
+    const expectedCoach = body.expectedCoach && typeof body.expectedCoach === "object" ? body.expectedCoach : {};
+    let baseline = null;
+    let prepared = null;
+    let backupFile = "";
+
+    await writeStore(async (store) => {
+      baseline = coachRefreshPreservationSnapshot(store);
+      assertExpectedCoachRefreshState(baseline, expected, expectedCoach);
+      prepared = refreshLatestCoachStyleInStore(store, "fallback-style-maintenance", Date.now());
+      if (!prepared.updated) {
+        if (!prepared.alreadyCurrent) throw Object.assign(new Error("The latest coach could not be refreshed."), { status: 409 });
+        return store;
+      }
+      const backupsDir = path.join(dataDir, "backups");
+      await fsp.mkdir(backupsDir, { recursive: true });
+      backupFile = `store-before-coach-style-refresh-${new Date().toISOString().replace(/[:.]/g, "-")}-${crypto.randomBytes(3).toString("hex")}.json`;
+      await fsp.copyFile(storePath, path.join(backupsDir, backupFile));
+      assertCoachRefreshPreserved(baseline, coachRefreshPreservationSnapshot(prepared.store, prepared.weightId));
+      return prepared.store;
+    });
+
+    if (prepared.updated) {
+      await generateAndReplaceCoach(prepared.weightId, {
+        personalContextCutoff: Number.isFinite(prepared.personalContextCutoff) ? prepared.personalContextCutoff : undefined
+      });
+    }
+    const finalStore = await readStore();
+    const finalSnapshot = coachRefreshPreservationSnapshot(finalStore, prepared.weightId || baseline.targetWeightId);
+    assertCoachRefreshPreserved(baseline, finalSnapshot);
+    const finalRecord = coachForWeight(finalStore, finalSnapshot.targetWeightId);
+    const finalContext = buildCoachContext(finalStore, finalSnapshot.targetWeightId, {
+      personalContextCutoff: Number.isFinite(prepared.personalContextCutoff) ? prepared.personalContextCutoff : undefined
+    });
+    const latestWeight = (finalStore.weights || []).find((weight) => weight.id === finalSnapshot.targetWeightId);
+    const previousMessages = causalPreviousCoachMessages(finalStore, latestWeight, 10);
+    const validation = validateCoachParagraph(finalRecord?.text || "", finalContext, previousMessages, { privateGoal: privateCoachGoal });
+    if (finalRecord?.styleVersion !== COACH_STYLE_VERSION || !validation.ok) {
+      throw Object.assign(new Error(`The refreshed coach failed the supportive style gate: ${validation.errors.join(", ")}.`), { status: 409 });
+    }
+    send(res, 200, {
+      updated: Boolean(prepared.updated),
+      alreadyCurrent: Boolean(prepared.alreadyCurrent),
+      latestCoach: publicCoach(finalRecord),
+      status: finalRecord?.status || "missing",
+      styleVersion: finalRecord?.styleVersion || "",
+      backup: backupFile || null,
+      counts: finalSnapshot.counts,
+      preserved: true
+    });
+    return;
+  }
+
   if (pathname === "/api/tracker" && req.method === "GET") {
     const store = await readStore();
     send(res, 200, { tracker: publicTrackerSummary(store.trackerEvents) });
@@ -3320,6 +3641,7 @@ if (process.env.NODE_ENV === "test" || process.env.LILY_COACH_CLI === "1") {
     COACH_MIN_WORDS,
     COACH_REACTION_MAX_AGE_MS,
     COACH_REACTION_REFRESH_MAX_AGE_MS,
+    COACH_STYLE_VERSION,
     COACH_VALIDATOR_VERSION,
     COACH_WRITER_PROMPT_VERSION,
     FALLBACK_CLOSINGS,
@@ -3367,12 +3689,14 @@ if (process.env.NODE_ENV === "test" || process.env.LILY_COACH_CLI === "1") {
     refreshLatestWeightOnlyCoach,
     refreshIfLatestCoachReferences,
     refreshLatestCoachForSavedMemories,
+    refreshLatestCoachStyleInStore,
     removeWeightAndCoach,
     observerCareSignal,
     reportedCoachEffort,
     selectSavedPreference,
     selectStrongestCoachEvidence,
     similarityScore,
+    supportiveCoachStyleErrors,
     validateCoachParagraph,
     writeStore
   };

@@ -280,6 +280,7 @@ const weightPost = server.slice(weightPostStart, weightPostEnd);
 assert.ok(weightPost.indexOf("send(res, 201") < weightPost.indexOf("setImmediate"), "the durable fallback must return before background model generation");
 assert.ok(weightPost.includes("generateAndReplaceCoach(created.id).catch(() => {})"), "background coach generation must not turn a saved weigh-in into an HTTP failure");
 assert.ok(server.includes('pathname === "/api/coach/refresh-saved-context"'), "an authenticated in-process route can safely refresh a note saved before this behavior shipped");
+assert.ok(server.includes('pathname === "/api/coach/refresh-style"'), "an authenticated exact-preservation route can refresh only the latest coach style");
 assert.ok(server.includes("assertExpectedCoachRefreshState(baseline, expected, expectedCoach)"), "the one-time live refresh requires an exact production identity and count baseline");
 assert.ok(server.includes("assertCoachRefreshPreserved(baseline, coachRefreshPreservationSnapshot(prepared.store, prepared.weightId))"), "the live refresh verifies preservation inside the server write queue");
 assert.doesNotMatch(server, /execFile|spawn\([^)]*refresh-latest-saved-context/, "the live refresh never writes the Railway store from a second process");

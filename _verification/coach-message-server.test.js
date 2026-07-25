@@ -326,6 +326,27 @@ async function run() {
   assert.equal(observedMoodContext.outlook, measurementOnlyContext.outlook, "care context cannot alter the forecast");
   assert.deepEqual(observedMoodContext.forecastFingerprint, measurementOnlyContext.forecastFingerprint, "care context cannot alter chart geometry");
   assert(!JSON.stringify(coach.publicCoachFacts(observedMoodContext)).includes(observedMoodNote.text), "raw care-note text never reaches the writer");
+  const staleStyleStore = {
+    ...observedMoodRefresh.store,
+    coachMessages: observedMoodRefresh.store.coachMessages.map((message) => message.weightId === reactionWeight.id
+      ? { ...message, styleVersion: "coach-style-old", text: "TODAY'S DATA IS A WARNING. The number moved the wrong way. FIGHT FOR THE TURN!!!" }
+      : message)
+  };
+  const beforeStyleRefresh = coach.coachRefreshPreservationSnapshot(staleStyleStore, reactionWeight.id);
+  const styleRefresh = coach.refreshLatestCoachStyleInStore(staleStyleStore, "fallback-test-style-refresh", Date.parse(observedMoodNote.createdAt) + 1000);
+  assert.equal(styleRefresh.updated, true, "a stale latest coach is rewritten through the supportive style path");
+  assert.equal(coach.assertCoachRefreshPreserved(beforeStyleRefresh, coach.coachRefreshPreservationSnapshot(styleRefresh.store, reactionWeight.id)), true);
+  const refreshedStyleCoach = coach.coachForWeight(styleRefresh.store, reactionWeight.id);
+  assert.equal(refreshedStyleCoach.id, observedMoodCoach.id, "style refresh preserves the coach identity");
+  assert.equal(refreshedStyleCoach.createdAt, observedMoodCoach.createdAt, "style refresh preserves the coach creation time");
+  assert.equal(refreshedStyleCoach.styleVersion, coach.COACH_STYLE_VERSION);
+  assert.match(refreshedStyleCoach.text, /Alan noticed/i, "the current one-use care context survives the same-message style refresh");
+  assert.deepEqual(coach.supportiveCoachStyleErrors(refreshedStyleCoach.text), []);
+  assert.doesNotMatch(refreshedStyleCoach.text, /not good enough|warning|red alert|fight|attack|earn|prove|!{2,}/i);
+  assert.doesNotMatch(refreshedStyleCoach.text, /depress\w*|anxiet\w*|anxious|rejection sensitivity|dysphoria|diagnos\w*/i);
+  const idempotentStyleRefresh = coach.refreshLatestCoachStyleInStore(styleRefresh.store, "fallback-test-style-refresh", Date.parse(observedMoodNote.createdAt) + 2000);
+  assert.equal(idempotentStyleRefresh.updated, false);
+  assert.equal(idempotentStyleRefresh.alreadyCurrent, true, "the style refresh is idempotent once the latest coach is current");
   const nextObservedMoodContext = coach.buildCoachContext(
     { ...observedMoodRefresh.store, weights: [...observedMoodRefresh.store.weights, nextReactionWeight] },
     nextReactionWeight.id,
@@ -489,22 +510,35 @@ async function run() {
   assert.equal(coach.identifyApprovedAction(fallback, july22)?.semantic, july22.actionSemantic);
 
   const acceptanceAction = july22.actionRealizations.slice().sort((left, right) => coach.coachWordCount(left.text) - coach.coachWordCount(right.text))[0].text;
-  const acceptanceExample = `THIS IS MOVING THE WRONG WAY—151 lb is up 1.1 lb today. The 3-day weight change is up 2.5 lb and accelerated from the prior read. The 1-year trend outlook worsened to about 146 lb. ${acceptanceAction} THE RESPONSE STARTS NOW!!!`;
+  const acceptanceFacts = coach.fallbackFactClauseVariants(july22);
+  const acceptanceExample = coach.normalizeCoachParagraph(coach.FALLBACK_STRUCTURES[0](
+    coach.WRITER_SAFE_OPENINGS["not-good-enough"][0],
+    acceptanceFacts.current[0],
+    acceptanceFacts.evidence[0],
+    acceptanceFacts.outlook[0],
+    acceptanceAction,
+    coach.WRITER_SAFE_CLOSINGS["not-good-enough"][0]
+  ));
   const acceptanceValidation = coach.validateCoachParagraph(acceptanceExample, july22, [], { privateGoal: 117 });
-  assert.equal(acceptanceValidation.ok, true, `a fresh semantic verdict must not be rejected as non-template copy: ${acceptanceValidation.errors.join(", ")}`);
+  assert.equal(acceptanceValidation.ok, true, `a supportive evidence-first paragraph must pass every deterministic gate: ${acceptanceValidation.errors.join(", ")}`);
   assertParagraph(acceptanceExample, "July 22 acceptance example");
+  assert.deepEqual(coach.supportiveCoachStyleErrors(acceptanceExample), []);
+  assert.doesNotMatch(acceptanceExample, /not good enough|warning|red alert|fight|attack|earn|prove|!{2,}/i);
+  assert.doesNotMatch(acceptanceExample, /depress\w*|anxiet\w*|anxious|rejection sensitivity|dysphoria|diagnos\w*/i);
 
   const wrongNumber = fallback.replace("151 lb", "999 lb");
   assert(coach.validateCoachParagraph(wrongNumber, july22, [], { privateGoal: 117 }).errors.includes("unsupported-number"));
   const leakedGoal = fallback.replace("about 146 lb", "about 117 lb");
   assert(coach.validateCoachParagraph(leakedGoal, july22, [], { privateGoal: 117 }).errors.includes("goal-leak"));
-  const leakedPrivateContext = fallback.replace(/[^.!?]+!!!$/, "OVULATION EXPLAINS THIS!!!");
+  const fallbackClosing = coach.FALLBACK_CLOSINGS[july22.verdict].find((closing) => fallback.endsWith(closing));
+  assert(fallbackClosing, "the fallback ends with one approved supportive closing");
+  const leakedPrivateContext = fallback.replace(fallbackClosing, "Ovulation explains this.");
   assert(coach.validateCoachParagraph(leakedPrivateContext, july22, [], { privateGoal: 117 }).errors.includes("private-context-leak"));
   const periodCause = `${fallback} The period caused this.`;
   assert(coach.validateCoachParagraph(periodCause, july22, [], { privateGoal: 117 }).errors.includes("period-causality"));
   assert(coach.validateCoachParagraph(`${fallback}\nSecond paragraph.`, july22, [], { privateGoal: 117 }).errors.includes("multiline"));
-  for (const unsafeClose of ["YOU ARE LAZY!!!", "SKIP A MEAL TO FIX IT!!!", "PUNISH THIS WITH COMPENSATORY EXERCISE!!!"]) {
-    const unsafeCandidate = fallback.replace(/[^.!?]+!!!$/, unsafeClose);
+  for (const unsafeClose of ["You are lazy.", "Skip a meal to fix it.", "Punish this with compensatory exercise."]) {
+    const unsafeCandidate = fallback.replace(fallbackClosing, unsafeClose);
     assert(coach.validateCoachParagraph(unsafeCandidate, july22, [], { privateGoal: 117 }).errors.includes("unsafe-language"), `unsafe coaching is rejected: ${unsafeClose}`);
   }
 
@@ -514,7 +548,7 @@ async function run() {
     "Taking the stairs helps.", "Keep standing after dinner.", "For dinner, stand up."
   ];
   for (const extra of extraActions) {
-    const candidate = fallback.replace(/[^.!?]+!!!$/, extra);
+    const candidate = fallback.replace(fallbackClosing, `${extra} ${fallbackClosing}`);
     assert(coach.validateCoachParagraph(candidate, july22, [], { privateGoal: 117 }).errors.includes("extra-action"), `extra action is rejected: ${extra}`);
   }
 
@@ -525,7 +559,8 @@ async function run() {
     "Fight the scale.", "Attack the scale.", "Clean the next reading.", "Press the scale."
   ];
   for (const extra of semanticBypasses) {
-    const candidate = acceptanceExample.replace(" THE RESPONSE STARTS", ` ${extra} THE RESPONSE STARTS`);
+    const acceptanceClosing = coach.WRITER_SAFE_CLOSINGS["not-good-enough"][0];
+    const candidate = acceptanceExample.replace(acceptanceClosing, `${extra} ${acceptanceClosing}`);
     const result = coach.validateCoachParagraph(candidate, july22, [], { privateGoal: 117 });
     assert(result.errors.some((error) => error.startsWith("closed-")), `closed component grammar rejects a hidden second recommendation: ${extra}`);
   }
@@ -549,7 +584,7 @@ async function run() {
     acceptanceExample.replace("today. The 3-day", "today because the 3-day"),
     acceptanceExample.replace("prior read. The 1-year", "prior read, so the 1-year"),
     acceptanceExample.replace("151 lb is up 1.1 lb today.", "151 lb is up 1.1 lb today?"),
-    `THIS IS MOVING THE WRONG WAY—${acceptanceAction}. 151 lb is up 1.1 lb today. The 3-day weight change is up 2.5 lb and accelerated from the prior read. The 1-year trend outlook worsened to about 146 lb. THE RESPONSE STARTS NOW!!!`
+    `${coach.WRITER_SAFE_OPENINGS["not-good-enough"][0]}—${acceptanceAction}. ${acceptanceFacts.current[0]}. ${acceptanceFacts.evidence[0]}. ${acceptanceFacts.outlook[0]}. ${coach.WRITER_SAFE_CLOSINGS["not-good-enough"][0]}`
   ]) {
     const result = coach.validateCoachParagraph(falseArgument, july22, [], { privateGoal: 117 });
     assert(result.errors.some((error) => error.startsWith("closed-")), "causal joins, factual questions, and action-first fragments are rejected");
@@ -677,7 +712,7 @@ async function run() {
     "analysisPlan", "analysisVersion", "actionId", "actionSemantic", "actionText", "contextHash", "createdAt",
     "criticPromptVersion", "criticResult", "diagnostics", "evidenceReferences", "fallbackVersion", "fingerprintHash",
     "generationVersion", "modelVersion", "nearestPriorMessageId", "nearestPriorSimilarity", "normalizedFingerprint",
-    "promptVersion", "safetyVersion", "status", "text", "updatedAt", "validatorVersion", "verdict", "weightId", "writerPromptVersion"
+    "promptVersion", "safetyVersion", "status", "styleVersion", "text", "updatedAt", "validatorVersion", "verdict", "weightId", "writerPromptVersion"
   ]) assert(Object.prototype.hasOwnProperty.call(latestRecord, key), `private coach record includes ${key}`);
   assert(latestRecord.evidenceReferences.some((reference) => reference.type === "tracker" && reference.id === "period-current"));
   assert(!JSON.stringify(latestRecord).toLowerCase().includes("highdesire"));
