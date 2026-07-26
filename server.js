@@ -66,22 +66,23 @@ function containsPrivateCoachBlockedTerm(text) {
   return privateCoachBlockedTerms.some((term) => normalized.includes(term));
 }
 
-const COACH_GENERATION_VERSION = "coach-pipeline-v12";
-const COACH_ANALYSIS_VERSION = "coach-analysis-v7";
-const COACH_WRITER_PROMPT_VERSION = "coach-writer-v8";
-const COACH_CRITIC_PROMPT_VERSION = "coach-critic-v6";
-const COACH_VALIDATOR_VERSION = "coach-validator-v3";
-const COACH_FALLBACK_VERSION = "coach-fallback-v8";
+const COACH_GENERATION_VERSION = "coach-pipeline-v13";
+const COACH_ANALYSIS_VERSION = "coach-analysis-v8";
+const COACH_WRITER_PROMPT_VERSION = "coach-writer-v9";
+const COACH_CRITIC_PROMPT_VERSION = "coach-critic-v7";
+const COACH_VALIDATOR_VERSION = "coach-validator-v4";
+const COACH_FALLBACK_VERSION = "coach-fallback-v9";
 const COACH_ACTION_VERSION = "coach-action-v7";
 const COACH_PROMPT_VERSION = COACH_WRITER_PROMPT_VERSION;
-const COACH_SAFETY_VERSION = "coach-safety-v6";
-const COACH_STYLE_VERSION = "coach-style-authentic-connection-v3";
+const COACH_SAFETY_VERSION = "coach-safety-v7";
+const COACH_STYLE_VERSION = "coach-style-personal-anchor-v4";
 const COACH_MIN_WORDS = 35;
 const COACH_MAX_WORDS = 55;
 const COACH_RELATIONSHIP_MIN_WORDS = 45;
 const COACH_RELATIONSHIP_MAX_WORDS = 80;
 const COACH_COOLDOWN_COUNT = 3;
 const COACH_CANDIDATE_COUNT = 3;
+const COACH_PERSONAL_ANCHOR_COOLDOWN_COUNT = 3;
 const COACH_REACTION_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
 const COACH_REACTION_REFRESH_MAX_AGE_MS = 48 * 60 * 60 * 1000;
 const BRAIN_RELATIONSHIP_MAX_AGE_MS = 48 * 60 * 60 * 1000;
@@ -549,6 +550,249 @@ function brainConnectionCopy(kind, sourceHash = "") {
   return value[Number.isFinite(seed) ? seed % value.length : 0];
 }
 
+const LILY_PERSONAL_ANCHOR_COPY = Object.freeze({
+  "lily-league": Object.freeze([
+    "Alan remembers that League night and wants this check-in to feel like support, not another pile of instructions",
+    "That saved League night matters to Alan; he wants today's check-in to feel like being understood, not managed by a graph"
+  ]),
+  "lily-music": Object.freeze([
+    "The music saved here is part of your real life too, and Alan is looking at the whole person rather than only the graph",
+    "This page remembers music alongside the measurements because Alan is paying attention to more than whatever the scale said today"
+  ]),
+  "lily-travel": Object.freeze([
+    "The travel thought saved here still belongs in the bigger picture, and one weigh-in cannot shrink the life Alan sees around you",
+    "This page remembers a travel thought as well as the numbers; Alan is keeping the larger life around you in view"
+  ]),
+  "lily-korean-food": Object.freeze([
+    "The Korean flavors saved here are part of what makes this plan yours, and Alan is paying attention to the person behind the data",
+    "This page remembers the Korean food you like because progress still has to belong to your actual life, not erase it"
+  ]),
+  "lily-fruit": Object.freeze([
+    "The fruit preference saved here is a small but real detail Alan remembers, because this page is meant to notice the person too",
+    "This page remembers the fruit you enjoy as well as the graph; Alan is paying attention to the real details around the number"
+  ]),
+  "lily-cooking": Object.freeze([
+    "The cooking note saved here is part of your actual life, and Alan is paying attention to the person living around this chart",
+    "This page remembers a cooking detail too, because Alan does not see you as a collection of measurements"
+  ]),
+  "lily-cats": Object.freeze([
+    "Alan remembers the cat detail saved here and wants this check-in to sound like someone who actually notices your life beyond the chart",
+    "That saved cat detail is still in Alan's mind; he wants today's check-in to feel personal rather than like instructions from a graph"
+  ]),
+  "lily-french": Object.freeze([
+    "Alan remembers the French-language detail saved here and wants this check-in to reflect a real person, not flatten you into one number",
+    "That saved French detail matters to Alan; he wants today's check-in to feel attentive to your actual life beyond the chart"
+  ]),
+  "lily-heavy-day": Object.freeze([
+    "Alan knows some days feel heavy and wants this check-in to show that he notices the person carrying the day, not only the number",
+    "Alan remembers that some days feel heavier than others; he wants today's check-in to feel attentive, steady, and safe"
+  ]),
+  "lily-mood-care": Object.freeze([
+    "Alan noticed things felt off and wants this check-in to feel like he is beside you, not judging you",
+    "Alan remembers that things felt off and wants today's check-in to sound like someone staying beside you rather than grading you"
+  ]),
+  "lily-rough-patch": Object.freeze([
+    "Alan remembers the rough patch and wants this check-in to feel like support beside you, not another demand landing on top of it",
+    "The rough patch Alan saved still matters; he wants today's check-in to sound like someone staying beside you rather than grading you"
+  ]),
+  "lily-hydration": Object.freeze([
+    "Alan remembers the hydration detail you shared and wants this check-in to recognize the effort without turning it into another lecture",
+    "That saved hydration detail matters to Alan because he wants the check-in to notice what you are already trying, not only the result"
+  ]),
+  "lily-protein": Object.freeze([
+    "Alan remembers the protein detail you shared and wants this check-in to recognize the effort without flattening everything into the scale",
+    "That saved protein detail matters to Alan because he wants the check-in to notice your real choices around the number"
+  ]),
+  "lily-cycle": Object.freeze([
+    "Alan remembers the cycle detail you logged and will keep it as context without using it to explain away or judge today's result",
+    "The cycle detail saved here is part of what Alan notices, without pretending it proves why today's number moved"
+  ]),
+  "lily-authentic-voice": Object.freeze([
+    "Alan remembers the longer thought saved here and wants this check-in to carry some of that trust without exposing the private detail",
+    "That saved unfiltered thought matters to Alan because he wants you to feel his real voice beside the analysis, not a polished script"
+  ])
+});
+
+const LILY_PERSONAL_ANCHOR_RULES = Object.freeze([
+  { kind: "lily-league", pattern: /\bleague\b|\b(?:game|gaming)\w*\b/i },
+  { kind: "lily-mood-care", pattern: /\b(?:things?|mood)\s+(?:felt|feel|seem\w*)\s+off\b|\b(?:seem\w*\s+off|quiet(?:er)?\s+than\s+usual|criticiz\w*|rough\s+day|not\s+(?:quite\s+)?herself)\b/i },
+  { kind: "lily-music", pattern: /\b(?:music|song|sing)\w*\b/i },
+  { kind: "lily-travel", pattern: /\b(?:travel|trip|vacation)\w*\b/i },
+  { kind: "lily-korean-food", pattern: /\bkorean\b/i },
+  { kind: "lily-fruit", pattern: /\b(?:fruit|peach|berries|apple)\w*\b/i },
+  { kind: "lily-cooking", pattern: /\b(?:cook|recipe)\w*\b/i },
+  { kind: "lily-cats", pattern: /\b(?:cat|cats|kitten)\b/i },
+  { kind: "lily-french", pattern: /\bfrench\b/i },
+  { kind: "lily-hydration", pattern: /\b(?:water|drink|hydrat|electrolyte)\w*\b/i },
+  { kind: "lily-protein", pattern: /\bprotein\w*\b/i },
+  { kind: "lily-cycle", pattern: /\b(?:period|cycle|menstr)\w*\b/i },
+  { kind: "lily-rough-patch", pattern: /\b(?:conflict|fight|argument|repair|rough\s+patch)\w*\b/i },
+  { kind: "lily-heavy-day", pattern: /\b(?:mood|heavy\s+day|rough\s+day|seem\w*\s+off|depress\w*|anxi\w*)\b/i },
+  { kind: "lily-authentic-voice", pattern: /\b(?:letter|yap\w*|rambl\w*|unfiltered|trust\w*)\b/i }
+]);
+
+function personalAnchorCopy(rows, sourceHash = "", seed = "") {
+  const copies = Array.isArray(rows) ? rows : [];
+  if (!copies.length) return "";
+  return copies[stableIndex(`${sourceHash}|${seed}`, copies.length)];
+}
+
+function memoryPersonalAnchor(memory, options = {}) {
+  if (!memory?.id) return null;
+  const memoryKind = String(memory.kind || "").toLowerCase();
+  const text = String(memory.text || memory.title || "").trim();
+  const createdAt = String(memory.createdAt || "");
+  const createdTime = Date.parse(createdAt);
+  const cutoff = Number(options.cutoff);
+  if (!Number.isFinite(createdTime) || (Number.isFinite(cutoff) && createdTime > cutoff)) return null;
+  const rule = LILY_PERSONAL_ANCHOR_RULES.find((candidate) => candidate.pattern.test(text));
+  const anchorKind = rule?.kind || (text.length >= 500 ? "lily-authentic-voice" : "");
+  if (!anchorKind) return null;
+  const sourceHash = crypto.createHash("sha256").update(JSON.stringify({ id: memory.id, kind: memoryKind, text })).digest("hex");
+  return {
+    id: String(memory.id),
+    sourceType: "memory-personal-anchor",
+    kind: anchorKind,
+    text: personalAnchorCopy(LILY_PERSONAL_ANCHOR_COPY[anchorKind], sourceHash, options.seed),
+    createdAt: new Date(createdTime).toISOString(),
+    sourceHash
+  };
+}
+
+function personalAnchorReferenceKeys(messages, limit = COACH_PERSONAL_ANCHOR_COOLDOWN_COUNT) {
+  return new Set((Array.isArray(messages) ? messages.slice(0, limit) : [])
+    .flatMap((message) => Array.isArray(message?.evidenceReferences) ? message.evidenceReferences : [])
+    .filter((reference) => ["memory-personal-anchor", "brain-thought-anchor", "brain-letter"].includes(reference?.type) && reference.id)
+    .flatMap((reference) => [`id:${reference.id}`, `kind:${reference.role || ""}`]));
+}
+
+function selectLilyPersonalAnchor(memories, cutoff, previousMessages = [], seed = "") {
+  const recentKeys = personalAnchorReferenceKeys(previousMessages);
+  const anchors = (Array.isArray(memories) ? memories : [])
+    .map((memory) => memoryPersonalAnchor(memory, { cutoff, seed }))
+    .filter(Boolean)
+    .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)) || left.id.localeCompare(right.id));
+  return anchors.find((anchor) => !recentKeys.has(`id:${anchor.id}`) && !recentKeys.has(`kind:${anchor.kind}`)) || null;
+}
+
+const BRAIN_THOUGHT_ANCHOR_COPY = Object.freeze({
+  "research-apps": Object.freeze([
+    "Alan saved a Brain thought about research and building apps, and he wants you inside the real, unfinished middle of that life",
+    "A saved Brain entry connects research with app-building; Alan wants you to get the honest version before everything is polished"
+  ]),
+  "research-games": Object.freeze([
+    "Alan saved a Brain thought connecting research with games, and he keeps bringing you into the real, unfinished middle of that life",
+    "Research and game tangents share one saved Brain entry; Alan wants you to get the honest version before it becomes polished"
+  ]),
+  "apps-games": Object.freeze([
+    "Alan saved a Brain thought connecting app-building with game tangents, and you are part of the unpolished life behind both",
+    "App ideas and game thoughts meet in one saved Brain entry, and Alan wants you to get the real version while it is unfinished"
+  ]),
+  "research-music": Object.freeze([
+    "Alan saved a Brain thought connecting research with music, and he wants you close to the honest, unfinished version of those thoughts",
+    "Research and music cross in one saved Brain entry, and Alan wants you to get the version of him that exists before the polish"
+  ]),
+  research: Object.freeze([
+    "Alan saved a Brain thought about research, and he wants you to get the honest, unfinished person living behind all of that thinking",
+    "A saved Brain entry follows a research tangent, and Alan wants you inside the real life around the work rather than outside it"
+  ]),
+  apps: Object.freeze([
+    "Alan saved a Brain thought about something he wants to build, and he wants you to get the honest person underneath the unfinished app idea",
+    "A saved Brain entry follows an app-building tangent, and Alan wants you inside the real life behind that unfinished work"
+  ]),
+  games: Object.freeze([
+    "Alan saved a Brain entry that turns a game thought into a full tangent, and he wants you to get the real version behind it",
+    "A saved Brain thought follows a game tangent, and Alan wants you to get the honest, slightly unpolished person attached to it"
+  ]),
+  music: Object.freeze([
+    "Alan saved a Brain thought about music, and he wants you to get the honest person behind it before the idea becomes polished",
+    "A saved Brain entry circles back to music, and Alan wants you inside the real life wrapped around that unfinished thought"
+  ]),
+  photos: Object.freeze([
+    "Alan saved a Brain thought about photos or video, and he wants you to get the real, unfinished person behind the frame",
+    "A saved Brain entry circles photos and video, and Alan wants you inside the honest life that exists outside the frame"
+  ]),
+  cooking: Object.freeze([
+    "Alan saved a Brain thought about cooking, and he wants you to get the honest, unfinished person behind that practical tangent",
+    "A saved Brain entry circles food and cooking, and Alan wants you inside the real life surrounding that ordinary thought"
+  ]),
+  cats: Object.freeze([
+    "Alan saved a Brain thought about cats, and he wants this check-in to sound like the person whose ordinary details he actually remembers",
+    "A saved Brain entry circles back to cats; Alan wants that real-life detail beside the analysis instead of a generic script"
+  ]),
+  french: Object.freeze([
+    "Alan saved a Brain thought with a French-language detail, and he wants this check-in to carry the real life around the analysis",
+    "A French detail appears in one saved Brain entry; Alan wants that specific part of life present beside the number"
+  ]),
+  travel: Object.freeze([
+    "Alan saved a Brain thought about travel, and he wants this check-in to remember the larger life waiting outside the chart",
+    "A saved Brain entry follows a travel thought; Alan wants that future-facing part of life present beside today's analysis"
+  ]),
+  hydration: Object.freeze([
+    "Alan saved a Brain thought about hydration and wants this check-in to notice the real effort around the result without turning it into a lecture",
+    "A hydration detail appears in one saved Brain entry; Alan wants the analysis to recognize life around the number too"
+  ]),
+  protein: Object.freeze([
+    "Alan saved a Brain thought about protein and wants this check-in to notice the real choices around the result without flattening them into a score",
+    "A protein detail appears in one saved Brain entry; Alan wants the analysis to recognize more than the number"
+  ]),
+  cycle: Object.freeze([
+    "Alan saved a Brain thought about cycle context and will keep it visible without pretending it proves why today's number moved",
+    "A cycle detail appears in one saved Brain entry; Alan notices it without using it to explain away or judge today's result"
+  ]),
+  repair: Object.freeze([
+    "Alan remembers the rough patch reflected in Brain and wants this check-in to feel like support beside you, not another demand",
+    "A saved Brain entry carries a rough-patch meaning; Alan wants today's analysis to sound like someone staying beside you"
+  ]),
+  mood: Object.freeze([
+    "Alan knows some days feel heavy and wants this check-in to show that he notices the person carrying the day, not only the number",
+    "A saved Brain entry carries a heavy-day meaning; Alan wants today's check-in to feel attentive, steady, and safe"
+  ]),
+  letter: Object.freeze([
+    "Alan saved a long, unfiltered thought in Brain because he wants you to receive his real voice rather than a polished performance",
+    "A longer Brain entry matters here because Alan wants this check-in to carry the trust of sharing his unfinished thoughts with you"
+  ])
+});
+
+function brainThoughtAnchorFromFile(file, options = {}) {
+  if (!file?.id) return null;
+  const text = String(file.sourceText || file.title || file.name || "").trim();
+  const createdAt = String(file.sourceCreatedAt || file.createdAt || "");
+  const createdTime = Date.parse(createdAt);
+  const cutoff = Number(options.cutoff);
+  if (!text || !Number.isFinite(createdTime)) return null;
+  if (Number.isFinite(cutoff) && createdTime > cutoff) return null;
+  const topics = [
+    ["research", /\b(?:research|science|scientist|paper|figure|ph\.?d\.?)\w*/i],
+    ["apps", /\b(?:app|website|aolabs|codex|code|coding|build|design)\w*/i],
+    ["games", /\b(?:game|gaming|league|play)\w*/i],
+    ["music", /\b(?:music|song|sing|audio)\w*/i],
+    ["photos", /\b(?:photo|picture|video|camera|screenshot)\w*/i],
+    ["cooking", /\b(?:cook|food|meal|recipe)\w*/i],
+    ["cats", /\b(?:cat|cats|kitten)\b/i],
+    ["french", /\bfrench\b/i],
+    ["travel", /\b(?:travel|trip|vacation)\w*/i],
+    ["hydration", /\b(?:water|drink|hydrat|electrolyte)\w*/i],
+    ["protein", /\bprotein\w*/i],
+    ["cycle", /\b(?:period|cycle|menstr)\w*/i],
+    ["repair", /\b(?:conflict|fight|argument|repair|rough\s+patch)\w*/i],
+    ["mood", /\b(?:mood|heavy\s+day|rough\s+day|seem\w*\s+off|depress\w*|anxi\w*)\b/i],
+    ["letter", /\b(?:letter|yap\w*|rambl\w*|unfiltered|trust\w*)\b/i]
+  ].filter(([, pattern]) => pattern.test(text)).map(([topic]) => topic);
+  const pairs = [["research", "apps"], ["research", "games"], ["apps", "games"], ["research", "music"]];
+  const pair = pairs.find(([left, right]) => topics.includes(left) && topics.includes(right));
+  const kind = pair ? pair.join("-") : topics[0] || "letter";
+  const sourceHash = crypto.createHash("sha256").update(text).digest("hex");
+  return {
+    id: String(file.id),
+    sourceType: "brain-thought-anchor",
+    kind: `brain-thought-${kind}`,
+    text: personalAnchorCopy(BRAIN_THOUGHT_ANCHOR_COPY[kind], sourceHash, options.seed),
+    createdAt: new Date(createdTime).toISOString(),
+    sourceHash
+  };
+}
+
 function brainFileIsGeneratedNoteRecord(file) {
   return String(file?.kind || "").trim().toLowerCase() === "generated pdf"
     && String(file?.mime || "").trim().toLowerCase() === "application/pdf"
@@ -611,6 +855,7 @@ function brainRelationshipSupportFromFile(file, options = {}) {
   if (!kind) return null;
   return {
     id: String(file.id),
+    sourceType: "brain-letter",
     kind,
     text: brainConnectionCopy(kind, sourceHash),
     createdAt: new Date(createdTime).toISOString(),
@@ -656,6 +901,38 @@ async function fetchLatestBrainRelationshipSupport(store, options = {}) {
     return null;
   } catch (error) {
     options.onDiagnostic?.({ status: error?.name === "AbortError" ? "timeout" : "request-error" });
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function fetchLatestBrainThoughtAnchor(store, options = {}) {
+  const apiBase = resolveBrainApiBase(options.apiBase);
+  if (!apiBase) return null;
+  const fetchImpl = options.fetchImpl || fetch;
+  const timeoutMs = Math.max(1, Number(options.timeoutMs || brainRequestTimeoutMs));
+  const controller = new AbortController();
+  let timeoutId;
+  try {
+    timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    const response = await fetchImpl(`${apiBase}/api/files`, {
+      method: "GET",
+      headers: { "Accept": "application/json" },
+      signal: controller.signal
+    });
+    if (!response.ok) return null;
+    const payload = await response.json();
+    const files = Array.isArray(payload?.files) ? payload.files : (Array.isArray(payload) ? payload : []);
+    const latestWeight = (store?.weights || []).find((weight) => weight.id === options.weightId) || null;
+    const previousMessages = causalPreviousCoachMessages(store, latestWeight, COACH_PERSONAL_ANCHOR_COOLDOWN_COUNT);
+    const recentKeys = personalAnchorReferenceKeys(previousMessages);
+    const anchors = files
+      .map((file) => brainThoughtAnchorFromFile(file, options))
+      .filter(Boolean)
+      .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)) || left.id.localeCompare(right.id));
+    return anchors.find((anchor) => !recentKeys.has(`id:${anchor.id}`) && !recentKeys.has(`kind:${anchor.kind}`)) || null;
+  } catch (error) {
     return null;
   } finally {
     clearTimeout(timeoutId);
@@ -1056,6 +1333,10 @@ function buildAnalysisPlan(context) {
       kind: context.preference.kind,
       transient: context.preference.transient === true
     } : null,
+    personalAnchor: context.relationshipSupport ? {
+      sourceType: context.relationshipSupport.sourceType,
+      kind: context.relationshipSupport.kind
+    } : null,
     relationshipSupport: context.relationshipSupport ? { kind: context.relationshipSupport.kind } : null
   };
 }
@@ -1083,15 +1364,19 @@ function buildCoachContext(store, weightId, options = {}) {
     ? causalPreviousCoachMessages(store, current, Math.max(10, (store.weights || []).length))
     : [];
   const preference = includePersonalContext ? selectSavedPreference(store.memories, personalContextCutoff, causalCoachHistory) : null;
-  const relationshipSupport = includePersonalContext && options.relationshipSupport?.id && options.relationshipSupport?.text
+  const suppliedPersonalAnchor = includePersonalContext && options.relationshipSupport?.id && options.relationshipSupport?.text
     ? {
       id: String(options.relationshipSupport.id),
+      sourceType: String(options.relationshipSupport.sourceType || "brain-letter"),
       kind: String(options.relationshipSupport.kind || "boyfriend-yap"),
       text: String(options.relationshipSupport.text),
       createdAt: String(options.relationshipSupport.createdAt || ""),
       sourceHash: String(options.relationshipSupport.sourceHash || "")
     }
     : null;
+  const relationshipSupport = suppliedPersonalAnchor || (includePersonalContext
+    ? selectLilyPersonalAnchor(store.memories, personalContextCutoff, causalCoachHistory, `${new Date(currentTime).toISOString()}|${trimCoachNumber(weightInPounds(current))}`)
+    : null);
   const outlier = isWeightOutlier(points);
   const streak = recentWeightStreak(points);
   const movements = movementMap(points);
@@ -1171,7 +1456,7 @@ function buildCoachContext(store, weightId, options = {}) {
     ...(recentConflict ? [{ type: "tracker", id: recentConflict.id, role: "recent-conflict" }] : []),
     ...(selectedPreference ? [{ type: "memory", id: selectedPreference.id, role: selectedPreference.kind }] : []),
     ...(relationshipSupport ? [{
-      type: "brain-letter",
+      type: relationshipSupport.sourceType || "brain-letter",
       id: relationshipSupport.id,
       role: relationshipSupport.kind,
       sourceHash: relationshipSupport.sourceHash,
@@ -1203,6 +1488,8 @@ function buildCoachContext(store, weightId, options = {}) {
     outlookEvidenceRelation: outlookReinforces ? "reinforces" : outlookContradicts ? "contradicts" : outlookDirectionFlip ? "direction-flip" : "material-movement",
     verdict,
     trackerModifier,
+    personalAnchor: relationshipSupport,
+    personalAnchorRequired: includePersonalContext,
     relationshipSupport,
     preference: selectedPreference ? { id: selectedPreference.id, kind: selectedPreference.kind, transient: selectedPreference.transient === true } : null,
     action: actionSelection.text,
@@ -1684,6 +1971,7 @@ function coachPresentationSeed(context) {
     trackerModifier: context.trackerModifier?.type || null,
     relationshipSupport: context.relationshipSupport ? {
       id: context.relationshipSupport.id,
+      sourceType: context.relationshipSupport.sourceType,
       kind: context.relationshipSupport.kind,
       sourceHash: context.relationshipSupport.sourceHash
     } : null,
@@ -2114,6 +2402,7 @@ function validateCoachParagraph(text, context, previousMessages = [], options = 
   if (unsafe.test(paragraph) || containsPrivateCoachBlockedTerm(paragraph)) errors.push("unsafe-language");
   errors.push(...supportiveCoachStyleErrors(paragraph));
   if (/\b(?:horn\w*|sex(?:ual)?|ovulat\w*|conflict|phone|address|relationship|appearance)\b/i.test(paragraph)) errors.push("private-context-leak");
+  if (context?.personalAnchorRequired && (!context.personalAnchor?.id || !context.personalAnchor?.text || context.personalAnchor.id !== context.relationshipSupport?.id || context.personalAnchor.text !== context.relationshipSupport?.text)) errors.push("missing-personal-anchor");
   if (context?.relationshipSupport && countLiteralOccurrences(paragraph, context.relationshipSupport.text) !== 1) errors.push("relationship-support");
   if (!context?.relationshipSupport && /\b(?:boyfriend|yapp\w*|league nights?)\b/i.test(paragraph)) errors.push("unsupported-relationship-copy");
   if (/[\u00e2\u00c3\u00c2\ufffd]/.test(paragraph)) errors.push("mojibake");
@@ -2428,6 +2717,31 @@ function fingerprintMetadata(text, context, previousMessages = []) {
   };
 }
 
+function sanitizePersonalAnchor(anchor) {
+  if (!anchor?.id || !anchor?.text || !anchor?.kind) return null;
+  return {
+    sourceType: String(anchor.sourceType || "memory-personal-anchor"),
+    id: String(anchor.id),
+    sourceTimestamp: String(anchor.createdAt || ""),
+    sourceHash: String(anchor.sourceHash || ""),
+    semanticAnchorId: String(anchor.kind),
+    approvedText: String(anchor.text)
+  };
+}
+
+function personalAnchorFromCoachRecord(message) {
+  const anchor = message?.personalAnchor;
+  if (!anchor?.id || !anchor?.approvedText || !anchor?.semanticAnchorId) return null;
+  return {
+    sourceType: String(anchor.sourceType || "memory-personal-anchor"),
+    id: String(anchor.id),
+    createdAt: String(anchor.sourceTimestamp || ""),
+    sourceHash: String(anchor.sourceHash || ""),
+    kind: String(anchor.semanticAnchorId),
+    text: String(anchor.approvedText)
+  };
+}
+
 async function generateCoachParagraph(context, previousMessages = [], options = {}) {
   const startedAt = Date.now();
   const totalTimeoutMs = Math.max(25, Number(options.timeoutMs || coachGenerationTimeoutMs));
@@ -2601,6 +2915,7 @@ function createCoachMessageRecord(context, text, status, now = new Date().toISOS
     actionText: selectedAction.text,
     fallbackStructureId: metadata.structureId || null,
     analysisPlan: context.analysisPlan,
+    personalAnchor: sanitizePersonalAnchor(context.personalAnchor),
     diagnostics: sanitizeGenerationDiagnostics(metadata.diagnostics),
     criticResult: sanitizeCriticResult(metadata.criticResult),
     ...fingerprint,
@@ -2631,7 +2946,7 @@ function latestCoachPayload(store) {
 function addFallbackCoachForWeight(store, weightId, status = "fallback-contextual", options = {}) {
   if (coachForWeight(store, weightId)) return store;
   const context = buildCoachContext(store, weightId, options);
-  if (!context) return store;
+  if (!context?.personalAnchor) return store;
   const currentWeight = (store.weights || []).find((weight) => weight.id === weightId);
   const previousMessages = causalPreviousCoachMessages(store, currentWeight, 10);
   const fallback = buildContextualFallbackResult(context, previousMessages);
@@ -2649,8 +2964,13 @@ function refreshLatestWeightOnlyCoach(store, status) {
     .slice()
     .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)))[0];
   if (!latestWeight) return store;
-  const context = buildCoachContext(store, latestWeight.id, { includePersonalContext: false, privateGoal: privateCoachGoal });
-  if (!context) return store;
+  const context = buildCoachContext(store, latestWeight.id, { privateGoal: privateCoachGoal });
+  if (!context?.personalAnchor) {
+    return {
+      ...store,
+      coachMessages: (store.coachMessages || []).filter((message) => message.weightId !== latestWeight.id)
+    };
+  }
   const existing = coachForWeight(store, latestWeight.id);
   const previousMessages = causalPreviousCoachMessages(store, latestWeight, 10);
   const fallback = buildContextualFallbackResult(context, previousMessages);
@@ -2669,7 +2989,11 @@ function refreshLatestWeightOnlyCoach(store, status) {
 function refreshIfLatestCoachReferences(store, referenceType, referenceId, status = "fallback-weight-only-context-removed") {
   const latest = latestCoachPayload(store);
   const latestRecord = latest ? coachForWeight(store, latest.weightId) : null;
-  const wasReferenced = latestRecord?.evidenceReferences?.some((reference) => reference.type === referenceType && reference.id === referenceId);
+  const wasReferenced = latestRecord?.evidenceReferences?.some((reference) => {
+    const typeMatches = reference.type === referenceType
+      || (referenceType === "memory" && String(reference.type || "").startsWith("memory-"));
+    return typeMatches && reference.id === referenceId;
+  });
   return wasReferenced ? refreshLatestWeightOnlyCoach(store, status) : store;
 }
 
@@ -2700,7 +3024,7 @@ function refreshLatestCoachForSavedMemories(store, memoryIds, personalContextCut
     personalContextCutoff
   });
   const selectedNewMemory = context?.evidenceReferences?.find((reference) => reference.type === "memory" && eligibleCandidateIds.has(reference.id));
-  if (!context || !selectedNewMemory) return { store, updated: false, weightId: latestWeight.id, latestCoach: publicCoach(coachForWeight(store, latestWeight.id)) };
+  if (!context?.personalAnchor || !selectedNewMemory) return { store, updated: false, weightId: latestWeight.id, latestCoach: publicCoach(coachForWeight(store, latestWeight.id)) };
   const existing = coachForWeight(store, latestWeight.id);
   const previousMessages = causalPreviousCoachMessages(store, latestWeight, 10);
   const fallback = buildContextualFallbackResult(context, previousMessages);
@@ -2958,10 +3282,22 @@ function refreshLatestCoachStyleInStore(store, status = "fallback-style-refresh"
     return { store, updated: false, alreadyCurrent: true, weightId: latestWeight.id, personalContextCutoff: latestCoachPersonalContextCutoff(store, existing) };
   }
   const personalContextCutoff = latestCoachPersonalContextCutoff(store, existing);
+  const persistedPersonalAnchor = personalAnchorFromCoachRecord(existing);
   const context = buildCoachContext(store, latestWeight.id, {
-    personalContextCutoff: Number.isFinite(personalContextCutoff) ? personalContextCutoff : undefined
+    personalContextCutoff: Number.isFinite(personalContextCutoff) ? personalContextCutoff : undefined,
+    relationshipSupport: persistedPersonalAnchor || undefined
   });
-  if (!context) return { store, updated: false, alreadyCurrent: false, weightId: latestWeight.id, personalContextCutoff };
+  if (!context?.personalAnchor) {
+    return {
+      store: { ...store, coachMessages: (store.coachMessages || []).filter((message) => message.weightId !== latestWeight.id) },
+      updated: true,
+      alreadyCurrent: false,
+      pending: true,
+      weightId: latestWeight.id,
+      personalContextCutoff,
+      personalAnchor: null
+    };
+  }
   const previousMessages = causalPreviousCoachMessages(store, latestWeight, 10);
   const fallback = buildContextualFallbackResult(context, previousMessages);
   const replacement = createCoachMessageRecord(context, fallback.text, status, new Date(now).toISOString(), existing, {
@@ -2978,7 +3314,8 @@ function refreshLatestCoachStyleInStore(store, status = "fallback-style-refresh"
     updated: true,
     alreadyCurrent: false,
     weightId: latestWeight.id,
-    personalContextCutoff
+    personalContextCutoff,
+    personalAnchor: context.personalAnchor
   };
 }
 
@@ -3016,7 +3353,8 @@ async function generateAndReplaceCoach(weightId, options = {}) {
     : Number.isFinite(currentWeightTime)
       ? Math.min(Date.now(), currentWeightTime + BRAIN_WEIGHT_INDEX_GRACE_MS)
       : Date.now();
-  const relationshipSupport = Object.prototype.hasOwnProperty.call(options, "relationshipSupport")
+  const relationshipSupportExplicit = Object.prototype.hasOwnProperty.call(options, "relationshipSupport");
+  let relationshipSupport = relationshipSupportExplicit
     ? options.relationshipSupport
     : await fetchLatestBrainRelationshipSupport(snapshot, {
       cutoff: relationshipCutoff,
@@ -3024,14 +3362,48 @@ async function generateAndReplaceCoach(weightId, options = {}) {
       operationalNow: Date.now(),
       excludedWeightId: weightId
     });
+  if (!relationshipSupport && !relationshipSupportExplicit) {
+    const brainThoughtAnchor = await fetchLatestBrainThoughtAnchor(snapshot, {
+      cutoff: relationshipCutoff,
+      operationalNow: Date.now(),
+      weightId,
+      seed: `${currentWeight?.createdAt || ""}|${trimCoachNumber(weightInPounds(currentWeight))}`
+    });
+    const lilyAnchor = baseContext?.personalAnchor || null;
+    const lilyAnchorTime = Date.parse(lilyAnchor?.createdAt || "");
+    const freshLilyAnchor = lilyAnchor && Number.isFinite(lilyAnchorTime) && Date.now() - lilyAnchorTime <= 14 * 24 * 60 * 60 * 1000;
+    relationshipSupport = freshLilyAnchor ? lilyAnchor : (brainThoughtAnchor || lilyAnchor);
+  }
   const context = relationshipSupport ? buildCoachContext(snapshot, weightId, {
     privateGoal: Object.prototype.hasOwnProperty.call(options, "privateGoal") ? options.privateGoal : privateCoachGoal,
     personalContextCutoff: options.personalContextCutoff,
     relationshipSupport
   }) : baseContext;
-  const fallbackRecord = coachForWeight(snapshot, weightId);
-  if (!context || !fallbackRecord) return publicCoach(fallbackRecord);
+  let fallbackRecord = coachForWeight(snapshot, weightId);
+  if (!context?.personalAnchor) return publicCoach(fallbackRecord);
   const previousMessages = causalPreviousCoachMessages(snapshot, currentWeight, 10);
+  if (!fallbackRecord) {
+    const fallback = buildContextualFallbackResult(context, previousMessages);
+    await writeStore((store) => {
+      const existing = coachForWeight(store, weightId);
+      if (existing) {
+        fallbackRecord = existing;
+        return store;
+      }
+      const weightStillExists = (store.weights || []).some((weight) => weight.id === weightId);
+      if (!weightStillExists) return store;
+      if (relationshipSupport?.sourceType === "brain-letter" && !brainRelationshipSupportAvailable(store, relationshipSupport, weightId)) return store;
+      fallbackRecord = createCoachMessageRecord(context, fallback.text, "fallback-personal-anchor-fetched", new Date().toISOString(), null, {
+        action: fallback.action,
+        structureId: fallback.structureId,
+        previousMessages,
+        diagnostics: generationDiagnostics("personal-anchor-fetched", 0, [], Date.now()),
+        modelVersion: coachModelVersion(options)
+      });
+      return { ...store, coachMessages: [fallbackRecord, ...(store.coachMessages || [])] };
+    });
+  }
+  if (!fallbackRecord) return null;
   const result = await generateCoachParagraph(context, previousMessages, options);
   const expectedContextHashes = new Set([baseContext?.contextHash, context.contextHash].filter(Boolean));
   if (result.status.startsWith("fallback-")) {
@@ -3040,7 +3412,7 @@ async function generateAndReplaceCoach(weightId, options = {}) {
       const existing = coachForWeight(store, weightId);
       const weightStillExists = (store.weights || []).some((weight) => weight.id === weightId);
       if (!existing || !weightStillExists || !expectedContextHashes.has(existing.contextHash)) return store;
-      if (relationshipSupport && !brainRelationshipSupportAvailable(store, relationshipSupport, weightId)) return store;
+      if (relationshipSupport?.sourceType === "brain-letter" && !brainRelationshipSupportAvailable(store, relationshipSupport, weightId)) return store;
       savedFallback = createCoachMessageRecord(context, result.text, result.status, new Date().toISOString(), existing, {
         action: result.action,
         structureId: result.structureId,
@@ -3061,7 +3433,7 @@ async function generateAndReplaceCoach(weightId, options = {}) {
     const existing = coachForWeight(store, weightId);
     const weightStillExists = (store.weights || []).some((weight) => weight.id === weightId);
     if (!existing || !weightStillExists || !expectedContextHashes.has(existing.contextHash)) return store;
-    if (relationshipSupport && !brainRelationshipSupportAvailable(store, relationshipSupport, weightId)) return store;
+    if (relationshipSupport?.sourceType === "brain-letter" && !brainRelationshipSupportAvailable(store, relationshipSupport, weightId)) return store;
     saved = createCoachMessageRecord(context, result.text, result.status, new Date().toISOString(), existing, {
       action: result.action,
       structureId: result.structureId,
@@ -3095,7 +3467,10 @@ async function regenerateRecentCoachMessages(options = {}) {
       const context = buildCoachContext(store, weightId, {
         privateGoal: Object.prototype.hasOwnProperty.call(options, "privateGoal") ? options.privateGoal : privateCoachGoal
       });
-      if (!currentWeight || !context) return store;
+      if (!currentWeight) return store;
+      if (!context?.personalAnchor) {
+        return { ...store, coachMessages: (store.coachMessages || []).filter((message) => message.weightId !== weightId) };
+      }
       const previousMessages = causalPreviousCoachMessages(store, currentWeight, 10);
       const fallback = buildContextualFallbackResult(context, previousMessages);
       const existing = coachForWeight(store, weightId);
@@ -3686,7 +4061,8 @@ async function handleApi(req, res, pathname) {
 
     if (prepared.updated) {
       await generateAndReplaceCoach(prepared.weightId, {
-        personalContextCutoff: Number.isFinite(prepared.personalContextCutoff) ? prepared.personalContextCutoff : undefined
+        personalContextCutoff: Number.isFinite(prepared.personalContextCutoff) ? prepared.personalContextCutoff : undefined,
+        relationshipSupport: prepared.personalAnchor || undefined
       });
     }
     const finalStore = await readStore();
@@ -3694,7 +4070,8 @@ async function handleApi(req, res, pathname) {
     assertCoachRefreshPreserved(baseline, finalSnapshot);
     const finalRecord = coachForWeight(finalStore, finalSnapshot.targetWeightId);
     const finalContext = buildCoachContext(finalStore, finalSnapshot.targetWeightId, {
-      personalContextCutoff: Number.isFinite(prepared.personalContextCutoff) ? prepared.personalContextCutoff : undefined
+      personalContextCutoff: Number.isFinite(prepared.personalContextCutoff) ? prepared.personalContextCutoff : undefined,
+      relationshipSupport: personalAnchorFromCoachRecord(finalRecord) || undefined
     });
     const latestWeight = (finalStore.weights || []).find((weight) => weight.id === finalSnapshot.targetWeightId);
     const previousMessages = causalPreviousCoachMessages(finalStore, latestWeight, 10);
@@ -4094,6 +4471,8 @@ if (process.env.NODE_ENV === "test" || process.env.LILY_COACH_CLI === "1") {
     BRAIN_WEIGHT_INDEX_GRACE_MS,
     BRAIN_CONTEXT_RECHECK_MS,
     BRAIN_RELATIONSHIP_COPY,
+    BRAIN_THOUGHT_ANCHOR_COPY,
+    LILY_PERSONAL_ANCHOR_COPY,
     FALLBACK_CLOSINGS,
     FALLBACK_OPENINGS,
     FALLBACK_STRUCTURES,
@@ -4107,6 +4486,7 @@ if (process.env.NODE_ENV === "test" || process.env.LILY_COACH_CLI === "1") {
     buildCoachContext,
     brainRelationshipSupportAvailable,
     brainRelationshipSupportFromFile,
+    brainThoughtAnchorFromFile,
     brainConnectionCopy,
     brainFileIsGeneratedNoteRecord,
     resolveBrainApiBase,
@@ -4126,6 +4506,7 @@ if (process.env.NODE_ENV === "test" || process.env.LILY_COACH_CLI === "1") {
     fallbackFactClauseVariants,
     fallbackFactClauses,
     fetchLatestBrainRelationshipSupport,
+    fetchLatestBrainThoughtAnchor,
     coachPresentationSeed,
     generateAndReplaceCoach,
     generateCoachParagraph,
@@ -4152,9 +4533,14 @@ if (process.env.NODE_ENV === "test" || process.env.LILY_COACH_CLI === "1") {
     refreshLatestCoachStyleInStore,
     removeWeightAndCoach,
     observerCareSignal,
+    memoryPersonalAnchor,
+    personalAnchorFromCoachRecord,
+    personalAnchorReferenceKeys,
     reportedCoachEffort,
     referencedBrainLetterIds,
     selectSavedPreference,
+    selectLilyPersonalAnchor,
+    sanitizePersonalAnchor,
     selectStrongestCoachEvidence,
     similarityScore,
     supportiveCoachStyleErrors,

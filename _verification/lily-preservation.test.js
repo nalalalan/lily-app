@@ -304,4 +304,17 @@ assert.ok(server.includes("assertExpectedCoachRefreshState(baseline, expected, e
 assert.ok(server.includes("assertCoachRefreshPreserved(baseline, coachRefreshPreservationSnapshot(prepared.store, prepared.weightId))"), "the live refresh verifies preservation inside the server write queue");
 assert.doesNotMatch(server, /execFile|spawn\([^)]*refresh-latest-saved-context/, "the live refresh never writes the Railway store from a second process");
 
+const personalAnchorStart = server.indexOf("function brainThoughtAnchorFromFile");
+const personalAnchorEnd = server.indexOf("function brainFileIsGeneratedNoteRecord", personalAnchorStart);
+const personalAnchorReducer = server.slice(personalAnchorStart, personalAnchorEnd);
+assert.ok(personalAnchorStart > 0 && personalAnchorEnd > personalAnchorStart, "the safe Brain personal-anchor reducer must remain independently inspectable");
+assert.doesNotMatch(personalAnchorReducer, /brainFileIsGeneratedNoteRecord|genericBrainYapIsSafe|unsafeTopic|quotedOrThirdPartySource|maxAgeMs/, "Brain source authenticity cannot be rejected by metadata shape, age, or mixed private clauses before safe reduction");
+assert.ok(personalAnchorReducer.includes('topics[0] || "letter"'), "an authentic Brain thought without a public topic must reduce to a specific safe trust meaning");
+assert.ok(server.includes("personalAnchorRequired: includePersonalContext"), "finalized coach validation must know when a source-bound personal anchor is required");
+assert.ok(server.includes('errors.push("missing-personal-anchor")'), "a generic action cannot pass as substantial Brain or Lily context");
+assert.ok(server.includes("if (!context?.personalAnchor) return store;"), "the fallback path must leave a saved weight pending instead of publishing context-free coaching");
+assert.doesNotMatch(server, /includePersonalContext\s*:\s*false/, "no coach persistence path may deliberately disable the personal-anchor requirement");
+assert.ok(server.includes("personalAnchor: sanitizePersonalAnchor(context.personalAnchor)"), "the private coach record must persist only the reduced personal anchor needed for exact repair");
+assert.ok(server.includes("semanticAnchorId") && server.includes("approvedText"), "private anchor provenance must retain its semantic kind and approved copy without raw source text");
+
 console.log("Lily preservation tests passed");

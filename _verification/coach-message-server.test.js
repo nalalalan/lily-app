@@ -60,6 +60,34 @@ function savedContext() {
   return {
     memories: [
       {
+        id: "anchor-league",
+        kind: "quote",
+        text: "Lily said League nights are one of her favorite shared things.",
+        createdAt: "2026-05-28T12:00:00.000Z",
+        updatedAt: "2026-05-28T12:00:00.000Z"
+      },
+      {
+        id: "anchor-music",
+        kind: "note",
+        text: "A saved note says music matters in Lily's daily life.",
+        createdAt: "2026-05-29T12:00:00.000Z",
+        updatedAt: "2026-05-29T12:00:00.000Z"
+      },
+      {
+        id: "anchor-travel",
+        kind: "quote",
+        text: "Lily shared a travel thought about a trip she wants someday.",
+        createdAt: "2026-05-30T12:00:00.000Z",
+        updatedAt: "2026-05-30T12:00:00.000Z"
+      },
+      {
+        id: "anchor-cats",
+        kind: "note",
+        text: "A saved note remembers that cats make Lily smile.",
+        createdAt: "2026-05-31T12:00:00.000Z",
+        updatedAt: "2026-05-31T12:00:00.000Z"
+      },
+      {
         id: "preference-1",
         kind: "note",
         text: "She loves Korean food and said she wants vegetables in every meal.",
@@ -95,6 +123,22 @@ function savedContext() {
   };
 }
 
+function substantialAnchorMemories(prefix = "anchor") {
+  const rows = [
+    ["league", "quote", "Lily said League nights are one of her favorite shared things."],
+    ["music", "note", "A saved note says music matters in Lily's daily life."],
+    ["travel", "quote", "Lily shared a travel thought about a trip she wants someday."],
+    ["cats", "note", "A saved note remembers that cats make Lily smile."]
+  ];
+  return rows.map(([suffix, kind, text], index) => ({
+    id: `${prefix}-${suffix}`,
+    kind,
+    text,
+    createdAt: `2026-05-${String(25 + index).padStart(2, "0")}T11:00:00.000Z`,
+    updatedAt: `2026-05-${String(25 + index).padStart(2, "0")}T11:00:00.000Z`
+  }));
+}
+
 function baseStore(weights, context = savedContext()) {
   return {
     weights,
@@ -107,7 +151,7 @@ function baseStore(weights, context = savedContext()) {
 
 function assertParagraph(text, label = "coach paragraph") {
   const words = coach.coachWordCount(text);
-  assert(words >= coach.COACH_MIN_WORDS && words <= coach.COACH_MAX_WORDS, `${label} has ${words} words`);
+  assert(words >= coach.COACH_MIN_WORDS && words <= coach.COACH_RELATIONSHIP_MAX_WORDS, `${label} has ${words} words`);
   assert(!/[\r\n]/.test(text), `${label} is one paragraph`);
   assert(!/[\u00e2\u00c3\u00c2\ufffd]/.test(text), `${label} has valid encoding`);
   assert(!/goal|target weight|jyp|idol|obese|fasting|skip(?:ping)? meals?|punish|compensat|diagnos/i.test(text), `${label} stays private and safe`);
@@ -162,6 +206,50 @@ async function run() {
   assert.equal(july22.outlook, alternateGoal.outlook, "private strategy cannot alter the headline outlook");
   assert.notEqual(july22.hiddenStrategy, alternateGoal.hiddenStrategy, "private configuration is confined to hidden coaching strategy");
 
+  const mixedSensitiveLeague = {
+    id: "mixed-sensitive-league",
+    kind: "quote",
+    text: "A private-sensitive-label belongs in the private note, but Lily said that League night mattered to her.",
+    createdAt: "2026-07-21T12:00:00.000Z",
+    updatedAt: "2026-07-21T12:00:00.000Z"
+  };
+  const mixedLeagueAnchor = coach.memoryPersonalAnchor(mixedSensitiveLeague, { cutoff: Date.parse("2026-07-22T12:00:00.000Z"), seed: "stable" });
+  assert.equal(mixedLeagueAnchor.kind, "lily-league", "a safe concrete topic survives reduction even when another source clause is sensitive");
+  assert.match(mixedLeagueAnchor.text, /League night/);
+  assert.doesNotMatch(mixedLeagueAnchor.text, /private-sensitive-label|diagnos|dysphoria/i, "only the approved League meaning survives");
+
+  const moodCareAnchor = coach.memoryPersonalAnchor({
+    id: "mood-care",
+    kind: "note",
+    text: "Alan noticed Lily seemed off and quieter than usual after being criticized; he wants her to feel seen.",
+    createdAt: "2026-07-21T13:00:00.000Z"
+  }, { cutoff: Date.parse("2026-07-22T12:00:00.000Z"), seed: "stable" });
+  assert.equal(moodCareAnchor.kind, "lily-mood-care");
+  assert.match(moodCareAnchor.text, /Alan (?:noticed|remembers).*(?:felt off|things felt off|beside you)/i);
+  assert.doesNotMatch(moodCareAnchor.text, /criticiz|quiet|diagnos/i, "the safe mood-care meaning omits the raw private detail");
+
+  const topicCases = [
+    ["cats", "Lily smiles about cats.", "lily-cats"],
+    ["french", "A French-language detail matters to Lily.", "lily-french"],
+    ["hydration", "Lily mentioned hydration and water.", "lily-hydration"],
+    ["protein", "Lily mentioned a protein detail.", "lily-protein"],
+    ["cycle", "Lily logged period and cycle context.", "lily-cycle"]
+  ];
+  for (const [id, text, expectedKind] of topicCases) {
+    const anchor = coach.memoryPersonalAnchor({ id, kind: "note", text, createdAt: "2026-07-20T12:00:00.000Z" }, { cutoff: Date.parse("2026-07-22T12:00:00.000Z"), seed: "stable" });
+    assert.equal(anchor.kind, expectedKind);
+    assert(!anchor.text.includes(text), `${expectedKind} is a semantic reduction, not copied source prose`);
+  }
+  const longThoughtAnchor = coach.memoryPersonalAnchor({
+    id: "long-thought",
+    kind: "note",
+    text: "An unfiltered long letter that Alan wanted to preserve. ".repeat(14),
+    createdAt: "2026-07-20T12:00:00.000Z"
+  }, { cutoff: Date.parse("2026-07-22T12:00:00.000Z"), seed: "stable" });
+  assert.equal(longThoughtAnchor.kind, "lily-authentic-voice");
+  assert.doesNotMatch(longThoughtAnchor.text, /An unfiltered long letter that Alan wanted to preserve/i);
+  assert.equal(coach.memoryPersonalAnchor({ id: "generic-photo", kind: "photo", text: "", createdAt: "2026-07-20T12:00:00.000Z" }, { cutoff: Date.parse("2026-07-22T12:00:00.000Z") }), null, "a generic source shell cannot pretend to be substantial personal context");
+
   const twoWeightStore = baseStore([
     recordWeight("two-1", "2026-07-21", 150),
     recordWeight("two-2", "2026-07-22", 151)
@@ -184,7 +272,7 @@ async function run() {
     recordWeight("rev-1", "2026-07-19", 151), recordWeight("rev-2", "2026-07-20", 150),
     recordWeight("rev-3", "2026-07-21", 149), recordWeight("rev-4", "2026-07-22", 150)
   ];
-  const reversalContext = coach.buildCoachContext(baseStore(reversalWeights, { memories: [], trackerEvents: [] }), "rev-4");
+  const reversalContext = coach.buildCoachContext(baseStore(reversalWeights), "rev-4");
   assert.equal(reversalContext.strongestEvidence.kind, "reversal");
   assert.equal(reversalContext.evidenceRelation.kind, "reversed");
   assert.equal(coach.validateCoachParagraph(coach.buildContextualFallback(reversalContext, []), reversalContext, []).ok, true);
@@ -194,7 +282,7 @@ async function run() {
     recordWeight("noise-3", "2026-07-20", 149.9), recordWeight("noise-4", "2026-07-21", 150),
     recordWeight("noise-5", "2026-07-22", 150)
   ];
-  const noisyContext = coach.buildCoachContext(baseStore(noisyWeights, { memories: [], trackerEvents: [] }), "noise-5");
+  const noisyContext = coach.buildCoachContext(baseStore(noisyWeights), "noise-5");
   assert.equal(noisyContext.changeDirection, "unchanged");
   assert.equal(coach.validateCoachParagraph(coach.buildContextualFallback(noisyContext, []), noisyContext, []).ok, true);
 
@@ -207,6 +295,10 @@ async function run() {
   assert.match(finalFallback.text, /up 2\.5 lb/);
   assert.match(finalFallback.text, /accelerat/i);
   assert.match(finalFallback.text, /about 146 lb/);
+  assert.deepEqual(Object.keys(finalFallback.personalAnchor).sort(), ["approvedText", "id", "semanticAnchorId", "sourceHash", "sourceTimestamp", "sourceType"].sort(), "private records retain only the approved anchor and opaque provenance needed for deterministic repair");
+  assert(finalFallback.text.includes(finalFallback.personalAnchor.approvedText));
+  assert.equal(coach.personalAnchorFromCoachRecord(finalFallback).text, finalFallback.personalAnchor.approvedText);
+  assert(!JSON.stringify(finalFallback.personalAnchor).includes(productionStore.memories[0].text), "raw Lily source text is never persisted with the coach anchor");
 
   const electrolyteReaction = {
     id: "reaction-electrolytes",
@@ -215,7 +307,7 @@ async function run() {
     createdAt: "2026-07-23T00:32:11.765Z",
     updatedAt: "2026-07-23T00:32:11.765Z"
   };
-  const reactionBase = addAllFallbacks(baseStore(productionWeights, { memories: [], trackerEvents: [] })).store;
+  const reactionBase = addAllFallbacks(baseStore(productionWeights, { memories: substantialAnchorMemories("reaction-base"), trackerEvents: [] })).store;
   const reactionWeight = productionWeights.at(-1);
   const beforeReactionCoach = coach.coachForWeight(reactionBase, reactionWeight.id);
   const priorReactionCoachesBefore = reactionBase.coachMessages.filter((message) => message.weightId !== reactionWeight.id);
@@ -304,7 +396,7 @@ async function run() {
     []
   );
   assert.equal(observedMoodSelection?.kind, "observer-mood-support", "uncertain conflict language does not suppress the independently supported mood observation");
-  const observedMoodBase = addAllFallbacks(baseStore(productionWeights, { memories: [], trackerEvents: [] })).store;
+  const observedMoodBase = addAllFallbacks(baseStore(productionWeights, { memories: substantialAnchorMemories("mood-base"), trackerEvents: [] })).store;
   const withObservedMood = { ...observedMoodBase, memories: [observedMoodNote] };
   const observedMoodRefresh = coach.refreshLatestCoachForSavedMemories(
     withObservedMood,
@@ -328,6 +420,59 @@ async function run() {
   assert.deepEqual(observedMoodContext.forecastFingerprint, measurementOnlyContext.forecastFingerprint, "care context cannot alter chart geometry");
   assert(!JSON.stringify(coach.publicCoachFacts(observedMoodContext)).includes(observedMoodNote.text), "raw care-note text never reaches the writer");
 
+  const rawMixedBrainEntry = "A pasted third-party transcript includes private-sensitive-label and diagnosis details, then turns into a concrete research and app-building thought.";
+  const mixedBrainAnchor = coach.brainThoughtAnchorFromFile({
+    id: "brain-mixed-entry",
+    name: "uploaded-notes.txt",
+    kind: "upload",
+    mime: "text/plain",
+    sourceText: rawMixedBrainEntry,
+    createdAt: "2020-01-01T12:00:00.000Z"
+  }, { cutoff: Date.parse("2026-07-22T12:00:00.000Z"), seed: "stable" });
+  assert.equal(mixedBrainAnchor.kind, "brain-thought-research-apps", "every Alan-entered Brain item is authentic even when its transport, age, or mixed clauses would fail the old authorship gate");
+  assert.match(mixedBrainAnchor.text, /research|app-building/i);
+  assert.doesNotMatch(mixedBrainAnchor.text, /transcript|third-party|private-sensitive-label|diagnos/i, "only the concrete safe topic survives reduction");
+  const sensitiveOnlyBrainAnchor = coach.brainThoughtAnchorFromFile({
+    id: "brain-private-entry",
+    sourceText: "A private-sensitive-label and third-party diagnosis are the whole short entry.",
+    createdAt: "2020-01-02T12:00:00.000Z"
+  }, { cutoff: Date.parse("2026-07-22T12:00:00.000Z"), seed: "stable" });
+  assert.equal(sensitiveOnlyBrainAnchor.kind, "brain-thought-letter", "a sensitive-only authentic entry reduces to a safe long-thought and trust meaning rather than being rejected");
+  assert.match(sensitiveOnlyBrainAnchor.text, /Brain|Alan/);
+  assert.doesNotMatch(sensitiveOnlyBrainAnchor.text, /private-sensitive-label|third-party|diagnos/i);
+
+  const cooldownWeights = [
+    recordWeight("cooldown-prior", "2026-07-21", 150),
+    recordWeight("cooldown-current", "2026-07-22", 150.2)
+  ];
+  const cooldownStore = {
+    ...baseStore(cooldownWeights, { memories: substantialAnchorMemories("cooldown"), trackerEvents: [] }),
+    coachMessages: [{
+      id: "cooldown-coach",
+      weightId: "cooldown-prior",
+      text: "prior",
+      createdAt: "2026-07-21T16:00:00.000Z",
+      updatedAt: "2026-07-21T16:00:00.000Z",
+      evidenceReferences: [{ type: "brain-letter", id: "same-source", role: "boyfriend-yap" }]
+    }]
+  };
+  const sameSourceFile = { id: "same-source", sourceText: "A research app thought.", createdAt: "2026-07-22T15:00:00.000Z" };
+  const freshSourceFile = { id: "fresh-source", sourceText: "A music thought.", createdAt: "2026-07-22T14:00:00.000Z" };
+  const freshBrainSelection = await coach.fetchLatestBrainThoughtAnchor(cooldownStore, {
+    apiBase: "https://brain.test",
+    weightId: "cooldown-current",
+    cutoff: Date.parse("2026-07-22T16:05:00.000Z"),
+    fetchImpl: async () => ({ ok: true, json: async () => ({ files: [sameSourceFile, freshSourceFile] }) })
+  });
+  assert.equal(freshBrainSelection.id, "fresh-source", "cooldown follows the opaque source across brain-letter and brain-thought roles");
+  const cooledOnlySelection = await coach.fetchLatestBrainThoughtAnchor(cooldownStore, {
+    apiBase: "https://brain.test",
+    weightId: "cooldown-current",
+    cutoff: Date.parse("2026-07-22T16:05:00.000Z"),
+    fetchImpl: async () => ({ ok: true, json: async () => ({ files: [sameSourceFile] }) })
+  });
+  assert.equal(cooledOnlySelection, null, "a selector never falls back to an anchor still on cooldown");
+
   const rawBrainLetter = [
     "Dear Lily, I am your boyfriend and I love you.",
     "I am the nerdy PhD boyfriend who likes to yap honestly about everything because that is how I show you my real self.",
@@ -350,6 +495,7 @@ async function run() {
   });
   assert.deepEqual(brainSupport, {
     id: brainFile.id,
+    sourceType: "brain-letter",
     kind: "boyfriend-yap-phd-league",
     text: coach.BRAIN_RELATIONSHIP_COPY["boyfriend-yap-phd-league"],
     createdAt: brainFile.createdAt,
@@ -385,6 +531,25 @@ async function run() {
   assert(!JSON.stringify(coach.publicCoachFacts(brainContext)).includes(rawBrainLetter), "the raw letter never enters writer or critic facts");
   assert.equal(brainContext.analysisPlan.relationshipSupport.kind, "boyfriend-yap-phd-league");
   assert(!JSON.stringify(brainContext.analysisPlan).includes(brainSupport.sourceHash), "source hashes stay out of the writer analysis plan");
+  assert.equal(brainCoach.personalAnchor.semanticAnchorId, "boyfriend-yap-phd-league");
+  assert.equal(brainCoach.personalAnchor.approvedText, brainSupport.text);
+  const staleBrainCoach = { ...brainCoach, styleVersion: "coach-style-before-personal-anchor" };
+  const staleBrainStore = {
+    ...brainRefresh.store,
+    coachMessages: [staleBrainCoach, ...brainRefresh.store.coachMessages.filter((message) => message.id !== brainCoach.id)]
+  };
+  const refreshedBrainStyle = coach.refreshLatestCoachStyleInStore(staleBrainStore, "fallback-test-brain-style", Date.parse("2026-07-22T16:04:00.000Z"));
+  assert.equal(refreshedBrainStyle.updated, true, "style repair can rebuild a Brain-anchored coach without silently selecting a different Lily anchor");
+  const refreshedBrainStyleRecord = coach.coachForWeight(refreshedBrainStyle.store, reactionWeight.id);
+  assert.deepEqual(refreshedBrainStyleRecord.personalAnchor, brainCoach.personalAnchor, "sanitized Brain anchor provenance and approved text survive style repair exactly");
+  const reconstructedBrainAnchor = coach.personalAnchorFromCoachRecord(refreshedBrainStyleRecord);
+  const reconstructedBrainContext = coach.buildCoachContext(refreshedBrainStyle.store, reactionWeight.id, {
+    privateGoal: 117,
+    personalContextCutoff: Date.parse(observedMoodNote.createdAt),
+    relationshipSupport: reconstructedBrainAnchor
+  });
+  const reconstructedBrainValidation = coach.validateCoachParagraph(refreshedBrainStyleRecord.text, reconstructedBrainContext, brainPreviousMessages, { privateGoal: 117 });
+  assert.equal(reconstructedBrainValidation.ok, true, `persisted approved anchor reconstructs the exact validation context: ${reconstructedBrainValidation.errors.join(", ")}`);
   assert.equal(coach.brainRelationshipSupportAvailable(brainRefresh.store, brainSupport, "different-weight"), false, "one Brain letter cannot be reused by another weight memo");
   const repeatedBrainRefresh = coach.refreshLatestCoachForBrainRelationship(
     brainRefresh.store,
@@ -467,7 +632,7 @@ async function run() {
   assert.equal(coach.brainSourceWithinWeightWindow(delayedWeight, delayedBrainSupport, Date.parse("2026-07-25T19:24:00.000Z")), true, "a Brain upload finishing 51 seconds after its weight remains in the indexing grace window");
   assert.equal(coach.brainSourceWithinWeightWindow(delayedWeight, { ...delayedBrainSupport, createdAt: "2026-07-25T19:29:01.000Z" }, Date.parse("2026-07-25T19:30:00.000Z")), false, "an unrelated later Brain source cannot drift into the weigh-in");
 
-  const delayedBase = addAllFallbacks(baseStore([...productionWeights, delayedWeight], { memories: [], trackerEvents: [] })).store;
+  const delayedBase = addAllFallbacks(baseStore([...productionWeights, delayedWeight], { memories: substantialAnchorMemories("delayed-base"), trackerEvents: [] })).store;
   const delayedBefore = coach.coachRefreshPreservationSnapshot(delayedBase, delayedWeight.id);
   const delayedRefresh = coach.refreshLatestCoachForBrainRelationship(
     delayedBase,
@@ -637,7 +802,7 @@ async function run() {
   const oldWeightStore = addAllFallbacks(baseStore([
     recordWeight("old-reaction-1", "2026-06-30", 150),
     recordWeight("old-reaction-2", "2026-07-01", 150.2)
-  ], { memories: [electrolyteReaction], trackerEvents: [] })).store;
+  ], { memories: [...substantialAnchorMemories("old-reaction"), electrolyteReaction], trackerEvents: [] })).store;
   assert.equal(coach.refreshLatestCoachForSavedMemories(
     oldWeightStore,
     [electrolyteReaction.id],
@@ -652,7 +817,7 @@ async function run() {
   const ancientCloseStore = addAllFallbacks(baseStore([
     recordWeight("ancient-close-1", "2026-07-01", 150),
     recordWeight("ancient-close-2", "2026-07-02", 150.2)
-  ], { memories: [ancientCloseReaction], trackerEvents: [] })).store;
+  ], { memories: [...substantialAnchorMemories("ancient-close"), ancientCloseReaction], trackerEvents: [] })).store;
   assert.equal(coach.refreshLatestCoachForSavedMemories(
     ancientCloseStore,
     [ancientCloseReaction.id],
@@ -683,8 +848,7 @@ async function run() {
     electrolyteReaction.id
   );
   const removedReactionCoach = coach.coachForWeight(removedReactionStore, reactionWeight.id);
-  assert.equal(removedReactionCoach.id, reactionCoach.id);
-  assert(!removedReactionCoach.evidenceReferences.some((reference) => reference.type === "memory"), "deleting a used reaction returns the latest coach to weight-only context");
+  assert.equal(removedReactionCoach, null, "deleting the only authentic context source leaves the memo pending instead of publishing weight-only copy");
 
   const liveLatestFiveActions = productionWeights.slice(-5).map((weight) => {
     const message = coach.coachForWeight(fullFallbackRun.store, weight.id);
@@ -729,7 +893,7 @@ async function run() {
     const date = new Date(Date.UTC(2026, 7, index + 1)).toISOString().slice(0, 10);
     risingWeights.push(recordWeight(`rise-${index}`, date, 150 + index * 0.2));
   }
-  const risingRun = addAllFallbacks(baseStore(risingWeights, { memories: [], trackerEvents: [] }));
+  const risingRun = addAllFallbacks(baseStore(risingWeights));
   const risingMessages = risingWeights.slice(1).map((weight) => coach.coachForWeight(risingRun.store, weight.id));
   assert(risingMessages.every((message) => message.verdict === "not-good-enough"), "twelve consecutive same-verdict weigh-ins remain distinct and valid");
 
@@ -738,6 +902,15 @@ async function run() {
   assert.equal(fallbackValidation.ok, true, fallbackValidation.errors.join(", "));
   assertParagraph(fallback);
   assert.equal(coach.identifyApprovedAction(fallback, july22)?.semantic, july22.actionSemantic);
+  assert(fallback.includes(july22.personalAnchor.text), "every finalized fallback visibly carries its approved personal anchor");
+  const noAnchorStore = baseStore([recordWeight("no-anchor-weight", "2026-07-22", 150)], { memories: [], trackerEvents: [] });
+  const noAnchorContext = coach.buildCoachContext(noAnchorStore, "no-anchor-weight");
+  assert.equal(noAnchorContext.personalAnchor, null);
+  assert.equal(coach.coachForWeight(coach.addFallbackCoachForWeight(noAnchorStore, "no-anchor-weight"), "no-anchor-weight"), null, "a context-free fallback stays pending instead of becoming visible copy");
+  const missingAnchorContext = { ...july22, personalAnchor: null, relationshipSupport: null, personalAnchorRequired: true };
+  const actionOnlyCandidate = fallback.replace(`${july22.personalAnchor.text}. `, "");
+  const actionOnlyErrors = coach.validateCoachParagraph(actionOnlyCandidate, missingAnchorContext, [], { privateGoal: 117 }).errors;
+  assert(actionOnlyErrors.includes("missing-personal-anchor"), "a generic health action cannot masquerade as substantial personal context");
 
   const acceptanceAction = july22.actionRealizations.slice().sort((left, right) => coach.coachWordCount(left.text) - coach.coachWordCount(right.text))[0].text;
   const acceptanceFacts = coach.fallbackFactClauseVariants(july22);
@@ -747,7 +920,8 @@ async function run() {
     acceptanceFacts.evidence[0],
     acceptanceFacts.outlook[0],
     acceptanceAction,
-    coach.WRITER_SAFE_CLOSINGS["not-good-enough"][0]
+    coach.WRITER_SAFE_CLOSINGS["not-good-enough"][0],
+    july22.personalAnchor.text
   ));
   const acceptanceValidation = coach.validateCoachParagraph(acceptanceExample, july22, [], { privateGoal: 117 });
   assert.equal(acceptanceValidation.ok, true, `a supportive evidence-first paragraph must pass every deterministic gate: ${acceptanceValidation.errors.join(", ")}`);
