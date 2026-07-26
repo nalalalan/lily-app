@@ -663,7 +663,34 @@ function personalAnchorReferenceKeys(messages, limit = COACH_PERSONAL_ANCHOR_COO
   return new Set((Array.isArray(messages) ? messages.slice(0, limit) : [])
     .flatMap((message) => Array.isArray(message?.evidenceReferences) ? message.evidenceReferences : [])
     .filter((reference) => ["memory-personal-anchor", "brain-thought-anchor", "brain-letter"].includes(reference?.type) && reference.id)
-    .flatMap((reference) => [`id:${reference.id}`, `kind:${reference.role || ""}`]));
+    .flatMap((reference) => [`id:${reference.id}`, `semantic:${personalAnchorSemanticKind(reference.role)}`]));
+}
+
+function personalAnchorSemanticKind(kind) {
+  const value = String(kind || "").trim().toLowerCase()
+    .replace(/^brain-thought-/, "")
+    .replace(/^lily-/, "");
+  if (/^boyfriend-/.test(value)) return "relationship-connection";
+  if (/^(?:authentic-|letter|yap)/.test(value)) return "authentic-voice";
+  if (value === "mood") return "mood-care";
+  return value;
+}
+
+function personalAnchorIsAvailable(store, anchor, weightId = "") {
+  if (!anchor?.id || !anchor?.kind) return false;
+  const weight = (store?.weights || []).find((record) => record.id === weightId) || null;
+  const previousMessages = causalPreviousCoachMessages(store, weight, COACH_PERSONAL_ANCHOR_COOLDOWN_COUNT);
+  const recentKeys = personalAnchorReferenceKeys(previousMessages);
+  if (recentKeys.has(`id:${anchor.id}`) || recentKeys.has(`semantic:${personalAnchorSemanticKind(anchor.kind)}`)) return false;
+  return anchor.sourceType !== "brain-letter" || brainRelationshipSupportAvailable(store, anchor, weightId);
+}
+
+function newestPersonalAnchor(...anchors) {
+  return anchors
+    .filter((anchor) => anchor?.id && anchor?.text && Number.isFinite(Date.parse(anchor.createdAt || "")))
+    .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt)
+      || String(right.sourceType || "").localeCompare(String(left.sourceType || ""))
+      || String(left.id).localeCompare(String(right.id)))[0] || null;
 }
 
 function selectLilyPersonalAnchor(memories, cutoff, previousMessages = [], seed = "") {
@@ -672,7 +699,7 @@ function selectLilyPersonalAnchor(memories, cutoff, previousMessages = [], seed 
     .map((memory) => memoryPersonalAnchor(memory, { cutoff, seed }))
     .filter(Boolean)
     .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)) || left.id.localeCompare(right.id));
-  return anchors.find((anchor) => !recentKeys.has(`id:${anchor.id}`) && !recentKeys.has(`kind:${anchor.kind}`)) || null;
+  return anchors.find((anchor) => !recentKeys.has(`id:${anchor.id}`) && !recentKeys.has(`semantic:${personalAnchorSemanticKind(anchor.kind)}`)) || null;
 }
 
 const BRAIN_THOUGHT_ANCHOR_COPY = Object.freeze({
@@ -756,11 +783,13 @@ const BRAIN_THOUGHT_ANCHOR_COPY = Object.freeze({
 
 function brainThoughtAnchorFromFile(file, options = {}) {
   if (!file?.id) return null;
-  const text = String(file.sourceText || file.title || file.name || "").trim();
+  const text = String(file.sourceText || file.title || "").trim();
   const createdAt = String(file.sourceCreatedAt || file.createdAt || "");
   const createdTime = Date.parse(createdAt);
   const cutoff = Number(options.cutoff);
-  if (!text || !Number.isFinite(createdTime)) return null;
+  const metadataShell = /^(?:photo|image|video|screenshot|date|file|upload)(?:\s*[-_#]?\s*\d+)?(?:\.[a-z0-9]{2,5})?$/i.test(text)
+    || /^\S+\.(?:jpe?g|png|webp|gif|mp4|mov|m4v|webm|pdf)$/i.test(text);
+  if (!text || metadataShell || !Number.isFinite(createdTime)) return null;
   if (Number.isFinite(cutoff) && createdTime > cutoff) return null;
   const topics = [
     ["research", /\b(?:research|science|scientist|paper|figure|ph\.?d\.?)\w*/i],
@@ -931,8 +960,62 @@ async function fetchLatestBrainThoughtAnchor(store, options = {}) {
       .map((file) => brainThoughtAnchorFromFile(file, options))
       .filter(Boolean)
       .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)) || left.id.localeCompare(right.id));
-    return anchors.find((anchor) => !recentKeys.has(`id:${anchor.id}`) && !recentKeys.has(`kind:${anchor.kind}`)) || null;
+    return anchors.find((anchor) => !recentKeys.has(`id:${anchor.id}`) && !recentKeys.has(`semantic:${personalAnchorSemanticKind(anchor.kind)}`)) || null;
   } catch (error) {
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function fetchLatestBrainPersonalAnchor(store, options = {}) {
+  const apiBase = resolveBrainApiBase(options.apiBase);
+  if (!apiBase) return null;
+  const fetchImpl = options.fetchImpl || fetch;
+  const timeoutMs = Math.max(1, Number(options.timeoutMs || brainRequestTimeoutMs));
+  const controller = new AbortController();
+  let timeoutId;
+  try {
+    timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    const response = await fetchImpl(`${apiBase}/api/files`, {
+      method: "GET",
+      headers: { "Accept": "application/json" },
+      signal: controller.signal
+    });
+    if (!response.ok) {
+      options.onDiagnostic?.({ status: "http-error", statusCode: Number(response.status) || 0 });
+      return null;
+    }
+    const payload = await response.json();
+    const files = Array.isArray(payload?.files) ? payload.files : (Array.isArray(payload) ? payload : []);
+    const weight = options.weight || (store?.weights || []).find((record) => record.id === options.weightId) || null;
+    const previousMessages = causalPreviousCoachMessages(store, weight, COACH_PERSONAL_ANCHOR_COOLDOWN_COUNT);
+    const recentKeys = personalAnchorReferenceKeys(previousMessages);
+    const usedLetterIds = referencedBrainLetterIds(store?.coachMessages, options.excludedWeightId || options.weightId);
+    const rows = files.slice().sort((left, right) => String(right?.sourceCreatedAt || right?.createdAt || "").localeCompare(String(left?.sourceCreatedAt || left?.createdAt || "")));
+    for (const file of rows) {
+      if (usedLetterIds.has(String(file?.id || ""))) continue;
+      const support = brainRelationshipSupportFromFile(file, options);
+      if (!support
+        || recentKeys.has(`id:${support.id}`)
+        || recentKeys.has(`semantic:${personalAnchorSemanticKind(support.kind)}`)) continue;
+      if (!weight || brainSourceWithinWeightWindow(weight, support, options.operationalNow)) {
+        options.onDiagnostic?.({ status: "selected", sourceType: support.sourceType, sourceId: support.id, sourceKind: support.kind });
+        return support;
+      }
+    }
+    const thoughtAnchors = rows
+      .map((file) => brainThoughtAnchorFromFile(file, options))
+      .filter(Boolean)
+      .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)) || left.id.localeCompare(right.id));
+    const thought = thoughtAnchors.find((anchor) => !recentKeys.has(`id:${anchor.id}`)
+      && !recentKeys.has(`semantic:${personalAnchorSemanticKind(anchor.kind)}`)) || null;
+    options.onDiagnostic?.(thought
+      ? { status: "selected", sourceType: thought.sourceType, sourceId: thought.id, sourceKind: thought.kind }
+      : { status: "no-eligible-source" });
+    return thought;
+  } catch (error) {
+    options.onDiagnostic?.({ status: error?.name === "AbortError" ? "timeout" : "request-error" });
     return null;
   } finally {
     clearTimeout(timeoutId);
@@ -3049,17 +3132,30 @@ function refreshLatestCoachForBrainRelationship(store, relationshipSupport, stat
     return { store, updated: false, alreadyCurrent: false, weightId: latestWeight?.id || "", latestCoach: publicCoach(latestWeight ? coachForWeight(store, latestWeight.id) : null) };
   }
   const existing = coachForWeight(store, latestWeight.id);
-  const existingBrainReference = existing?.evidenceReferences?.find((reference) => reference?.type === "brain-letter") || null;
-  const alreadyCurrent = existingBrainReference?.id === relationshipSupport.id;
+  const existingAnchor = personalAnchorFromCoachRecord(existing);
+  const existingBrainReference = existing?.evidenceReferences?.find((reference) => ["brain-letter", "brain-thought-anchor", "memory-personal-anchor"].includes(reference?.type)) || null;
+  const alreadyCurrent = existingAnchor?.id === relationshipSupport.id
+    && existingAnchor?.sourceType === relationshipSupport.sourceType
+    && (!existingAnchor?.sourceHash || !relationshipSupport.sourceHash || existingAnchor.sourceHash === relationshipSupport.sourceHash);
   if (alreadyCurrent) return { store, updated: false, alreadyCurrent: true, weightId: latestWeight.id, latestCoach: publicCoach(existing) };
   const weightTime = Date.parse(latestWeight.createdAt);
   const supportTime = Date.parse(relationshipSupport.createdAt);
   const now = Number(operationalNow);
-  const existingSupportTime = Date.parse(existingBrainReference?.sourceCreatedAt || "");
-  if (!brainSourceWithinWeightWindow(latestWeight, relationshipSupport, now)
-    || (Number.isFinite(existingSupportTime) && supportTime <= existingSupportTime)
+  const existingSupportTime = Date.parse(existingAnchor?.createdAt || existingBrainReference?.sourceCreatedAt || "");
+  const strictRelationshipSource = relationshipSupport.sourceType === "brain-letter";
+  const genericThoughtSource = relationshipSupport.sourceType === "brain-thought-anchor";
+  const strictRelationshipPriority = strictRelationshipSource && existingAnchor?.sourceType !== "brain-letter";
+  const sourceIsCausal = strictRelationshipSource
+    ? brainSourceWithinWeightWindow(latestWeight, relationshipSupport, now)
+    : genericThoughtSource
+      ? Number.isFinite(weightTime) && Number.isFinite(supportTime) && Number.isFinite(now)
+        && supportTime <= Math.min(now, weightTime + BRAIN_WEIGHT_INDEX_GRACE_MS)
+      : false;
+  if (!sourceIsCausal
+    || (existingAnchor?.sourceType === "brain-letter" && !strictRelationshipSource)
+    || (!strictRelationshipPriority && Number.isFinite(existingSupportTime) && supportTime <= existingSupportTime)
     || (existingBrainReference && !Number.isFinite(existingSupportTime) && supportTime < weightTime)
-    || !brainRelationshipSupportAvailable(store, relationshipSupport, latestWeight.id)) {
+    || !personalAnchorIsAvailable(store, relationshipSupport, latestWeight.id)) {
     return { store, updated: false, alreadyCurrent: false, weightId: latestWeight.id, latestCoach: publicCoach(existing) };
   }
 
@@ -3129,19 +3225,23 @@ async function reconcileLatestCoachBrainContext(options = {}) {
   }
   brainContextLastCheckedAtByWeight.set(latestWeight.id, operationalNow);
   let sourceDiagnostic = { status: "not-checked" };
-  const relationshipSupport = await fetchLatestBrainRelationshipSupport(initialStore, {
+  const relationshipSupport = await fetchLatestBrainPersonalAnchor(initialStore, {
     apiBase: options.apiBase,
     fetchImpl: options.fetchImpl,
     cutoff: Math.min(operationalNow, weightTime + BRAIN_WEIGHT_INDEX_GRACE_MS),
     earliest: weightTime - BRAIN_WEIGHT_CONTEXT_LOOKBACK_MS,
     operationalNow,
+    weight: latestWeight,
+    weightId: latestWeight.id,
     excludedWeightId: latestWeight.id,
+    seed: `${latestWeight.createdAt || ""}|${trimCoachNumber(weightInPounds(latestWeight))}`,
     onDiagnostic: (diagnostic) => { sourceDiagnostic = diagnostic; }
   });
-  if (!relationshipSupport || !brainSourceWithinWeightWindow(latestWeight, relationshipSupport, operationalNow)) {
+  if (!relationshipSupport) {
     return { updated: false, status: sourceDiagnostic.status || "no-eligible-source", weightId: latestWeight.id };
   }
 
+  const preservationBaseline = coachRefreshPreservationSnapshot(initialStore, latestWeight.id);
   let prepared = null;
   await writeStore((store) => {
     const currentLatestWeight = latestWeightRecord(store);
@@ -3152,6 +3252,9 @@ async function reconcileLatestCoachBrainContext(options = {}) {
       "fallback-brain-authentic-connection-reconciled",
       operationalNow
     );
+    if (prepared.updated) {
+      assertCoachRefreshPreserved(preservationBaseline, coachRefreshPreservationSnapshot(prepared.store, prepared.weightId));
+    }
     return prepared.updated ? prepared.store : store;
   });
   if (!prepared?.updated) {
@@ -3164,6 +3267,12 @@ async function reconcileLatestCoachBrainContext(options = {}) {
   };
   if (options.awaitGeneration) {
     await generateAndReplaceCoach(prepared.weightId, generationOptions);
+    const finalStore = await readStore();
+    assertCoachRefreshPreserved(preservationBaseline, coachRefreshPreservationSnapshot(finalStore, prepared.weightId));
+    const finalAnchor = personalAnchorFromCoachRecord(coachForWeight(finalStore, prepared.weightId));
+    if (!finalAnchor || finalAnchor.id !== relationshipSupport.id || finalAnchor.sourceType !== relationshipSupport.sourceType) {
+      throw new Error("The reconciled coach lost its selected personal anchor.");
+    }
   } else {
     setImmediate(() => {
       generateAndReplaceCoach(prepared.weightId, generationOptions)
@@ -3348,31 +3457,31 @@ async function generateAndReplaceCoach(weightId, options = {}) {
   });
   const currentWeight = (snapshot.weights || []).find((weight) => weight.id === weightId);
   const currentWeightTime = Date.parse(currentWeight?.createdAt);
+  const generationNow = Number(options.operationalNow || Date.now());
   const relationshipCutoff = Number.isFinite(Number(options.relationshipContextCutoff))
     ? Number(options.relationshipContextCutoff)
     : Number.isFinite(currentWeightTime)
-      ? Math.min(Date.now(), currentWeightTime + BRAIN_WEIGHT_INDEX_GRACE_MS)
-      : Date.now();
+      ? Math.min(generationNow, currentWeightTime + BRAIN_WEIGHT_INDEX_GRACE_MS)
+      : generationNow;
   const relationshipSupportExplicit = Object.prototype.hasOwnProperty.call(options, "relationshipSupport");
   let relationshipSupport = relationshipSupportExplicit
     ? options.relationshipSupport
-    : await fetchLatestBrainRelationshipSupport(snapshot, {
+    : await fetchLatestBrainPersonalAnchor(snapshot, {
+      apiBase: options.apiBase,
+      fetchImpl: options.fetchImpl,
       cutoff: relationshipCutoff,
       earliest: Number.isFinite(currentWeightTime) ? currentWeightTime - BRAIN_WEIGHT_CONTEXT_LOOKBACK_MS : undefined,
-      operationalNow: Date.now(),
-      excludedWeightId: weightId
-    });
-  if (!relationshipSupport && !relationshipSupportExplicit) {
-    const brainThoughtAnchor = await fetchLatestBrainThoughtAnchor(snapshot, {
-      cutoff: relationshipCutoff,
-      operationalNow: Date.now(),
+      operationalNow: generationNow,
+      weight: currentWeight,
       weightId,
+      excludedWeightId: weightId,
       seed: `${currentWeight?.createdAt || ""}|${trimCoachNumber(weightInPounds(currentWeight))}`
     });
+  if (!relationshipSupportExplicit) {
     const lilyAnchor = baseContext?.personalAnchor || null;
-    const lilyAnchorTime = Date.parse(lilyAnchor?.createdAt || "");
-    const freshLilyAnchor = lilyAnchor && Number.isFinite(lilyAnchorTime) && Date.now() - lilyAnchorTime <= 14 * 24 * 60 * 60 * 1000;
-    relationshipSupport = freshLilyAnchor ? lilyAnchor : (brainThoughtAnchor || lilyAnchor);
+    relationshipSupport = relationshipSupport?.sourceType === "brain-letter"
+      ? relationshipSupport
+      : newestPersonalAnchor(relationshipSupport, lilyAnchor);
   }
   const context = relationshipSupport ? buildCoachContext(snapshot, weightId, {
     privateGoal: Object.prototype.hasOwnProperty.call(options, "privateGoal") ? options.privateGoal : privateCoachGoal,
@@ -3392,7 +3501,7 @@ async function generateAndReplaceCoach(weightId, options = {}) {
       }
       const weightStillExists = (store.weights || []).some((weight) => weight.id === weightId);
       if (!weightStillExists) return store;
-      if (relationshipSupport?.sourceType === "brain-letter" && !brainRelationshipSupportAvailable(store, relationshipSupport, weightId)) return store;
+      if (!personalAnchorIsAvailable(store, relationshipSupport, weightId)) return store;
       fallbackRecord = createCoachMessageRecord(context, fallback.text, "fallback-personal-anchor-fetched", new Date().toISOString(), null, {
         action: fallback.action,
         structureId: fallback.structureId,
@@ -3412,7 +3521,7 @@ async function generateAndReplaceCoach(weightId, options = {}) {
       const existing = coachForWeight(store, weightId);
       const weightStillExists = (store.weights || []).some((weight) => weight.id === weightId);
       if (!existing || !weightStillExists || !expectedContextHashes.has(existing.contextHash)) return store;
-      if (relationshipSupport?.sourceType === "brain-letter" && !brainRelationshipSupportAvailable(store, relationshipSupport, weightId)) return store;
+      if (!personalAnchorIsAvailable(store, relationshipSupport, weightId)) return store;
       savedFallback = createCoachMessageRecord(context, result.text, result.status, new Date().toISOString(), existing, {
         action: result.action,
         structureId: result.structureId,
@@ -3433,7 +3542,7 @@ async function generateAndReplaceCoach(weightId, options = {}) {
     const existing = coachForWeight(store, weightId);
     const weightStillExists = (store.weights || []).some((weight) => weight.id === weightId);
     if (!existing || !weightStillExists || !expectedContextHashes.has(existing.contextHash)) return store;
-    if (relationshipSupport?.sourceType === "brain-letter" && !brainRelationshipSupportAvailable(store, relationshipSupport, weightId)) return store;
+    if (!personalAnchorIsAvailable(store, relationshipSupport, weightId)) return store;
     saved = createCoachMessageRecord(context, result.text, result.status, new Date().toISOString(), existing, {
       action: result.action,
       structureId: result.structureId,
@@ -4505,6 +4614,7 @@ if (process.env.NODE_ENV === "test" || process.env.LILY_COACH_CLI === "1") {
     ensureDataDir,
     fallbackFactClauseVariants,
     fallbackFactClauses,
+    fetchLatestBrainPersonalAnchor,
     fetchLatestBrainRelationshipSupport,
     fetchLatestBrainThoughtAnchor,
     coachPresentationSeed,
@@ -4535,11 +4645,14 @@ if (process.env.NODE_ENV === "test" || process.env.LILY_COACH_CLI === "1") {
     observerCareSignal,
     memoryPersonalAnchor,
     personalAnchorFromCoachRecord,
+    personalAnchorIsAvailable,
     personalAnchorReferenceKeys,
+    personalAnchorSemanticKind,
     reportedCoachEffort,
     referencedBrainLetterIds,
     selectSavedPreference,
     selectLilyPersonalAnchor,
+    newestPersonalAnchor,
     sanitizePersonalAnchor,
     selectStrongestCoachEvidence,
     similarityScore,

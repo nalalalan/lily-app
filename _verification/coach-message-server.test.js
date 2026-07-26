@@ -440,6 +440,12 @@ async function run() {
   assert.equal(sensitiveOnlyBrainAnchor.kind, "brain-thought-letter", "a sensitive-only authentic entry reduces to a safe long-thought and trust meaning rather than being rejected");
   assert.match(sensitiveOnlyBrainAnchor.text, /Brain|Alan/);
   assert.doesNotMatch(sensitiveOnlyBrainAnchor.text, /private-sensitive-label|third-party|diagnos/i);
+  assert.equal(coach.brainThoughtAnchorFromFile({
+    id: "brain-photo-shell",
+    name: "Photo 1.jpg",
+    title: "Photo 1",
+    createdAt: "2026-07-22T15:30:00.000Z"
+  }, { cutoff: Date.parse("2026-07-22T16:05:00.000Z") }), null, "a media filename/title shell is not substantial personal context");
 
   const cooldownWeights = [
     recordWeight("cooldown-prior", "2026-07-21", 150),
@@ -472,6 +478,21 @@ async function run() {
     fetchImpl: async () => ({ ok: true, json: async () => ({ files: [sameSourceFile] }) })
   });
   assert.equal(cooledOnlySelection, null, "a selector never falls back to an anchor still on cooldown");
+  const semanticCooldownStore = {
+    ...cooldownStore,
+    coachMessages: [{
+      ...cooldownStore.coachMessages[0],
+      id: "semantic-cooldown-coach",
+      evidenceReferences: [{ type: "memory-personal-anchor", id: "lily-cat-source", role: "lily-cats" }]
+    }]
+  };
+  const semanticallyCooledSelection = await coach.fetchLatestBrainThoughtAnchor(semanticCooldownStore, {
+    apiBase: "https://brain.test",
+    weightId: "cooldown-current",
+    cutoff: Date.parse("2026-07-22T16:05:00.000Z"),
+    fetchImpl: async () => ({ ok: true, json: async () => ({ files: [{ id: "different-cat-source", sourceText: "A saved thought about cats.", createdAt: "2026-07-22T15:05:00.000Z" }] }) })
+  });
+  assert.equal(semanticallyCooledSelection, null, "semantic cooldown rotates a cats anchor even when Lily and Brain use different source types and ids");
 
   const rawBrainLetter = [
     "Dear Lily, I am your boyfriend and I love you.",
@@ -707,6 +728,112 @@ async function run() {
   });
   assert.equal(idempotentReconcile.updated, false);
   assert.equal(idempotentReconcile.status, "already-current", "reconciliation stays idempotent once the newest eligible source is attached");
+
+  const genericWeight = recordWeight("generic-brain-weight", "2026-07-26", 151.2, "T19:17:18.336Z");
+  const olderLilyMood = {
+    id: "older-lily-mood",
+    kind: "note",
+    text: "Alan noticed Lily seems off and wants her to feel seen.",
+    createdAt: "2026-07-25T05:11:13.966Z",
+    updatedAt: "2026-07-25T05:11:13.966Z"
+  };
+  const genericBrainRaw = "One private-sensitive-label sits beside my newest app and game thought.";
+  const genericBrainFile = {
+    id: "generic-brain-after-lily",
+    name: "ordinary-entry.txt",
+    kind: "upload",
+    mime: "text/plain",
+    sourceText: genericBrainRaw,
+    sourceCreatedAt: "2026-07-25T19:23:51.301Z",
+    createdAt: "2026-07-25T19:23:51.301Z"
+  };
+  let genericBase = baseStore([genericWeight], { memories: [olderLilyMood], trackerEvents: [] });
+  genericBase = coach.addFallbackCoachForWeight(genericBase, genericWeight.id, "fallback-generic-brain-base");
+  const genericBeforeCoach = coach.coachForWeight(genericBase, genericWeight.id);
+  assert.equal(genericBeforeCoach.personalAnchor.semanticAnchorId, "lily-mood-care");
+  const genericBrainAnchor = coach.brainThoughtAnchorFromFile(genericBrainFile, {
+    cutoff: Date.parse(genericWeight.createdAt) + coach.BRAIN_WEIGHT_INDEX_GRACE_MS,
+    seed: "production-shaped"
+  });
+  assert.equal(genericBrainAnchor.kind, "brain-thought-apps-games", "a short arbitrary mixed Brain entry safely reduces to its concrete topics");
+  assert.equal(coach.brainRelationshipSupportFromFile(genericBrainFile, {
+    earliest: Date.parse(genericWeight.createdAt) - coach.BRAIN_WEIGHT_CONTEXT_LOOKBACK_MS,
+    cutoff: Date.parse(genericWeight.createdAt) + coach.BRAIN_WEIGHT_INDEX_GRACE_MS,
+    operationalNow: Date.parse("2026-07-26T20:00:00.000Z")
+  }), null, "the production-shaped generic entry does not masquerade as a strict relationship letter");
+  assert.equal(coach.brainSourceWithinWeightWindow(genericWeight, genericBrainAnchor, Date.parse("2026-07-26T20:00:00.000Z")), false, "the roughly 24-hour-pre-weight generic thought is outside the strict letter window");
+  assert.equal(coach.newestPersonalAnchor(genericBrainAnchor, coach.personalAnchorFromCoachRecord(genericBeforeCoach)).id, genericBrainFile.id, "newest source timestamp lets the generic Brain thought beat the older Lily anchor");
+  const newerLilyAnchor = { ...coach.personalAnchorFromCoachRecord(genericBeforeCoach), id: "newer-lily", createdAt: "2026-07-25T20:00:00.000Z" };
+  assert.equal(coach.newestPersonalAnchor(genericBrainAnchor, newerLilyAnchor).id, newerLilyAnchor.id, "a genuinely newer Lily source still beats an older generic Brain thought");
+  const tiedLilyAnchor = { ...newerLilyAnchor, createdAt: genericBrainAnchor.createdAt };
+  assert.equal(
+    coach.newestPersonalAnchor(genericBrainAnchor, tiedLilyAnchor).id,
+    coach.newestPersonalAnchor(tiedLilyAnchor, genericBrainAnchor).id,
+    "equal timestamps resolve deterministically instead of depending on input order"
+  );
+
+  await coach.writeStore(() => genericBase);
+  let newestGenerationFetches = 0;
+  await coach.generateAndReplaceCoach(genericWeight.id, {
+    apiBase: "https://brain.test",
+    operationalNow: Date.parse("2026-07-26T20:00:00.000Z"),
+    fetchImpl: async () => {
+      newestGenerationFetches += 1;
+      return { ok: true, json: async () => ({ files: [genericBrainFile] }) };
+    }
+  });
+  assert.equal(newestGenerationFetches, 1, "initial generation resolves strict and generic Brain candidates from one bounded read");
+  const newestGenerationStore = await coach.readStore();
+  const newestGenerationCoach = coach.coachForWeight(newestGenerationStore, genericWeight.id);
+  assert.equal(newestGenerationCoach.personalAnchor.sourceType, "brain-thought-anchor");
+  assert.equal(newestGenerationCoach.personalAnchor.semanticAnchorId, "brain-thought-apps-games", "generateAndReplaceCoach persists the newest generic Brain anchor instead of blindly preferring recent Lily context");
+  assert.equal(newestGenerationCoach.id, genericBeforeCoach.id);
+  assert.equal(newestGenerationCoach.createdAt, genericBeforeCoach.createdAt);
+  assert(!JSON.stringify(newestGenerationCoach).includes(genericBrainRaw), "initial generation persists only the approved reduction, never raw mixed Brain text");
+
+  await coach.writeStore(() => genericBase);
+  const genericBefore = coach.coachRefreshPreservationSnapshot(genericBase, genericWeight.id);
+  const notIndexedYet = await coach.reconcileLatestCoachBrainContext({
+    operationalNow: Date.parse("2026-07-26T19:18:00.000Z"),
+    bypassCooldown: true,
+    awaitGeneration: true,
+    apiBase: "https://brain.test",
+    fetchImpl: async () => ({ ok: true, json: async () => ({ files: [] }) })
+  });
+  assert.equal(notIndexedYet.updated, false, "the memo remains on its valid Lily anchor while the newest Brain entry has not indexed yet");
+  assert.equal(coach.assertCoachRefreshPreserved(genericBefore, coach.coachRefreshPreservationSnapshot(await coach.readStore(), genericWeight.id)), true);
+  let genericReconcileFetches = 0;
+  const genericReconciled = await coach.reconcileLatestCoachBrainContext({
+    operationalNow: Date.parse("2026-07-26T20:00:00.000Z"),
+    bypassCooldown: true,
+    awaitGeneration: true,
+    apiBase: "https://brain.test",
+    fetchImpl: async () => {
+      genericReconcileFetches += 1;
+      return { ok: true, json: async () => ({ files: [genericBrainFile] }) };
+    }
+  });
+  assert.equal(genericReconcileFetches, 1, "late generic reconciliation uses one bounded Brain read");
+  assert.equal(genericReconciled.updated, true, "a generic Brain thought indexed after the weigh-in upgrades the older Lily anchor");
+  assert.equal(genericReconciled.sourceKind, "brain-thought-apps-games");
+  const genericReconciledStore = await coach.readStore();
+  const genericReconciledCoach = coach.coachForWeight(genericReconciledStore, genericWeight.id);
+  assert.equal(genericReconciledCoach.id, genericBeforeCoach.id, "generic reconciliation preserves coach identity");
+  assert.equal(genericReconciledCoach.createdAt, genericBeforeCoach.createdAt, "generic reconciliation preserves coach creation time");
+  assert.equal(genericReconciledCoach.personalAnchor.sourceType, "brain-thought-anchor");
+  assert.equal(genericReconciledCoach.personalAnchor.semanticAnchorId, "brain-thought-apps-games");
+  assert(genericReconciledCoach.text.includes(genericReconciledCoach.personalAnchor.approvedText));
+  assert(!JSON.stringify(genericReconciledStore).includes(genericBrainRaw), "delayed reconciliation never persists raw mixed Brain text");
+  assert.equal(coach.assertCoachRefreshPreserved(genericBefore, coach.coachRefreshPreservationSnapshot(genericReconciledStore, genericWeight.id)), true, "delayed generic repair preserves every count, identity, forecast, media, tracker, and unrelated hash");
+  const genericIdempotent = await coach.reconcileLatestCoachBrainContext({
+    operationalNow: Date.parse("2026-07-26T20:00:10.000Z"),
+    bypassCooldown: true,
+    awaitGeneration: true,
+    apiBase: "https://brain.test",
+    fetchImpl: async () => ({ ok: true, json: async () => ({ files: [genericBrainFile] }) })
+  });
+  assert.equal(genericIdempotent.updated, false);
+  assert.equal(genericIdempotent.status, "already-current", "generic reconciliation is idempotent once the newest source is attached");
 
   const authenticVariants = new Set();
   for (let index = 0; index < 30; index += 1) {
