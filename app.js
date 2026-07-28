@@ -814,23 +814,37 @@ function renderTracker() {
   const longestConflictStreak = numberOrNull(tracker.longestConflictStreakDays);
   const periodDays = numberOrNull(tracker.daysUntilNextPeriod);
   const highDesireDays = numberOrNull(tracker.daysUntilNextHighDesire);
+  const periodOverdueDays = numberOrNull(tracker.periodOverdueDays);
 
   conflict.textContent = conflictDays !== null
     ? `${Math.max(0, Math.round(conflictDays))} DAYS SINCE LAST CONFLICT. LONGEST STREAK: ${Math.max(0, Math.round(longestConflictStreak ?? conflictDays))} DAYS`
     : "NO CONFLICTS SAVED";
   const periodParts = [];
-  if (periodDays !== null) periodParts.push(`${Math.max(0, Math.round(periodDays))} DAYS UNTIL NEXT PERIOD`);
+  if (periodOverdueDays !== null && periodOverdueDays > 0) {
+    const overdue = Math.max(1, Math.round(periodOverdueDays));
+    const basis = tracker.reportedNextPeriodDateKey ? "REPORTED PERIOD DATE" : "PERIOD ESTIMATE";
+    periodParts.push(`${overdue} ${overdue === 1 ? "DAY" : "DAYS"} PAST ${basis}`);
+  } else if (periodDays !== null) {
+    periodParts.push(`${Math.max(0, Math.round(periodDays))} DAYS UNTIL NEXT PERIOD`);
+  }
   if (highDesireDays !== null) periodParts.push(`${Math.max(0, Math.round(highDesireDays))} DAYS UNTIL MOST HORNY`);
   period.textContent = periodParts.length ? periodParts.join(". ") : "PERIOD START NEEDED";
 
   const parts = [];
   if (tracker.latestConflictDateKey) parts.push(`conflict ${formatDateKey(tracker.latestConflictDateKey)}`);
   if (tracker.latestPeriodDateKey) parts.push(`period ${formatDateKey(tracker.latestPeriodDateKey)}`);
-  if (tracker.latestPeriodDateKey && Number.isFinite(Number(tracker.periodCycleDays))) {
+  if (tracker.reportedNextPeriodDateKey) {
+    parts.push(`next period ${formatDateKey(tracker.reportedNextPeriodDateKey)} reported`);
+  } else if (tracker.latestPeriodDateKey && Number.isFinite(Number(tracker.periodCycleDays))) {
     parts.push(`${Math.round(Number(tracker.periodCycleDays))}-day estimate`);
   }
-  if (Number(tracker.periodOverdueDays) > 0) {
-    parts.push(`${Math.round(Number(tracker.periodOverdueDays))} days past estimate`);
+  if (tracker.reportedNextHighDesireDateKey) {
+    parts.push(`most horny ${formatDateKey(tracker.reportedNextHighDesireDateKey)} reported`);
+  }
+  if (periodOverdueDays !== null && periodOverdueDays > 0) {
+    const overdue = Math.max(1, Math.round(periodOverdueDays));
+    const basis = tracker.reportedNextPeriodDateKey ? "reported period date" : "period estimate";
+    parts.push(`${overdue} ${overdue === 1 ? "day" : "days"} past ${basis}`);
   }
   detail.textContent = parts.length ? parts.join(" / ") : "No tracker events saved.";
   renderTrackerEntries();
@@ -1371,6 +1385,19 @@ function createTrackerRow(event) {
     ? `${formatDateKey(event.dateKey)}–${formatDateKey(event.periodEndDateKey)}`
     : formatDateKey(event.dateKey);
 
+  const dates = document.createElement("div");
+  dates.className = "tracker-row-dates";
+  dates.appendChild(date);
+  const reports = [];
+  if (event.reportedNextPeriodDateKey) reports.push(`next period ${formatDateKey(event.reportedNextPeriodDateKey)} reported`);
+  if (event.reportedNextHighDesireDateKey) reports.push(`most horny ${formatDateKey(event.reportedNextHighDesireDateKey)} reported`);
+  if (reports.length) {
+    const report = document.createElement("span");
+    report.className = "tracker-row-report";
+    report.textContent = reports.join(" · ");
+    dates.appendChild(report);
+  }
+
   const deleteButton = document.createElement("button");
   deleteButton.type = "button";
   deleteButton.className = "tracker-delete";
@@ -1387,7 +1414,7 @@ function createTrackerRow(event) {
     }
   });
 
-  row.append(type, date, deleteButton);
+  row.append(type, dates, deleteButton);
   return row;
 }
 
