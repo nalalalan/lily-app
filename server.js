@@ -3665,6 +3665,8 @@ function publicTrackerEvent(event) {
     dateKey: event.dateKey || trackerDateKey(createdAt),
     periodEndDateKey: validTrackerDateKey(event.periodEndDateKey),
     reportedHighDesireDateKey: validTrackerDateKey(event.reportedHighDesireDateKey),
+    reportedNextPeriodDateKey: validTrackerDateKey(event.reportedNextPeriodDateKey),
+    reportedNextHighDesireDateKey: validTrackerDateKey(event.reportedNextHighDesireDateKey),
     reportedPossibleOvulationStartDateKey: validTrackerDateKey(event.reportedPossibleOvulationStartDateKey),
     reportedPossibleOvulationEndDateKey: validTrackerDateKey(event.reportedPossibleOvulationEndDateKey),
     createdAt,
@@ -3676,6 +3678,8 @@ function normalizePeriodDetails(details, periodStartDateKey) {
   const fields = [
     "periodEndDateKey",
     "reportedHighDesireDateKey",
+    "reportedNextPeriodDateKey",
+    "reportedNextHighDesireDateKey",
     "reportedPossibleOvulationStartDateKey",
     "reportedPossibleOvulationEndDateKey"
   ];
@@ -3689,6 +3693,19 @@ function normalizePeriodDetails(details, periodStartDateKey) {
   }
   if (normalized.periodEndDateKey && normalized.periodEndDateKey < periodStartDateKey) {
     return { error: "The period end cannot be before the period start." };
+  }
+  if (normalized.reportedNextPeriodDateKey && normalized.reportedNextPeriodDateKey <= periodStartDateKey) {
+    return { error: "The reported next period must be after the saved period start." };
+  }
+  if (normalized.reportedNextHighDesireDateKey && normalized.reportedNextHighDesireDateKey <= periodStartDateKey) {
+    return { error: "The reported high-desire date must be after the saved period start." };
+  }
+  if (
+    normalized.reportedNextPeriodDateKey
+    && normalized.reportedNextHighDesireDateKey
+    && normalized.reportedNextHighDesireDateKey < normalized.reportedNextPeriodDateKey
+  ) {
+    return { error: "The reported high-desire date cannot be before the reported next period." };
   }
   if (
     normalized.reportedPossibleOvulationStartDateKey
@@ -3762,6 +3779,16 @@ function nextPredictedHighDesireDateKey(periodStartDateKey, reportedHighDesireDa
   return predictedDateKey;
 }
 
+function latestReportedTrackerForecast(periodEvents) {
+  return (Array.isArray(periodEvents) ? periodEvents : [])
+    .filter((event) => event.reportedNextPeriodDateKey || event.reportedNextHighDesireDateKey)
+    .sort((a, b) => (
+      String(b.dateKey || "").localeCompare(String(a.dateKey || ""))
+      || String(b.updatedAt || b.createdAt || "").localeCompare(String(a.updatedAt || a.createdAt || ""))
+      || String(b.id || "").localeCompare(String(a.id || ""))
+    ))[0] || null;
+}
+
 function publicTrackerSummary(events, now = Date.now()) {
   const rows = trackerEvents(events);
   const todayKey = trackerDateKey(now);
@@ -3771,16 +3798,67 @@ function publicTrackerSummary(events, now = Date.now()) {
   const latestPeriod = periods[0] || null;
   const daysSinceLastConflict = latestConflict ? Math.max(0, daysBetweenDateKeys(latestConflict.dateKey, todayKey)) : null;
   const longestConflictStreakDays = longestConflictStreak(conflicts, todayKey);
-  const cycle = estimatePeriodCycle(periods);
-  const nextPeriodDateKey = latestPeriod ? addDaysToDateKey(latestPeriod.dateKey, cycle.days) : "";
+  const measuredCycle = estimatePeriodCycle(periods);
+  const reportedForecast = latestReportedTrackerForecast(periods);
+  const reportedNextPeriodDateKey = validTrackerDateKey(reportedForecast?.reportedNextPeriodDateKey);
+  const reportedNextHighDesireDateKey = validTrackerDateKey(reportedForecast?.reportedNextHighDesireDateKey);
+  const reportedCycleDays = reportedForecast && reportedNextPeriodDateKey
+    ? daysBetweenDateKeys(reportedForecast.dateKey, reportedNextPeriodDateKey)
+    : NaN;
+  const hasReportedCycle = Number.isFinite(reportedCycleDays) && reportedCycleDays >= 15 && reportedCycleDays <= 60;
+  const reportedPeriodStillUpcoming = latestPeriod
+    && reportedForecast
+    && latestPeriod.id === reportedForecast.id
+    && reportedNextPeriodDateKey
+    && reportedNextPeriodDateKey > latestPeriod.dateKey;
+  const cycle = hasReportedCycle && reportedPeriodStillUpcoming
+    ? {
+        days: Math.round(reportedCycleDays),
+        basis: "reported upcoming period date",
+        sampleCount: periods.length,
+        intervalCount: measuredCycle.intervalCount
+      }
+    : measuredCycle;
+  const nextPeriodDateKey = reportedPeriodStillUpcoming
+    ? reportedNextPeriodDateKey
+    : latestPeriod
+      ? addDaysToDateKey(latestPeriod.dateKey, cycle.days)
+      : "";
   const rawDaysUntilNextPeriod = nextPeriodDateKey ? daysBetweenDateKeys(todayKey, nextPeriodDateKey) : null;
   const periodOverdueDays = Number.isFinite(rawDaysUntilNextPeriod) && rawDaysUntilNextPeriod < 0 ? Math.abs(rawDaysUntilNextPeriod) : 0;
-  const highDesireOffsetDays = latestPeriod && latestPeriod.reportedHighDesireDateKey
-    ? daysBetweenDateKeys(latestPeriod.dateKey, latestPeriod.reportedHighDesireDateKey)
+  const reportedNextHighDesireOffsetDays = reportedNextPeriodDateKey && reportedNextHighDesireDateKey
+    ? daysBetweenDateKeys(reportedNextPeriodDateKey, reportedNextHighDesireDateKey)
+    : NaN;
+  const confirmedHighDesireAnchor = reportedForecast && reportedNextHighDesireDateKey
+    ? periods.find((event) => (
+        event.dateKey > reportedForecast.dateKey
+        && event.dateKey <= reportedNextHighDesireDateKey
+      )) || null
     : null;
-  const nextHighDesireDateKey = latestPeriod
-    ? nextPredictedHighDesireDateKey(latestPeriod.dateKey, latestPeriod.reportedHighDesireDateKey, cycle.days, todayKey)
-    : "";
+  const confirmedCycleHighDesireOffsetDays = confirmedHighDesireAnchor
+    ? daysBetweenDateKeys(confirmedHighDesireAnchor.dateKey, reportedNextHighDesireDateKey)
+    : NaN;
+  const historicalHighDesireOffsetDays = latestPeriod && latestPeriod.reportedHighDesireDateKey
+    ? daysBetweenDateKeys(latestPeriod.dateKey, latestPeriod.reportedHighDesireDateKey)
+    : NaN;
+  const highDesireOffsetDays = Number.isFinite(confirmedCycleHighDesireOffsetDays) && confirmedCycleHighDesireOffsetDays >= 0
+    ? confirmedCycleHighDesireOffsetDays
+    : Number.isFinite(reportedNextHighDesireOffsetDays) && reportedNextHighDesireOffsetDays >= 0
+      ? reportedNextHighDesireOffsetDays
+      : historicalHighDesireOffsetDays;
+  let nextHighDesireDateKey = "";
+  const reportedHighDesireStillUpcoming = reportedNextHighDesireDateKey
+    && daysBetweenDateKeys(todayKey, reportedNextHighDesireDateKey) >= 0;
+  if (reportedHighDesireStillUpcoming) {
+    nextHighDesireDateKey = reportedNextHighDesireDateKey;
+  } else if (latestPeriod && Number.isFinite(highDesireOffsetDays) && highDesireOffsetDays >= 0) {
+    nextHighDesireDateKey = nextPredictedHighDesireDateKey(
+      latestPeriod.dateKey,
+      addDaysToDateKey(latestPeriod.dateKey, highDesireOffsetDays),
+      cycle.days,
+      todayKey
+    );
+  }
   const rawDaysUntilNextHighDesire = nextHighDesireDateKey
     ? daysBetweenDateKeys(todayKey, nextHighDesireDateKey)
     : null;
@@ -3798,6 +3876,8 @@ function publicTrackerSummary(events, now = Date.now()) {
     latestPeriodDateKey: latestPeriod ? latestPeriod.dateKey : "",
     latestPeriodEndDateKey: latestPeriod ? latestPeriod.periodEndDateKey : "",
     reportedHighDesireDateKey: latestPeriod ? latestPeriod.reportedHighDesireDateKey : "",
+    reportedNextPeriodDateKey: reportedPeriodStillUpcoming ? reportedNextPeriodDateKey : "",
+    reportedNextHighDesireDateKey: reportedHighDesireStillUpcoming ? reportedNextHighDesireDateKey : "",
     highDesireOffsetDays: Number.isFinite(highDesireOffsetDays) && highDesireOffsetDays >= 0 ? highDesireOffsetDays : null,
     nextHighDesireDateKey,
     daysUntilNextHighDesire: Number.isFinite(rawDaysUntilNextHighDesire) ? Math.max(0, rawDaysUntilNextHighDesire) : null,
@@ -4255,6 +4335,8 @@ async function handleApi(req, res, pathname) {
     const detailFields = [
       "periodEndDateKey",
       "reportedHighDesireDateKey",
+      "reportedNextPeriodDateKey",
+      "reportedNextHighDesireDateKey",
       "reportedPossibleOvulationStartDateKey",
       "reportedPossibleOvulationEndDateKey"
     ];
@@ -4631,6 +4713,12 @@ if (process.env.NODE_ENV === "test" || process.env.LILY_COACH_CLI === "1") {
     identifyApprovedAction,
     parseCriticResult,
     parseWriterCandidates,
+    publicTrackerEvent,
+    publicTrackerSummary,
+    normalizePeriodDetails,
+    trackerDateKey,
+    daysBetweenDateKeys,
+    addDaysToDateKey,
     publicCoachFacts,
     publicCoach,
     readStore,
@@ -4654,6 +4742,7 @@ if (process.env.NODE_ENV === "test" || process.env.LILY_COACH_CLI === "1") {
     selectLilyPersonalAnchor,
     newestPersonalAnchor,
     sanitizePersonalAnchor,
+    server,
     selectStrongestCoachEvidence,
     similarityScore,
     supportiveCoachStyleErrors,

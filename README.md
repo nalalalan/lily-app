@@ -28,7 +28,7 @@ Set `public/config.js` to an empty API base for same-origin local API testing, o
 - `GET /api/tracker` - read conflict, longest streak, and period tracker counts
 - `POST /api/tracker/conflict` - save a conflict event; an authenticated backfill may include a past `dateKey`
 - `POST /api/tracker/period` - save a period start; an authenticated backfill may include a past `dateKey`
-- `PATCH /api/tracker/:id` - save reported period-end, high-desire, and possible-ovulation-window dates on a period entry; the high-desire offset predicts future cycle dates
+- `PATCH /api/tracker/:id` - save period details and explicit reported upcoming period/high-desire dates on a real period entry; reported upcoming dates override the estimate without becoming future actual events
 - `DELETE /api/tracker/:id` - delete a saved conflict or period entry
 - `POST /api/chat` - answer from saved Lily context
 

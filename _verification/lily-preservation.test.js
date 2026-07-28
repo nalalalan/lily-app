@@ -46,6 +46,14 @@ const loadData = app.slice(loadDataStart, loadDataEnd);
 for (const endpoint of ["/api/memories", "/api/weights", "/api/tracker"]) {
   assert.ok(loadData.includes(`apiFetch("${endpoint}")`), `initial loading must include ${endpoint}`);
 }
+assert.ok(server.includes('"reportedNextPeriodDateKey"'), "reported upcoming periods must stay separate from actual period clicks");
+assert.ok(server.includes('"reportedNextHighDesireDateKey"'), "reported upcoming high-desire dates must be stored independently from historical reports");
+assert.ok(server.includes("Tracker entries cannot be dated in the future."), "future reported dates must never bypass the future actual-event rejection");
+assert.ok(app.includes("tracker.reportedNextPeriodDateKey"), "the tracker detail must identify a currently active reported period date");
+assert.ok(app.includes("tracker.reportedNextHighDesireDateKey"), "the tracker detail must identify a currently active reported high-desire date");
+assert.ok(app.includes('periodParts.push(`${overdue} ${overdue === 1 ? "DAY" : "DAYS"} PAST ${basis}`)'), "an overdue forecast must not render as zero days until");
+assert.ok(app.includes('report.className = "tracker-row-report"'), "reported forecast details must remain visible on their deletable period row");
+assert.match(styles, /\.tracker-row-report\s*\{[\s\S]*?font-size:\s*11px;/, "reported tracker details must remain readable in bottom history");
 assert.ok(
   loadData.indexOf("state.memories =") < loadData.indexOf("renderWall()"),
   "media state must be assigned before the wall is rendered"

@@ -1228,6 +1228,8 @@ async function run() {
     dateKey: "2026-07-21",
     periodEndDateKey: "2026-07-22",
     reportedHighDesireDateKey: "2026-07-29",
+    reportedNextPeriodDateKey: "2026-07-29",
+    reportedNextHighDesireDateKey: "2026-08-11",
     createdAt: "2026-07-21T10:00:00.000Z",
     updatedAt: "2026-07-21T10:00:00.000Z"
   });
@@ -1250,6 +1252,8 @@ async function run() {
   assert(latestRecord.evidenceReferences.some((reference) => reference.type === "tracker" && reference.id === "period-current"));
   assert(!JSON.stringify(latestRecord).toLowerCase().includes("highdesire"));
   assert(!JSON.stringify(latestRecord).includes("2026-07-29"));
+  assert(!JSON.stringify(latestRecord).toLowerCase().includes("reportednext"));
+  assert(!JSON.stringify(latestRecord).includes("2026-08-11"));
 
   const persistedContext = coach.buildCoachContext(migrated, "weight-5", { privateGoal: 117 });
   const persistedPrevious = coach.causalPreviousCoachMessages(migrated, fixtureWeights.at(-1), 10);
