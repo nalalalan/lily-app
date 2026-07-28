@@ -1,4 +1,6 @@
 const assert = require("node:assert/strict");
+const { spawnSync } = require("node:child_process");
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -181,6 +183,95 @@ function addAllFallbacks(store) {
   return { store: next, durations };
 }
 
+function verifyWeightPersistsWhenCoachFallbackThrows() {
+  const childDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "lily-coach-save-failure-"));
+  const serverPath = path.join(__dirname, "..", "server.js");
+  const childSource = String.raw`
+    const fs = require("node:fs");
+    const lily = require(${JSON.stringify(serverPath)});
+
+    (async () => {
+      await lily.ensureDataDir();
+      await lily.writeStore(() => ({
+        weights: [],
+        coachMessages: [],
+        chats: [],
+        trackerEvents: [],
+        memories: [{
+          id: "forced-fallback-anchor",
+          kind: "note",
+          text: "Alan saved a League-night detail about Lily.",
+          createdAt: "2026-07-28T12:00:00.000Z",
+          updatedAt: "2026-07-28T12:00:00.000Z"
+        }]
+      }));
+      await new Promise((resolve) => lily.server.listen(0, "127.0.0.1", resolve));
+      const base = "http://127.0.0.1:" + lily.server.address().port;
+      const authResponse = await fetch(base + "/api/auth", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ pin: process.env.LILY_PIN, remember: false })
+      });
+      const auth = await authResponse.json();
+      const headers = { authorization: "Bearer " + auth.token, "content-type": "application/json" };
+      const postResponse = await fetch(base + "/api/weights", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ weight: 151.3, unit: "lb" })
+      });
+      const postBody = await postResponse.json();
+      const readResponse = await fetch(base + "/api/weights", { headers });
+      const readBody = await readResponse.json();
+      console.log("__LILY_SAVE_RESULT__" + JSON.stringify({
+        postStatus: postResponse.status,
+        postBody,
+        readStatus: readResponse.status,
+        readBody
+      }));
+      await new Promise((resolve) => lily.server.close(resolve));
+      process.exit(0);
+    })().catch((error) => {
+      console.error(error);
+      process.exit(1);
+    });
+  `;
+  const child = spawnSync(process.execPath, ["-e", childSource], {
+    cwd: path.join(__dirname, ".."),
+    encoding: "utf8",
+    timeout: 30000,
+    env: {
+      ...process.env,
+      NODE_ENV: "test",
+      DATA_DIR: childDataDir,
+      LILY_PIN: "coach-save-test-pin",
+      OPENAI_API_KEY: "",
+      LILY_PRIVATE_COACH_BLOCKED_TERMS: "alan"
+    }
+  });
+  fs.rmSync(childDataDir, { recursive: true, force: true });
+  assert.equal(child.status, 0, `forced coach-failure child exits cleanly: ${child.stderr}`);
+  const resultLine = String(child.stdout || "").split(/\r?\n/).find((line) => line.startsWith("__LILY_SAVE_RESULT__"));
+  assert(resultLine, `forced coach-failure child returns an auditable result: ${child.stdout}`);
+  const result = JSON.parse(resultLine.slice("__LILY_SAVE_RESULT__".length));
+  assert.equal(result.postStatus, 201, "a valid weight save succeeds even when every coach fallback candidate is rejected");
+  assert.equal(result.postBody.weight.weight, 151.3, "the successful response returns the exact saved measurement");
+  assert(result.postBody.latestCoach, "a forced fallback failure still returns a safe pending coach instead of null");
+  assert.equal(result.postBody.latestCoach.weightId, result.postBody.weight.id, "the pending coach belongs to the newly saved weight");
+  assert.match(result.postBody.latestCoach.text, /safely saved|still being prepared|measurement is secure/i, "the returned pending copy confirms the save without inventing analysis");
+  assert.doesNotMatch(result.postBody.latestCoach.text, /unavailable|null|no coach message|no compliant|invariant|word-count|evidence-claim/i, "the browser never falls into unavailable copy or raw diagnostics");
+  assert.equal(result.readStatus, 200);
+  assert.equal(result.readBody.weights.length, 1, "the failed coach path cannot roll back the measurement");
+  assert.equal(result.readBody.weights[0].weight, 151.3, "the persisted measurement survives an authenticated reread");
+  assert(result.readBody.latestCoach, "the pending coach survives an authenticated reread");
+  assert.equal(result.readBody.latestCoach.weightId, result.postBody.weight.id, "the reread coach stays paired with the exact saved weight");
+  assert.equal(result.readBody.latestCoach.text, result.postBody.latestCoach.text, "the safe pending copy is durably persisted rather than synthesized in the browser");
+  assert.doesNotMatch(
+    JSON.stringify({ postBody: result.postBody, readBody: result.readBody }),
+    /no compliant contextual fallback invariant|word-count=|evidence-claim=|outlook-weight=|outlook-claim=|verdict=/i,
+    "internal coach-validator diagnostics never enter the browser response"
+  );
+}
+
 async function run() {
   await coach.ensureDataDir();
 
@@ -200,6 +291,199 @@ async function run() {
   assert.equal(july22.includeOutlook, true);
   assert(july22.evidenceReferences.some((reference) => reference.role === "selected-evidence-window" && reference.id === "live-weight-20"), "Jul 19 source evidence is retained for the three-day movement");
   assert(july22.analysisPlan.outlook && july22.analysisPlan.relationToPrior === "strengthened");
+
+  const july28PriorWeights = [
+    ...productionWeights,
+    recordWeight("live-weight-24", "2026-07-23", 151.8),
+    recordWeight("live-weight-25", "2026-07-24", 151.4),
+    recordWeight("live-weight-26", "2026-07-25", 150.5),
+    recordWeight("live-weight-27", "2026-07-26", 151.2),
+    recordWeight("live-weight-28", "2026-07-27", 151.2)
+  ];
+  assert.equal(july28PriorWeights.length, 29, "the Jul 28 regression carries the complete live-equivalent 29-weigh-in causal prefix");
+  const july28PriorRun = addAllFallbacks(baseStore(july28PriorWeights));
+  assert.equal(july28PriorRun.store.coachMessages.length, 29, "every prior live-equivalent weigh-in has its causal persisted coach history");
+  const july28Weight = recordWeight("live-weight-29", "2026-07-28", 151.3);
+  const july28Store = {
+    ...july28PriorRun.store,
+    weights: [july28Weight, ...july28PriorRun.store.weights]
+  };
+  const july28 = coach.buildCoachContext(july28Store, "live-weight-29", { privateGoal: 117 });
+  assert.equal(Number(july28.latestDailyChange.toFixed(1)), 0.1);
+  assert.equal(july28.strongestEvidence.kind, "window-acceleration");
+  assert.equal(july28.strongestEvidence.windowDays, 3);
+  assert.equal(Number(july28.strongestEvidence.movement.toFixed(1)), 0.8);
+  assert.equal(Number(july28.strongestEvidence.previousMovement.toFixed(1)), -0.2);
+  assert.equal(july28.evidenceRelation.kind, "reversed", "the Jul 28 three-day acceleration is explicitly a reversal, not merely more acceleration");
+  const july28Previous = coach.causalPreviousCoachMessages(july28Store, july28Weight, 10);
+  assert.equal(july28Previous.length, 10, "the Jul 28 fallback is compared with the complete prior-ten originality window");
+  const july28WeightById = new Map(july28Store.weights.map((weight) => [weight.id, weight]));
+  assert(july28Previous.every((message) => {
+    const sourceWeight = july28WeightById.get(message.weightId);
+    return message.weightId !== july28Weight.id && sourceWeight && Date.parse(sourceWeight.createdAt) < Date.parse(july28Weight.createdAt);
+  }), "only causal earlier coaches can constrain Jul 28 copy");
+  const july28Fallbacks = coach.buildContextualFallbackCandidates(july28, july28Previous, 3, { writerSafe: true });
+  assert.equal(july28Fallbacks.length, 3, "the exact Jul 28 reversed-acceleration case always has several compliant fallbacks");
+  for (const candidate of july28Fallbacks) {
+    const validation = coach.validateCoachParagraph(candidate.text, july28, july28Previous, { privateGoal: 117 });
+    assert.equal(validation.ok, true, `Jul 28 fallback is compliant: ${validation.errors.join(", ")}`);
+    assert.match(candidate.text, /revers|flipp|turn/i, "the fallback states that the three-day evidence reversed");
+    assert.deepEqual(coach.noveltyErrors(candidate.text, july28, july28Previous, candidate.action), [], "Jul 28 fallback passes every prior-ten novelty and cooldown gate");
+    assert(july28Previous.slice(0, 10).every((prior) => coach.trigramSimilarity(candidate.text, prior.text, july28) < 0.72), "Jul 28 fallback stays below the prior-ten trigram threshold");
+    assert(!july28Previous.slice(0, 6).some((prior) => coach.openingFingerprint(prior.text) === coach.openingFingerprint(candidate.text)), "Jul 28 opening is new within six");
+    assert(!july28Previous.slice(0, 6).some((prior) => coach.closingFingerprint(prior.text) === coach.closingFingerprint(candidate.text)), "Jul 28 closing is new within six");
+    assert(!july28Previous.slice(0, 3).some((prior) => prior.actionSemantic === candidate.action.semantic || prior.actionText === candidate.action.text), "Jul 28 action meaning and sentence both clear the three-entry cooldown");
+  }
+  verifyWeightPersistsWhenCoachFallbackThrows();
+
+  const recoverableWeight = recordWeight("recoverable-primary-weight", "2026-08-01", 151.3);
+  const forcedFallbackError = new Error("no compliant contextual fallback invariant: word-count=999,evidence-claim=999");
+  const reportedFallbackFailures = [];
+  let recoverableStore = baseStore([]);
+  const persistedAfterHardFallback = await coach.persistWeightWithRecoverableCoach(recoverableWeight, {
+    persist: async (mutator) => {
+      recoverableStore = await mutator(recoverableStore);
+      return recoverableStore;
+    },
+    attachFallback: () => {
+      throw forcedFallbackError;
+    },
+    reportFallbackError: (error) => reportedFallbackFailures.push(error)
+  });
+  assert.equal(recoverableStore.weights.length, 1, "an unconditional fallback exception still leaves exactly one primary weight");
+  assert.equal(recoverableStore.weights.filter((weight) => weight.id === recoverableWeight.id).length, 1, "the recovery path cannot duplicate the saved measurement");
+  assert.equal(persistedAfterHardFallback.weights.length, 1, "the helper returns the same durable one-weight state");
+  assert.equal(reportedFallbackFailures.length, 1, "the hard fallback exception is reported exactly once");
+  assert.equal(reportedFallbackFailures[0], forcedFallbackError, "the single private failure callback receives the original exception");
+  assert.equal(recoverableStore.coachMessages.length, 1, "the hard fallback exception produces exactly one persisted pending coach");
+  const recoveredPendingCoach = coach.coachForWeight(recoverableStore, recoverableWeight.id);
+  assert(recoveredPendingCoach, "the recovered coach cannot be null or unavailable");
+  assert.equal(recoveredPendingCoach.weightId, recoverableWeight.id, "the recovered coach belongs to the primary weight");
+  assert.match(recoveredPendingCoach.status, /^pending-/, "the recovered record remains explicitly repairable");
+  assert.match(recoveredPendingCoach.text, /safely saved|still being prepared|measurement is secure/i, "pending copy confirms durable data without fabricating a verdict");
+  assert.doesNotMatch(recoveredPendingCoach.text, /unavailable|null|no coach message|no compliant|invariant|word-count|evidence-claim/i, "pending copy contains neither unavailable state nor raw diagnostics");
+  assert.doesNotMatch(JSON.stringify(recoveredPendingCoach), /word-count=999|evidence-claim=999|no compliant contextual fallback invariant/i, "the private pending record does not persist the thrown diagnostic payload");
+  const publicRecoveredPending = coach.publicCoach(recoveredPendingCoach);
+  assert.deepEqual(Object.keys(publicRecoveredPending).sort(), ["createdAt", "text", "weightId"], "the browser payload contains only the established latestCoach interface");
+  assert.equal(publicRecoveredPending.weightId, recoverableWeight.id);
+  assert.equal(publicRecoveredPending.text, recoveredPendingCoach.text);
+  assert.equal(recoverableStore.coachMessages.filter((message) => message.weightId === recoverableWeight.id).length, 1, "the recovered coach is not duplicated");
+
+  const noAnchorWeight = recordWeight("no-anchor-primary-weight", "2026-08-02", 150.8);
+  let noAnchorPersistedStore = baseStore([], { memories: [], trackerEvents: [] });
+  const noAnchorFailures = [];
+  const noAnchorResult = await coach.persistWeightWithRecoverableCoach(noAnchorWeight, {
+    persist: async (mutator) => {
+      noAnchorPersistedStore = await mutator(noAnchorPersistedStore);
+      return noAnchorPersistedStore;
+    },
+    reportFallbackError: (error) => noAnchorFailures.push(error)
+  });
+  assert.equal(noAnchorFailures.length, 0, "an absent personal anchor is a normal pending state, not a fallback exception");
+  assert.equal(noAnchorPersistedStore.weights.length, 1, "a no-anchor save persists exactly one primary weight");
+  assert.equal(noAnchorPersistedStore.weights[0].id, noAnchorWeight.id);
+  assert.equal(noAnchorPersistedStore.coachMessages.length, 1, "a non-throwing no-anchor fallback still creates one safe pending coach");
+  const noAnchorPendingCoach = coach.coachForWeight(noAnchorPersistedStore, noAnchorWeight.id);
+  assert(noAnchorPendingCoach && coach.coachNeedsRepair(noAnchorPendingCoach), "the no-anchor coach is present and explicitly repairable");
+  assert.equal(noAnchorPendingCoach.weightId, noAnchorWeight.id);
+  assert.match(noAnchorPendingCoach.text, /safely saved|still being prepared|measurement is secure/i);
+  assert.doesNotMatch(noAnchorPendingCoach.text, /unavailable|null|no coach message|no compliant|invariant|word-count|evidence-claim/i);
+  assert.equal(noAnchorResult.coachMessages.filter((message) => message.weightId === noAnchorWeight.id).length, 1, "the returned no-anchor state contains no duplicate coach");
+
+  const scheduledCallbacks = [];
+  const generatedWeightIds = [];
+  const scheduleOptions = {
+    schedule: (callback) => scheduledCallbacks.push(callback),
+    generate: (weightId) => {
+      generatedWeightIds.push(weightId);
+      return Promise.resolve();
+    }
+  };
+  const dedupeWeightId = "post-get-dedupe-weight";
+  assert.equal(coach.scheduleCoachGeneration(dedupeWeightId, 1_000_000, scheduleOptions), true, "the POST-equivalent call schedules the first generation attempt");
+  assert.equal(coach.scheduleCoachGeneration(dedupeWeightId, 1_000_001, scheduleOptions), false, "an immediate GET-equivalent repair request is deduplicated");
+  assert.equal(scheduledCallbacks.length, 1, "POST plus immediate GET creates only one scheduled callback");
+  scheduledCallbacks[0]();
+  assert.deepEqual(generatedWeightIds, [dedupeWeightId], "the one scheduled callback generates the exact saved weight once");
+
+  assert.equal(typeof coach.publicApiErrorMessage, "function", "server errors need one auditable public-message boundary");
+  const internalInvariant = "no compliant contextual fallback invariant: word-count=5106,evidence-claim=1038,outlook-weight=142,outlook-claim=142,verdict=97";
+  const safeInternalMessage = coach.publicApiErrorMessage(new Error(internalInvariant));
+  assert.equal(typeof safeInternalMessage, "string");
+  assert(safeInternalMessage.trim(), "an internal failure still produces a useful browser message");
+  assert.doesNotMatch(safeInternalMessage, /no compliant|invariant|word-count|evidence-claim|outlook-(?:weight|claim)|verdict=/i, "internal invariant details stay server-side");
+  assert.match(safeInternalMessage, /try again|could not|went wrong|temporar/i, "the browser receives a concise recovery-oriented message");
+  assert.equal(
+    coach.publicApiErrorMessage(Object.assign(new Error("Enter a valid weight."), { status: 400 })),
+    "Enter a valid weight.",
+    "intentional validation guidance remains specific"
+  );
+
+  const storeBeforePendingRepair = await coach.readStore();
+  try {
+    const pendingRepairSeed = baseStore([], {
+      memories: [{
+        id: "pending-repair-league-anchor",
+        kind: "note",
+        text: "Lily said that a shared League night matters to her.",
+        createdAt: "2026-08-02T12:00:00.000Z",
+        updatedAt: "2026-08-02T12:00:00.000Z"
+      }],
+      trackerEvents: []
+    });
+    await coach.writeStore(() => pendingRepairSeed);
+    const pendingRepairWeight = recordWeight("pending-repair-weight", "2026-08-03", 150.6);
+    const pendingCreationFailures = [];
+    const pendingSavedStore = await coach.persistWeightWithRecoverableCoach(pendingRepairWeight, {
+      attachFallback: () => {
+        throw new Error("forced initial fallback failure for pending repair");
+      },
+      reportFallbackError: (error) => pendingCreationFailures.push(error)
+    });
+    assert.equal(pendingCreationFailures.length, 1);
+    const pendingBeforeRepair = coach.coachForWeight(pendingSavedStore, pendingRepairWeight.id);
+    assert(pendingBeforeRepair && coach.coachNeedsRepair(pendingBeforeRepair), "repair acceptance starts from a real persisted pending coach");
+    assert.equal(pendingSavedStore.coachMessages.filter((message) => message.weightId === pendingRepairWeight.id).length, 1);
+    const pendingContext = coach.buildCoachContext(pendingSavedStore, pendingRepairWeight.id, { privateGoal: 117 });
+    assert(pendingContext.personalAnchor, "the saved Lily context is available for actual repair");
+    const weightCountBeforeRepair = pendingSavedStore.weights.length;
+    const weightIdsBeforeRepair = pendingSavedStore.weights.map((weight) => weight.id);
+    const weightHashBeforeRepair = crypto.createHash("sha256").update(JSON.stringify(pendingSavedStore.weights)).digest("hex");
+    const pendingCoachId = pendingBeforeRepair.id;
+    const pendingCoachCreatedAt = pendingBeforeRepair.createdAt;
+
+    const repairedPublicCoach = await coach.generateAndReplaceCoach(pendingRepairWeight.id, {
+      apiKey: "",
+      privateGoal: 117,
+      relationshipSupport: pendingContext.personalAnchor,
+      operationalNow: Date.parse("2026-08-03T16:01:00.000Z")
+    });
+    const repairedStore = await coach.readStore();
+    const repairedCoach = coach.coachForWeight(repairedStore, pendingRepairWeight.id);
+    const weightHashAfterRepair = crypto.createHash("sha256").update(JSON.stringify(repairedStore.weights)).digest("hex");
+    assert.equal(repairedStore.weights.length, weightCountBeforeRepair, "repair preserves the exact weight count");
+    assert.deepEqual(repairedStore.weights.map((weight) => weight.id), weightIdsBeforeRepair, "repair preserves every weight ID and order");
+    assert.equal(weightHashAfterRepair, weightHashBeforeRepair, "repair leaves the full measured-weight payload byte-stable");
+    assert.equal(repairedStore.coachMessages.filter((message) => message.weightId === pendingRepairWeight.id).length, 1, "repair replaces in place instead of appending a duplicate coach");
+    assert(repairedCoach, "actual repair leaves one visible coach");
+    assert.equal(repairedCoach.id, pendingCoachId, "pending repair preserves coach identity");
+    assert.equal(repairedCoach.createdAt, pendingCoachCreatedAt, "pending repair preserves the original creation time");
+    assert.equal(coach.coachNeedsRepair(repairedCoach), false, "the repaired coach no longer carries pending status");
+    assert.equal(repairedCoach.status, "fallback-no-model", "no-model repair ends in a validated non-pending fallback");
+    assert(repairedPublicCoach && repairedPublicCoach.weightId === pendingRepairWeight.id, "generateAndReplaceCoach returns the repaired same-weight public coach");
+    assert.equal(repairedPublicCoach.text, repairedCoach.text);
+    assertParagraph(repairedCoach.text, "actual pending-to-final repair");
+    assert.doesNotMatch(repairedCoach.text, /safely saved|still being prepared|measurement is secure|unavailable|null|no compliant|invariant/i, "the finished paragraph fully replaces pending and diagnostic copy");
+    const repairedContext = coach.buildCoachContext(repairedStore, pendingRepairWeight.id, {
+      privateGoal: 117,
+      relationshipSupport: pendingContext.personalAnchor
+    });
+    const repairedPrevious = coach.causalPreviousCoachMessages(repairedStore, pendingRepairWeight, 10);
+    assert.equal(coach.validateCoachParagraph(repairedCoach.text, repairedContext, repairedPrevious, { privateGoal: 117 }).ok, true, "the repaired paragraph passes the full deterministic validator");
+  } finally {
+    await coach.writeStore(() => storeBeforePendingRepair);
+  }
+  assert.deepEqual(await coach.readStore(), storeBeforePendingRepair, "the pending-repair integration test restores the shared temporary test store exactly");
 
   const alternateGoal = coach.buildCoachContext(productionStore, productionWeights.at(-1).id, { privateGoal: 132 });
   assert.deepEqual(july22.forecastFingerprint, alternateGoal.forecastFingerprint, "private strategy cannot alter forecast history");

@@ -46,6 +46,12 @@ const loadData = app.slice(loadDataStart, loadDataEnd);
 for (const endpoint of ["/api/memories", "/api/weights", "/api/tracker"]) {
   assert.ok(loadData.includes(`apiFetch("${endpoint}")`), `initial loading must include ${endpoint}`);
 }
+const apiFetchStart = app.indexOf("async function apiFetch(path, options = {})");
+const apiFetchEnd = app.indexOf("function setLocked", apiFetchStart);
+const apiFetch = app.slice(apiFetchStart, apiFetchEnd);
+assert.ok(apiFetch.includes("response.status >= 500"), "the browser must independently contain server failures");
+assert.ok(apiFetch.includes("Something went wrong. Please try again."), "server failures must render as concise recovery guidance");
+assert.doesNotMatch(apiFetch, /invariant|word-count=|evidence-claim=|outlook-(?:weight|claim)=|verdict=/i, "internal validator diagnostics must not exist in the browser error path");
 assert.ok(server.includes('"reportedNextPeriodDateKey"'), "reported upcoming periods must stay separate from actual period clicks");
 assert.ok(server.includes('"reportedNextHighDesireDateKey"'), "reported upcoming high-desire dates must be stored independently from historical reports");
 assert.ok(server.includes("Tracker entries cannot be dated in the future."), "future reported dates must never bypass the future actual-event rejection");
@@ -304,8 +310,9 @@ assert.doesNotMatch(liveAcceptance.ariaLabel, /[↑↓→]/, "accessibility text
 const weightPostStart = server.indexOf('if (pathname === "/api/weights" && req.method === "POST")');
 const weightPostEnd = server.indexOf('if (pathname === "/api/memories" && req.method === "POST")', weightPostStart);
 const weightPost = server.slice(weightPostStart, weightPostEnd);
-assert.ok(weightPost.indexOf("send(res, 201") < weightPost.indexOf("setImmediate"), "the durable fallback must return before background model generation");
-assert.ok(weightPost.includes('console.warn("Lily coach generation failed", String(error?.name || "error"))'), "background coach generation must remain non-blocking while recording only a sanitized failure stage");
+assert.ok(weightPost.indexOf("persistWeightWithRecoverableCoach(created)") < weightPost.indexOf("send(res, 201"), "the primary weight and recoverable coach state must persist before success returns");
+assert.ok(weightPost.indexOf("send(res, 201") < weightPost.indexOf("scheduleCoachGeneration(created.id)"), "background generation must remain non-blocking after durable success");
+assert.ok(server.includes('console.warn("Lily coach generation or repair failed", String(error?.name || "error"))'), "background coach generation must record only a sanitized failure stage");
 assert.ok(server.includes('pathname === "/api/coach/refresh-saved-context"'), "an authenticated in-process route can safely refresh a note saved before this behavior shipped");
 assert.ok(server.includes('pathname === "/api/coach/refresh-style"'), "an authenticated exact-preservation route can refresh only the latest coach style");
 assert.ok(server.includes("assertExpectedCoachRefreshState(baseline, expected, expectedCoach)"), "the one-time live refresh requires an exact production identity and count baseline");

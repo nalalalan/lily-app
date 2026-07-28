@@ -23,7 +23,7 @@ Set `public/config.js` to an empty API base for same-origin local API testing, o
 - `POST /api/memories` - save notes, image data, and video data
 - `DELETE /api/memories/:id` - delete a saved memory
 - `GET /api/weights` - list saved weight records plus the latest persisted coach paragraph
-- `POST /api/weights` - save a weight and its persisted coach paragraph with the server timestamp
+- `POST /api/weights` - durably save a weight with the server timestamp, then attach its persisted coach paragraph without allowing coach validation or generation to roll back the measurement
 - `DELETE /api/weights/:id` - delete a saved weight record
 - `GET /api/tracker` - read conflict, longest streak, and period tracker counts
 - `POST /api/tracker/conflict` - save a conflict event; an authenticated backfill may include a past `dateKey`
@@ -37,6 +37,8 @@ Set `public/config.js` to an empty API base for same-origin local API testing, o
 The one-year trend outlook calculates one point for every calendar-day median using only the measurements available through that date. The existing causal annual target remains bounded by the robust walk-forward model and momentum diagnostics. The displayed annual series has no retained velocity: confirmed multi-reading evidence moves 30% toward the current target with a 2 lb cap, while weak, flat, isolated, or reversal evidence moves 25% with a 0.75 lb cap. Every step moves toward its current target without overshoot. The current headline exactly matches the final plotted point.
 
 Every finalized weigh-in memo contains one source-bound personal anchor in addition to the weight analysis and exactly one health action. The initial deterministic fallback uses a substantial safe meaning reduced from authenticated Lily context; final generation may retain that anchor or replace it with a stronger eligible Brain thought. A generic food action, a media shell, a date shell, or a vague claim that private context exists cannot satisfy the anchor gate. If no substantial Brain or Lily meaning is available, the weight remains saved while the memo stays pending instead of publishing context-free coaching. The personal sentence extends the paragraph allowance to 45–80 words. Public weight responses expose only `latestCoach: { weightId, text, createdAt }`; evidence references, reduced-anchor provenance, and generation metadata stay in the private store.
+
+Weight persistence is the primary operation and coaching is a recoverable derivative. A fallback-builder, model, critic, or validator failure cannot reject or roll back a valid weigh-in, and server-side invariant details never enter API error bodies or browser toasts.
 
 Coach language stays warm, clear, hopeful, and low-overwhelm while keeping the data verdict unmistakable. Worsening evidence is framed as a result that needs a reset, never as rejection of Lily; every paragraph preserves agency, avoids alarmist all-caps or coercive pressure, and gives exactly one doable action. Private health or diagnostic context is not copied into messages, APIs, logs, source constants, Spec, Progress, or papers. The coach supports sustainable momentum rather than promoting rapid-loss promises, fasting, meal skipping, restriction, or compensatory exercise.
 

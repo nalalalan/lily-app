@@ -56,6 +56,7 @@ const videoExtensions = new Set([".mp4", ".m4v", ".mov", ".webm"]);
 
 let writeQueue = Promise.resolve();
 const brainContextLastCheckedAtByWeight = new Map();
+const coachGenerationLastAttemptAtByWeight = new Map();
 
 function coachModelVersion(options = {}) {
   return `writer:${options.model || coachWriterModel};critic:${options.criticModel || coachCriticModel}`;
@@ -64,6 +65,10 @@ function coachModelVersion(options = {}) {
 function containsPrivateCoachBlockedTerm(text) {
   const normalized = String(text || "").toLowerCase();
   return privateCoachBlockedTerms.some((term) => normalized.includes(term));
+}
+
+function publicApiErrorMessage(error, status = Number(error?.status) || 500) {
+  return status >= 500 ? "Something went wrong. Please try again." : (error?.message || "Request failed.");
 }
 
 const COACH_GENERATION_VERSION = "coach-pipeline-v13";
@@ -76,6 +81,7 @@ const COACH_ACTION_VERSION = "coach-action-v7";
 const COACH_PROMPT_VERSION = COACH_WRITER_PROMPT_VERSION;
 const COACH_SAFETY_VERSION = "coach-safety-v7";
 const COACH_STYLE_VERSION = "coach-style-personal-anchor-v4";
+const COACH_PENDING_STATUS = "pending-contextual-repair";
 const COACH_MIN_WORDS = 35;
 const COACH_MAX_WORDS = 55;
 const COACH_RELATIONSHIP_MIN_WORDS = 45;
@@ -1953,7 +1959,7 @@ function fallbackFactClauseVariants(context) {
     `The latest reading is ${currentWeight} lb and ${change}`
   ];
   const evidence = context.strongestEvidence;
-  const relation = evidence.kind === "window-acceleration"
+  const relation = evidence.kind === "window-acceleration" && context.evidenceRelation.kind === "strengthened"
     ? ["accelerated from the prior read", "accelerated beyond the earlier signal", "accelerated versus the previous window", "accelerated and strengthened from before"]
     : ({
       strengthened: ["stronger than before", "strengthened versus the prior read", "grew stronger than the earlier signal", "a stronger signal than the prior context"],
@@ -2380,7 +2386,7 @@ function evidenceClaimMatches(scope, context) {
 }
 
 function outlookClaimMatches(scope, context) {
-  if (!context?.includeOutlook || !/\boutlook\b/i.test(scope) || !scope.includes(`about ${Math.round(context.outlook)} lb`)) return false;
+  if (!context?.includeOutlook || !/\boutlook\b/i.test(scope) || !scope.toLowerCase().includes(`about ${Math.round(context.outlook)} lb`)) return false;
   const directionPattern = {
     worsened: /\b(?:wrong way|worsen\w*)\b/i,
     improved: /\b(?:improv\w*|better)\b/i,
@@ -2493,7 +2499,7 @@ function validateCoachParagraph(text, context, previousMessages = [], options = 
   if (/\b(?:goal|goal weight|internal target|target weight)\b/i.test(paragraph)) errors.push("goal-reference");
   if (/\b(?:period|cycle|menstrual)\b.{0,35}\b(?:caused?|made|explains?)\b|\b(?:caused?|made|explains?)\b.{0,35}\b(?:period|cycle|menstrual)\b/i.test(paragraph)) errors.push("period-causality");
   if (!context || !paragraph.includes(`${trimCoachNumber(context.currentWeight)} lb`)) errors.push("current-weight");
-  if (context?.includeOutlook && !paragraph.includes(`about ${Math.round(context.outlook)} lb`)) errors.push("outlook-weight");
+  if (context?.includeOutlook && !paragraph.toLowerCase().includes(`about ${Math.round(context.outlook)} lb`)) errors.push("outlook-weight");
   if (context && !context.includeOutlook && /\b1-year trend outlook\b/i.test(paragraph)) errors.push("unsolicited-outlook");
   const actionMatch = context ? identifyApprovedAction(paragraph, context) : null;
   const recognizedActions = recognizedActionMatches(paragraph);
@@ -2518,7 +2524,7 @@ function validateCoachParagraph(text, context, previousMessages = [], options = 
   }
   const leadVerdict = paragraph.slice(0, 150);
   const verdictPattern = context && {
-    "not-good-enough": /\b(?:moved away|points? away|needs? (?:work|a response|attention|a correction|to change|a (?:calm|gentle|steady) reset)|setback|regression|worsen\w*|course correction|off course|not moving our way|unhelpful turn|against the plan|did not move in the direction|stepped away|simple reset|moving (?:the )?wrong way)\b/i,
+    "not-good-enough": /\b(?:moved away|points? away|needs? (?:work|a response|attention|a correction|to change|a (?:(?:calm|gentle|steady) )?reset)|setback|regression|worsen\w*|course correction|off course|not moving our way|unhelpful turn|against the plan|did not move in the direction|stepped away|simple reset|moving (?:the )?wrong way)\b/i,
     "good-progress": /\b(?:real progress|right way|a win|strong progress|moving our way|got better|improv\w*|positive signal|lower and moving|landed the right way|momentum)\b/i,
     verify: /\b(?:pause|verify|confirmation|confirm\w*|unconfirmed|outlier|recheck|unsettled|uncertain|unusual to judge|outside the usual pattern|on hold|follow-up|direction is still open|not clear)\b/i,
     baseline: /\b(?:baseline|starting (?:line|point)|first (?:number|weigh-in|data point|anchor)|where the line begins|trend has its first|day one)\b/i
@@ -3042,6 +3048,48 @@ function addFallbackCoachForWeight(store, weightId, status = "fallback-contextua
   return { ...store, coachMessages: [record, ...(Array.isArray(store.coachMessages) ? store.coachMessages : [])] };
 }
 
+function addPendingCoachForWeight(store, weightId, status = COACH_PENDING_STATUS) {
+  if (coachForWeight(store, weightId)) return store;
+  const context = buildCoachContext(store, weightId);
+  if (!context) return store;
+  const text = `${trimCoachNumber(context.currentWeight)} lb is safely saved. The full evidence-first coaching paragraph is still being prepared, so no verdict is being forced from an incomplete read. The measurement is secure, and the finished message will replace this automatically.`;
+  const record = createCoachMessageRecord(context, text, status, new Date().toISOString(), null, {
+    structureId: "pending-contextual-repair",
+    previousMessages: causalPreviousCoachMessages(store, (store.weights || []).find((weight) => weight.id === weightId), 10),
+    diagnostics: generationDiagnostics("pending-contextual-repair", 0, ["fallback-unavailable"], Date.now())
+  });
+  return { ...store, coachMessages: [record, ...(Array.isArray(store.coachMessages) ? store.coachMessages : [])] };
+}
+
+function coachNeedsRepair(message) {
+  return String(message?.status || "").startsWith("pending-");
+}
+
+async function persistWeightWithRecoverableCoach(created, options = {}) {
+  const persist = options.persist || writeStore;
+  const attachFallback = options.attachFallback || addFallbackCoachForWeight;
+  const reportFallbackError = options.reportFallbackError || ((error) => {
+    console.warn("Lily coach fallback creation failed", String(error?.name || "error"));
+  });
+  let savedStore = await persist((store) => ({
+    ...store,
+    weights: [created, ...(Array.isArray(store.weights) ? store.weights : [])]
+  }));
+  try {
+    savedStore = await persist((store) => attachFallback(store, created.id, "fallback-contextual"));
+  } catch (error) {
+    reportFallbackError(error);
+  }
+  if (!coachForWeight(savedStore, created.id)) {
+    try {
+      savedStore = await persist((store) => addPendingCoachForWeight(store, created.id));
+    } catch (pendingError) {
+      reportFallbackError(pendingError);
+    }
+  }
+  return savedStore;
+}
+
 function refreshLatestWeightOnlyCoach(store, status) {
   const latestWeight = (Array.isArray(store.weights) ? store.weights : [])
     .slice()
@@ -3290,6 +3338,21 @@ function scheduleBrainContextReconciliation(weightId) {
     }, delayMs);
     if (typeof timer.unref === "function") timer.unref();
   }
+}
+
+function scheduleCoachGeneration(weightId, operationalNow = Date.now(), options = {}) {
+  const id = String(weightId || "");
+  if (!id) return false;
+  const previousAttempt = coachGenerationLastAttemptAtByWeight.get(id) || 0;
+  if (operationalNow - previousAttempt < 60 * 1000) return false;
+  coachGenerationLastAttemptAtByWeight.set(id, operationalNow);
+  const schedule = options.schedule || setImmediate;
+  const generate = options.generate || generateAndReplaceCoach;
+  schedule(() => {
+    Promise.resolve(generate(id))
+      .catch((error) => console.warn("Lily coach generation or repair failed", String(error?.name || "error")));
+  });
+  return true;
 }
 
 function jsonHash(value) {
@@ -4059,9 +4122,12 @@ async function handleApi(req, res, pathname) {
       console.warn("Lily Brain-context read reconciliation failed", String(error?.name || "error"));
     }
     const store = await readStore();
+    const latestWeight = latestWeightRecord(store);
+    const latestCoach = latestWeight ? coachForWeight(store, latestWeight.id) : null;
+    if (latestWeight && coachNeedsRepair(latestCoach)) scheduleCoachGeneration(latestWeight.id);
     send(res, 200, {
       weights: publicWeights(store.weights).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))),
-      latestCoach: latestCoachPayload(store)
+      latestCoach: publicCoach(latestCoach)
     });
     return;
   }
@@ -4399,15 +4465,9 @@ async function handleApi(req, res, pathname) {
       createdAt: now,
       updatedAt: now
     };
-    const savedStore = await writeStore((store) => {
-      const withWeight = { ...store, weights: [created, ...(Array.isArray(store.weights) ? store.weights : [])] };
-      return addFallbackCoachForWeight(withWeight, created.id, "fallback-contextual");
-    });
+    const savedStore = await persistWeightWithRecoverableCoach(created);
     send(res, 201, { weight: publicWeight(created), latestCoach: publicCoach(coachForWeight(savedStore, created.id)) });
-    setImmediate(() => {
-      generateAndReplaceCoach(created.id)
-        .catch((error) => console.warn("Lily coach generation failed", String(error?.name || "error")));
-    });
+    scheduleCoachGeneration(created.id);
     scheduleBrainContextReconciliation(created.id);
     return;
   }
@@ -4625,7 +4685,8 @@ const server = http.createServer(async (req, res) => {
 
     sendFile(req, res, filePath);
   } catch (error) {
-    send(res, error.status || 500, { error: error.message || "Server error" });
+    const status = error.status || 500;
+    send(res, status, { error: publicApiErrorMessage(error, status) });
   }
 });
 
@@ -4671,6 +4732,7 @@ if (process.env.NODE_ENV === "test" || process.env.LILY_COACH_CLI === "1") {
     WRITER_SAFE_CLOSINGS,
     WRITER_SAFE_OPENINGS,
     addFallbackCoachForWeight,
+    addPendingCoachForWeight,
     assertCoachRefreshPreserved,
     assertExpectedCoachRefreshState,
     backfillCoachMessages,
@@ -4687,6 +4749,7 @@ if (process.env.NODE_ENV === "test" || process.env.LILY_COACH_CLI === "1") {
     buildContextualFallbackResult,
     causalPreviousCoachMessages,
     coachForWeight,
+    coachNeedsRepair,
     coachRefreshPreservationSnapshot,
     coachWordCount,
     coachWordBounds,
@@ -4721,6 +4784,7 @@ if (process.env.NODE_ENV === "test" || process.env.LILY_COACH_CLI === "1") {
     addDaysToDateKey,
     publicCoachFacts,
     publicCoach,
+    publicApiErrorMessage,
     readStore,
     regenerateRecentCoachMessages,
     refreshLatestWeightOnlyCoach,
@@ -4736,12 +4800,14 @@ if (process.env.NODE_ENV === "test" || process.env.LILY_COACH_CLI === "1") {
     personalAnchorIsAvailable,
     personalAnchorReferenceKeys,
     personalAnchorSemanticKind,
+    persistWeightWithRecoverableCoach,
     reportedCoachEffort,
     referencedBrainLetterIds,
     selectSavedPreference,
     selectLilyPersonalAnchor,
     newestPersonalAnchor,
     sanitizePersonalAnchor,
+    scheduleCoachGeneration,
     server,
     selectStrongestCoachEvidence,
     similarityScore,
