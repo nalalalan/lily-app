@@ -322,7 +322,12 @@ async function apiFetch(path, options = {}) {
   }
   const contentType = response.headers.get("content-type") || "";
   const data = contentType.includes("application/json") ? await response.json() : await response.text();
-  if (!response.ok) throw new Error(data.error || data || "Request failed");
+  if (!response.ok) {
+    const message = response.status >= 500
+      ? "Something went wrong. Please try again."
+      : (data.error || data || "Request failed");
+    throw new Error(message);
+  }
   return data;
 }
 
