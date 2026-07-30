@@ -15,7 +15,7 @@ const pin = process.env.LILY_PIN || "local-dev-pin-required";
 const sessionSecret = process.env.SESSION_SECRET || "local-dev-lily-session-secret";
 const openaiApiKey = process.env.OPENAI_API_KEY || "";
 const chatModel = process.env.OPENAI_CHAT_MODEL || "gpt-4o-mini";
-const coachWriterModel = process.env.OPENAI_COACH_WRITER_MODEL || "gpt-4.1-nano";
+const coachWriterModel = process.env.OPENAI_COACH_WRITER_MODEL || "gpt-4.1-mini";
 const coachCriticModel = process.env.OPENAI_CRITIC_MODEL || "gpt-4.1-mini";
 const visionModel = process.env.OPENAI_VISION_MODEL || "gpt-4o-mini";
 const privateCoachGoal = Number(process.env.LILY_INTERNAL_GOAL_LB);
@@ -71,16 +71,16 @@ function publicApiErrorMessage(error, status = Number(error?.status) || 500) {
   return status >= 500 ? "Something went wrong. Please try again." : (error?.message || "Request failed.");
 }
 
-const COACH_GENERATION_VERSION = "coach-pipeline-v14";
+const COACH_GENERATION_VERSION = "coach-pipeline-v15";
 const COACH_ANALYSIS_VERSION = "coach-analysis-v8";
-const COACH_WRITER_PROMPT_VERSION = "coach-writer-v10";
+const COACH_WRITER_PROMPT_VERSION = "coach-writer-v11";
 const COACH_CRITIC_PROMPT_VERSION = "coach-critic-v7";
-const COACH_VALIDATOR_VERSION = "coach-validator-v5";
-const COACH_FALLBACK_VERSION = "coach-fallback-v10";
+const COACH_VALIDATOR_VERSION = "coach-validator-v6";
+const COACH_FALLBACK_VERSION = "coach-fallback-v11";
 const COACH_ACTION_VERSION = "coach-action-v7";
 const COACH_PROMPT_VERSION = COACH_WRITER_PROMPT_VERSION;
 const COACH_SAFETY_VERSION = "coach-safety-v7";
-const COACH_STYLE_VERSION = "coach-style-specific-context-v5";
+const COACH_STYLE_VERSION = "coach-style-brain-led-v6";
 const COACH_PENDING_STATUS = "pending-contextual-repair";
 const COACH_MIN_WORDS = 35;
 const COACH_MAX_WORDS = 55;
@@ -746,7 +746,7 @@ function brainResearchSpecificSubject(source) {
   const core = [object, phenomenon].filter(Boolean).join(" ").trim();
   if (bottomRow && twoOrThree) {
     const shortCore = [constrained ? "constrained" : "", grid, phenomenon || (/\bplot\b/i.test(text) ? "plot" : "figure")].filter(Boolean).join(" ");
-    return `the ${shortCore} plot and whether ${figure || "the figure"} needs two bottom-row plots or three`;
+    return `${figure || "the figure"}'s ${shortCore} and a two-versus-three-plot bottom row`;
   }
   if (figure && core) return `how ${figure} should show the ${core}`;
   if (core) return `how to present the ${core}`;
@@ -883,7 +883,7 @@ function brainThoughtAnchorFromFile(file, options = {}) {
   const sourceHash = crypto.createHash("sha256").update(text).digest("hex");
   const specificSubject = brainSpecificSubjectFromFile(file, text, topics);
   const specificText = specificSubject
-    ? `Alan is in Brain thinking through ${specificSubject}`
+    ? `Alan is still weighing ${specificSubject} in Brain—and that same close attention is here with you`
     : "";
   return {
     id: String(file.id),
@@ -2003,7 +2003,9 @@ function composeFallbackParagraph(opening, current, evidence, outlook, action, c
   const ordered = (layout.order || ["current", "evidence", "outlook", "support", "action"])
     .map((name) => ({ name, text: slots[name] }))
     .filter((entry) => entry.text);
-  let body = `${clean(opening)}${layout.openingBoundary || ": "}${ordered[0]?.text || ""}`;
+  let body = layout.supportLeads && slots.support
+    ? `${slots.support}. ${clean(opening)}${layout.openingBoundary || ": "}${ordered[0]?.text || ""}`
+    : `${clean(opening)}${layout.openingBoundary || ": "}${ordered[0]?.text || ""}`;
   for (let index = 1; index < ordered.length; index += 1) {
     const prior = ordered[index - 1];
     const next = ordered[index];
@@ -2039,6 +2041,35 @@ const FALLBACK_STRUCTURES = Object.freeze([
   (opening, current, evidence, outlook, action, close, support) => composeFallbackParagraph(opening, current, evidence, outlook, action, close, { openingBoundary: ": ", order: ["outlook", "support", "current", "evidence", "action"] }, support),
   (opening, current, evidence, outlook, action, close, support) => composeFallbackParagraph(opening, current, evidence, outlook, action, close, { openingBoundary: ". ", order: ["current", "support", "action", "evidence", "outlook"] }, support)
 ]);
+
+const BRAIN_LED_FALLBACK_STRUCTURES = Object.freeze([
+  ["current", "evidence", "outlook", "action"],
+  ["current", "outlook", "evidence", "action"],
+  ["evidence", "current", "outlook", "action"],
+  ["current", "evidence", "action", "outlook"],
+  ["outlook", "current", "evidence", "action"],
+  ["evidence", "outlook", "current", "action"],
+  ["current", "action", "evidence", "outlook"],
+  ["outlook", "evidence", "current", "action"],
+  ["evidence", "current", "action", "outlook"],
+  ["current", "outlook", "action", "evidence"],
+  ["evidence", "action", "current", "outlook"],
+  ["outlook", "current", "action", "evidence"]
+].map((order, index) => (opening, current, evidence, outlook, action, close, support) => composeFallbackParagraph(
+  opening,
+  current,
+  evidence,
+  outlook,
+  action,
+  close,
+  { openingBoundary: ["—", ": ", ". "][index % 3], order, supportLeads: true },
+  support
+)));
+
+function sourceSpecificBrainContextLeads(context) {
+  const support = context?.relationshipSupport;
+  return support?.sourceType === "brain-thought-anchor" && support?.specificity === "source-specific";
+}
 
 function fallbackFactClauseVariants(context) {
   const currentWeight = trimCoachNumber(context.currentWeight);
@@ -2352,7 +2383,8 @@ function buildContextualFallbackCandidates(context, previousMessages = [], limit
   const facts = fallbackFactClauseVariants(context);
   const wordBounds = coachWordBounds(context);
   const presentationSeed = coachPresentationSeed(context);
-  const start = stableIndex(`${presentationSeed}|fallback`, FALLBACK_STRUCTURES.length);
+  const structures = sourceSpecificBrainContextLeads(context) ? BRAIN_LED_FALLBACK_STRUCTURES : FALLBACK_STRUCTURES;
+  const start = stableIndex(`${presentationSeed}|fallback`, structures.length);
   const rejectionCounts = {};
   const recentOpeningFingerprints = new Set(previousMessages.slice(0, 6).map((message) => openingFingerprint(message.text || message)));
   const recentClosingFingerprints = new Set(previousMessages.slice(0, 6).map((message) => closingFingerprint(message.text || message)));
@@ -2367,9 +2399,9 @@ function buildContextualFallbackCandidates(context, previousMessages = [], limit
   const eligibleOpenings = allEligibleOpenings.slice(0, axisLimit);
   const eligibleClosings = allEligibleClosings.slice(0, axisLimit);
   const scheduled = [];
-  const structureCount = FALLBACK_STRUCTURES.length;
+  const structureCount = structures.length;
   for (let structureOffset = 0; structureOffset < structureCount; structureOffset += 1) {
-    const structureIndex = (start + structureOffset) % FALLBACK_STRUCTURES.length;
+    const structureIndex = (start + structureOffset) % structures.length;
     for (const openingEntry of eligibleOpenings) {
       for (const closingEntry of eligibleClosings) {
         for (let factOffset = 0; factOffset < 4; factOffset += 1) {
@@ -2378,7 +2410,7 @@ function buildContextualFallbackCandidates(context, previousMessages = [], limit
           const outlookIndex = (structureOffset * 11 + factOffset * 5) % facts.outlook.length;
           for (let actionOffset = 0; actionOffset < actionRows.length; actionOffset += 1) {
             const realization = actionRows[actionOffset];
-            const text = normalizeCoachParagraph(FALLBACK_STRUCTURES[structureIndex](
+            const text = normalizeCoachParagraph(structures[structureIndex](
               openingEntry.text,
               facts.current[currentIndex],
               facts.evidence[evidenceIndex],
@@ -2392,7 +2424,7 @@ function buildContextualFallbackCandidates(context, previousMessages = [], limit
               rejectionCounts["word-count"] = (rejectionCounts["word-count"] || 0) + 1;
               continue;
             }
-            const structureId = `${context.verdict}-${structureIndex + 1}-${openingEntry.index + 1}-${closingEntry.index + 1}-${currentIndex + 1}-${evidenceIndex + 1}-${outlookIndex + 1}-${actionOffset + 1}`;
+            const structureId = `${sourceSpecificBrainContextLeads(context) ? "brain-led-" : ""}${context.verdict}-${structureIndex + 1}-${openingEntry.index + 1}-${closingEntry.index + 1}-${currentIndex + 1}-${evidenceIndex + 1}-${outlookIndex + 1}-${actionOffset + 1}`;
             scheduled.push({
               text,
               structureId,
@@ -2588,6 +2620,7 @@ function closedCoachGrammarErrors(text, context, selectedAction) {
   const closing = slot("closing", components.closings);
   const requiredSlots = [opening, current, evidence, outlook, modifier, relationshipSupport, action, closing].filter(Boolean);
   const ordered = requiredSlots.slice().sort((left, right) => left.start - right.start || left.end - right.end);
+  const brainLed = sourceSpecificBrainContextLeads(context);
   if (ordered.length >= 2) {
     if (source.slice(0, ordered[0].start).trim() || source.slice(ordered.at(-1).end).trim()) errors.push("closed-copy-residue");
     for (let index = 1; index < ordered.length; index += 1) {
@@ -2607,7 +2640,9 @@ function closedCoachGrammarErrors(text, context, selectedAction) {
       if (!allowed) errors.push(`closed-separator-${prior.name}-${next.name}`);
     }
   }
-  if (ordered[0]?.name !== "opening" || ordered.at(-1)?.name !== "closing" || ordered.length !== requiredSlots.length) errors.push("closed-slot-order");
+  const expectedStart = brainLed ? ["relationship-support", "opening"] : ["opening"];
+  const startMatches = expectedStart.every((name, index) => ordered[index]?.name === name);
+  if (!startMatches || ordered.at(-1)?.name !== "closing" || ordered.length !== requiredSlots.length) errors.push("closed-slot-order");
   if (relationshipSupport) {
     const before = source.slice(0, relationshipSupport.start);
     const after = source.slice(relationshipSupport.end);
@@ -2616,7 +2651,8 @@ function closedCoachGrammarErrors(text, context, selectedAction) {
     const sentenceEnd = relationshipSupport.end + (nextStops.length ? Math.min(...nextStops) + 1 : after.length);
     const integrated = [current, evidence, outlook, modifier, action].filter(Boolean)
       .some((entry) => entry.start >= sentenceStart && entry.start < sentenceEnd);
-    if (!integrated) errors.push("detached-personal-anchor");
+    if (!brainLed && !integrated) errors.push("detached-personal-anchor");
+    if (brainLed && !/same close attention is here with you/i.test(relationshipSupport.text)) errors.push("personal-anchor-missing-care-frame");
   }
   return Array.from(new Set(errors));
 }
@@ -2648,6 +2684,7 @@ function validateCoachParagraph(text, context, previousMessages = [], options = 
   if (/\b(?:horn\w*|sex(?:ual)?|ovulat\w*|conflict|phone|address|relationship|appearance)\b/i.test(paragraph)) errors.push("private-context-leak");
   if (context?.personalAnchorRequired && (!context.personalAnchor?.id || !context.personalAnchor?.text || context.personalAnchor.id !== context.relationshipSupport?.id || context.personalAnchor.text !== context.relationshipSupport?.text)) errors.push("missing-personal-anchor");
   if (context?.relationshipSupport && countLiteralOccurrences(paragraph, context.relationshipSupport.text) !== 1) errors.push("relationship-support");
+  if (sourceSpecificBrainContextLeads(context) && !paragraph.toLowerCase().startsWith(context.relationshipSupport.text.toLowerCase())) errors.push("personal-anchor-not-leading");
   if (!context?.relationshipSupport && /\b(?:boyfriend|yapp\w*|league nights?)\b/i.test(paragraph)) errors.push("unsupported-relationship-copy");
   if (/[\u00e2\u00c3\u00c2\ufffd]/.test(paragraph)) errors.push("mojibake");
   if (/\b(?:safety-held|high-safe-urgency|steady-safe)\b/i.test(paragraph)) errors.push("private-strategy-leak");
@@ -2677,7 +2714,7 @@ function validateCoachParagraph(text, context, previousMessages = [], options = 
   if (context && context.verdict !== "baseline") {
     if (!coachClaimScopes(paragraph).some((scope) => evidenceClaimMatches(scope, context))) errors.push("evidence-claim");
   }
-  const leadVerdict = paragraph.slice(0, 150);
+  const leadVerdict = paragraph.slice(0, sourceSpecificBrainContextLeads(context) ? 320 : 150);
   const verdictPattern = context && {
     "not-good-enough": /\b(?:moved away|points? away|needs? (?:work|a response|attention|a correction|to change|a (?:(?:calm|gentle|steady) )?reset)|setback|regression|worsen\w*|course correction|off course|not moving our way|unhelpful turn|against the plan|did not move in the direction|stepped away|simple reset|moving (?:the )?wrong way)\b/i,
     "good-progress": /\b(?:real progress|right way|a win|strong progress|moving our way|got better|improv\w*|positive signal|lower and moving|landed the right way|momentum)\b/i,
@@ -2851,6 +2888,7 @@ function publicCoachFacts(context) {
     analysis: context.analysisPlan,
     periodModifier: context.trackerModifier?.text || null,
     relationshipSupport: context.relationshipSupport ? { kind: context.relationshipSupport.kind, approvedText: context.relationshipSupport.text } : null,
+    personalContextLeads: sourceSpecificBrainContextLeads(context),
     communicationStyle: "warm, clear, hopeful, low-overwhelm, data-directed, and non-coercive",
     urgency: "one doable next action with no alarm, rejection, or pressure",
     approvedCopyComponents: approvedCoachCopyComponents(context)
@@ -2866,6 +2904,7 @@ function criticCoachFacts(context) {
     outlook: context.analysisPlan.outlook,
     periodModifier: context.trackerModifier?.text || null,
     relationshipSupport: context.relationshipSupport ? { kind: context.relationshipSupport.kind, approvedText: context.relationshipSupport.text } : null,
+    personalContextLeads: sourceSpecificBrainContextLeads(context),
     communicationStyle: "warm, clear, hopeful, low-overwhelm, data-directed, and non-coercive",
     urgency: "one doable next action with no alarm, rejection, or pressure"
   };
@@ -2894,7 +2933,7 @@ function criticCandidatePayload(candidate, context = null, previousMessages = []
     annotatedText: start < 0 ? text : `${text.slice(0, start)}<approved_action>${actionText}</approved_action>${text.slice(start + actionText.length)}`,
     verdictEvidence: {
       expectedFamily: context?.verdict || null,
-      approvedFamilyOpening: Boolean(context && (WRITER_SAFE_OPENINGS[context.verdict] || []).some((opening) => text.startsWith(opening)))
+      approvedFamilyOpening: Boolean(context && (WRITER_SAFE_OPENINGS[context.verdict] || []).some((opening) => countLiteralOccurrences(text, opening) === 1))
     },
     originalityEvidence: {
       openingFresh: !novelty.includes("repeat-opening"),
@@ -3027,17 +3066,17 @@ async function generateCoachParagraph(context, previousMessages = [], options = 
         "Write three genuinely different evidence-first, warm fitness-coach paragraphs for Lily and return only the required JSON.",
         `Each candidate must be ${wordBounds.min}-${wordBounds.max} words in one paragraph.`,
         "For every paragraph, copy exactly one supplied opening, current fact, evidence fact, optional outlook fact, personal-context clause, action, and closing. Do not add facts, numbers, behaviors, or descriptive claims.",
-        "The opening must be first and the closing last. Arrange the middle roles in three genuinely different orders and use only punctuation or the connectors and, but, while, meanwhile, or at the same time.",
+        "When FACTS.personalContextLeads is true, copy the personal-context clause as the complete first sentence, then immediately use one supplied opening before every weight, evidence, outlook, and action clause; otherwise put the opening first. Always put the closing last. Arrange the remaining roles in three genuinely different orders and use only punctuation or the connectors and, but, while, meanwhile, or at the same time.",
         "The personal-context clause must share a sentence with the weight evidence or the approved action so it changes the story instead of appearing as a detachable aside.",
         "Make the strongest new evidence and its relationship to the prior read immediately clear while keeping the result about data, never Lily's worth or identity.",
         "Preserve the supplied personal-context clause exactly; never invent, expand, diagnose, sexualize, or make affection conditional on weight.",
-        "Use three different openings, closings, role orders, and action realizations.",
+        "Use three different openings, closings, and role orders. Copy exactly one approved action realization in each candidate; action wording may repeat between candidates when the approved list is shorter than three.",
         "Never mention a goal, target weight, private strategy, BMI, diagnosis, mental-health context, appearance, worth, fasting, skipped meals, restriction, compensation, punishment, JYP, or idol training. Never select alarmist, rejecting, coercive, all-caps, or exclamation-heavy copy."
       ].join(" ");
       const writerText = await requestCoachResponse([
         { role: "system", content: system },
         { role: "user", content: `FACTS: ${JSON.stringify(criticCoachFacts(context))}\nAPPROVED COPY COMPONENTS: ${JSON.stringify(approvedComponents)}\nRECENT ARGUMENTS TO AVOID: ${JSON.stringify(recentCoachAvoidance(previousMessages))}` }
-      ], { ...options, model: options.model || coachWriterModel, timeoutMs: remainingTimeoutMs(), schema: writerSchema, schemaName: "lily_coach_candidates_v4", maxOutputTokens: 620 });
+      ], { ...options, model: options.model || coachWriterModel, timeoutMs: remainingTimeoutMs(), schema: writerSchema, schemaName: "lily_coach_candidates_v5", maxOutputTokens: 620 });
       const candidates = parseWriterCandidates(writerText);
       if (candidates.length !== COACH_CANDIDATE_COUNT) {
         lastStatus = "fallback-writer-format";

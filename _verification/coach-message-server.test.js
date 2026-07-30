@@ -578,7 +578,7 @@ async function run() {
   assert.match(finalFallback.text, /3-day/);
   assert.match(finalFallback.text, /up 2\.5 lb/);
   assert.match(finalFallback.text, /accelerat/i);
-  assert.match(finalFallback.text, /about 146 lb/);
+  assert.match(finalFallback.text, /about 146 lb/i);
   assert.deepEqual(Object.keys(finalFallback.personalAnchor).sort(), ["approvedText", "id", "semanticAnchorId", "sourceHash", "sourceTimestamp", "sourceType", "specificity"].sort(), "private records retain only the approved anchor and opaque provenance needed for deterministic repair");
   assert(finalFallback.text.includes(finalFallback.personalAnchor.approvedText));
   assert.equal(coach.personalAnchorFromCoachRecord(finalFallback).text, finalFallback.personalAnchor.approvedText);
@@ -744,7 +744,9 @@ async function run() {
   }, { cutoff: Date.parse("2026-07-30T22:00:00.000Z") });
   assert.equal(specificFigureThought.specificity, "source-specific");
   assert.match(specificFigureThought.text, /3x3|hysteresis|Figure 2/i, "a safe Brain reduction retains the actual research decision instead of only its broad topic");
-  assert.match(specificFigureThought.text, /two bottom-row plots or three/i);
+  assert.match(specificFigureThought.text, /two-versus-three-plot bottom row/i);
+  assert.match(specificFigureThought.text, /same close attention is here with you/i, "the safe concrete detail carries an explicit care meaning instead of becoming decorative retrieval proof");
+  assert.doesNotMatch(specificFigureThought.text, /;/, "source-specific care framing is a complete human sentence, not semicolon glue");
   assert.match(specificAppThought.text, /Virtual Violin bow tracking/i, "a second same-family note retains its own concrete subject");
   assert.notEqual(specificFigureThought.text, specificAppThought.text);
   assert(!Object.values(coach.BRAIN_THOUGHT_ANCHOR_COPY).flat().includes(specificFigureThought.text), "source-specific Brain context is not one of the fixed topic sentences");
@@ -1196,6 +1198,9 @@ async function run() {
   assert.equal(lateThoughtCoach.personalAnchor.id, lateThoughtFile.id);
   assert.equal(lateThoughtCoach.personalAnchor.specificity, "source-specific");
   assert.match(lateThoughtCoach.text, /3x3|hysteresis|Figure 2/i);
+  assert(lateThoughtCoach.text.startsWith(lateThoughtCoach.personalAnchor.approvedText), "the newest source-specific Brain thought visibly leads the memo");
+  assert(lateThoughtCoach.text.indexOf(lateThoughtCoach.personalAnchor.approvedText) < lateThoughtCoach.text.indexOf("151 lb"), "the authentic thought and care frame arrive before the weight analysis");
+  assert.match(lateThoughtCoach.text, /same close attention is here with you/i);
   assert.equal(coach.assertCoachRefreshPreserved(lateThoughtBaseline, coach.coachRefreshPreservationSnapshot(lateThoughtFinalStore, lateThoughtWeight.id)), true, "late-source reconciliation preserves every non-target record and target identity");
 
   const authenticVariants = new Set();
@@ -1658,7 +1663,7 @@ async function run() {
   assert.equal(generatedRecord.createdAt, beforeGenerated.createdAt);
   assert.equal(generatedRecord.criticResult.approved, true);
   assert.equal(generatedRecord.criticResult.reasonCode, "approved");
-  assert.equal(generatedRecord.modelVersion, "writer:gpt-4.1-nano;critic:gpt-4.1-mini");
+  assert.equal(generatedRecord.modelVersion, "writer:gpt-4.1-mini;critic:gpt-4.1-mini");
   assert.equal(generatedStore.coachMessages.filter((message) => message.weightId === "weight-5").length, 1);
   assert(!generatedRecord.text.includes("999 lb"), "rejected draft copy is never persisted");
   assert(!Object.keys(generatedRecord).some((key) => /draft|raw/i.test(key)), "raw rejected draft fields are never persisted");

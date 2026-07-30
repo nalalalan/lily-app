@@ -70,7 +70,7 @@ async function main() {
   if (rows.length && !coachText.includes(`${rows.at(-1).pounds} lb`)) {
     throw new Error("Live coach paragraph does not contain the latest measured weight.");
   }
-  if (current && !coachText.includes(`about ${Math.round(current.oneYearWeight)} lb`)) {
+  if (current && !coachText.toLowerCase().includes(`about ${Math.round(current.oneYearWeight)} lb`)) {
     throw new Error("Live coach paragraph does not match the current rounded trend outlook.");
   }
   if (/\b(?:A saved Brain (?:entry|thought)|Alan saved a Brain thought|the longer thought saved here)\b/i.test(coachText)) {
