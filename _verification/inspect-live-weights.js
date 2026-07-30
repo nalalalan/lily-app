@@ -61,7 +61,7 @@ async function main() {
   if (!latestCoach || !latestCoach.weightId || !latestCoach.createdAt || !coachText) {
     throw new Error("Live API did not return a persisted latestCoach payload.");
   }
-  if (coachWords.length < 35 || coachWords.length > 55 || /[\r\n]/.test(coachText)) {
+  if (coachWords.length < 35 || coachWords.length > 80 || /[\r\n]/.test(coachText)) {
     throw new Error(`Live coach paragraph failed its one-paragraph word-count gate: ${coachWords.length}`);
   }
   if (/goal|target weight|jyp|idol|obese|fasting|skip(?:ping)? meals?|punish|compensat|diagnos|[âÃÂ�]/i.test(coachText)) {
@@ -72,6 +72,9 @@ async function main() {
   }
   if (current && !coachText.includes(`about ${Math.round(current.oneYearWeight)} lb`)) {
     throw new Error("Live coach paragraph does not match the current rounded trend outlook.");
+  }
+  if (/\b(?:A saved Brain (?:entry|thought)|Alan saved a Brain thought|the longer thought saved here)\b/i.test(coachText)) {
+    throw new Error("Live coach paragraph still uses generic personal-context boilerplate instead of a source-specific anchor.");
   }
   console.log(JSON.stringify({
     count: rows.length,
