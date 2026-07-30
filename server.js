@@ -71,16 +71,16 @@ function publicApiErrorMessage(error, status = Number(error?.status) || 500) {
   return status >= 500 ? "Something went wrong. Please try again." : (error?.message || "Request failed.");
 }
 
-const COACH_GENERATION_VERSION = "coach-pipeline-v15";
+const COACH_GENERATION_VERSION = "coach-pipeline-v16";
 const COACH_ANALYSIS_VERSION = "coach-analysis-v8";
-const COACH_WRITER_PROMPT_VERSION = "coach-writer-v11";
+const COACH_WRITER_PROMPT_VERSION = "coach-writer-v12";
 const COACH_CRITIC_PROMPT_VERSION = "coach-critic-v7";
 const COACH_VALIDATOR_VERSION = "coach-validator-v6";
-const COACH_FALLBACK_VERSION = "coach-fallback-v11";
+const COACH_FALLBACK_VERSION = "coach-fallback-v12";
 const COACH_ACTION_VERSION = "coach-action-v7";
 const COACH_PROMPT_VERSION = COACH_WRITER_PROMPT_VERSION;
 const COACH_SAFETY_VERSION = "coach-safety-v7";
-const COACH_STYLE_VERSION = "coach-style-brain-led-v6";
+const COACH_STYLE_VERSION = "coach-style-brain-led-v7";
 const COACH_PENDING_STATUS = "pending-contextual-repair";
 const COACH_MIN_WORDS = 35;
 const COACH_MAX_WORDS = 55;
@@ -2395,7 +2395,8 @@ function buildContextualFallbackCandidates(context, previousMessages = [], limit
   const facts = fallbackFactClauseVariants(context);
   const wordBounds = coachWordBounds(context);
   const presentationSeed = coachPresentationSeed(context);
-  const structures = sourceSpecificBrainContextLeads(context) ? BRAIN_LED_FALLBACK_STRUCTURES : FALLBACK_STRUCTURES;
+  const brainLed = sourceSpecificBrainContextLeads(context);
+  const structures = brainLed ? BRAIN_LED_FALLBACK_STRUCTURES : FALLBACK_STRUCTURES;
   const start = stableIndex(`${presentationSeed}|fallback`, structures.length);
   const rejectionCounts = {};
   const recentOpeningFingerprints = new Set(previousMessages.slice(0, 6).map((message) => openingFingerprint(message.text || message)));
@@ -2436,10 +2437,11 @@ function buildContextualFallbackCandidates(context, previousMessages = [], limit
               rejectionCounts["word-count"] = (rejectionCounts["word-count"] || 0) + 1;
               continue;
             }
-            const structureId = `${sourceSpecificBrainContextLeads(context) ? "brain-led-" : ""}${context.verdict}-${structureIndex + 1}-${openingEntry.index + 1}-${closingEntry.index + 1}-${currentIndex + 1}-${evidenceIndex + 1}-${outlookIndex + 1}-${actionOffset + 1}`;
+            const structureId = `${brainLed ? "brain-led-" : ""}${context.verdict}-${structureIndex + 1}-${openingEntry.index + 1}-${closingEntry.index + 1}-${currentIndex + 1}-${evidenceIndex + 1}-${outlookIndex + 1}-${actionOffset + 1}`;
             scheduled.push({
               text,
               structureId,
+              narrativePenalty: brainLed && structureIndex >= 6 ? 1 : 0,
               scheduleRank: stableIndex(`${presentationSeed}|${structureId}`, 0x7fffffff)
             });
           }
@@ -2447,7 +2449,7 @@ function buildContextualFallbackCandidates(context, previousMessages = [], limit
       }
     }
   }
-  scheduled.sort((left, right) => left.scheduleRank - right.scheduleRank || left.structureId.localeCompare(right.structureId));
+  scheduled.sort((left, right) => left.narrativePenalty - right.narrativePenalty || left.scheduleRank - right.scheduleRank || left.structureId.localeCompare(right.structureId));
   const validationBatchSize = 192;
   const selectedCandidates = [];
   const selectedOpenings = new Set();
@@ -2464,7 +2466,7 @@ function buildContextualFallbackCandidates(context, previousMessages = [], limit
         maxPriorSimilarity: priorSimilarities.length ? Math.max(...priorSimilarities) : 0
       };
     });
-    rankedCandidates.sort((left, right) => left.maxPriorSimilarity - right.maxPriorSimilarity || left.structureId.localeCompare(right.structureId) || left.text.localeCompare(right.text));
+    rankedCandidates.sort((left, right) => left.narrativePenalty - right.narrativePenalty || left.maxPriorSimilarity - right.maxPriorSimilarity || left.structureId.localeCompare(right.structureId) || left.text.localeCompare(right.text));
     for (const candidate of rankedCandidates) {
       const validation = validateCoachParagraph(candidate.text, context, previousMessages, { privateGoal: NaN });
       if (!validation.ok) {
@@ -3091,7 +3093,7 @@ async function generateCoachParagraph(context, previousMessages = [], options = 
       const writerText = await requestCoachResponse([
         { role: "system", content: system },
         { role: "user", content: `FACTS: ${JSON.stringify(criticCoachFacts(context))}\nAPPROVED COPY COMPONENTS: ${JSON.stringify(approvedComponents)}\nRECENT ARGUMENTS TO AVOID: ${JSON.stringify(recentCoachAvoidance(previousMessages))}` }
-      ], { ...options, model: options.model || coachWriterModel, timeoutMs: remainingTimeoutMs(), schema: writerSchema, schemaName: "lily_coach_candidates_v5", maxOutputTokens: 620 });
+      ], { ...options, model: options.model || coachWriterModel, timeoutMs: remainingTimeoutMs(), schema: writerSchema, schemaName: "lily_coach_candidates_v6", maxOutputTokens: 620 });
       const candidates = parseWriterCandidates(writerText);
       if (candidates.length !== COACH_CANDIDATE_COUNT) {
         lastStatus = "fallback-writer-format";
@@ -3120,16 +3122,16 @@ async function generateCoachParagraph(context, previousMessages = [], options = 
         }
         validCandidates.push({ text: validation.text, action: validation.action });
       }
-      if (validCandidates.length !== COACH_CANDIDATE_COUNT) {
+      if (!validCandidates.length) {
         lastStatus = "fallback-writer-validation";
-        rejectionCodes.push("writer-incomplete-valid-candidates");
+        rejectionCodes.push("writer-no-valid-candidates");
         continue;
       }
 
       const criticText = await requestCoachResponse([
         {
           role: "system",
-          content: "Select exactly one of the three alternatives that makes the strongest new story clearest, then independently evaluate all six critic checks for that selected candidate only. Never combine the alternatives or count language from an unselected candidate; they are separate paragraph choices. Every candidate has already passed deterministic fact, evidence, verdict, single-action, privacy, safety, style, originality, and closed-copy checks. Approve only if every check passes for the selected candidate; reject with a concrete reason for any failed check. For verdict, FACTS.verdict is an internal classification, not required copy. verdictEvidence.approvedFamilyOpening is an exact deterministic family check. Set verdict=true when it is true unless the paragraph praises an adverse result, condemns a good-progress result, treats a verify outlier as settled, or claims a trend from a baseline. For privacySafety, reject diagnosis references, mental-health labels, alarmist framing, rejection-coded language, coercion, shame, blame, all-caps pressure, exclamation overload, sexual detail, conditional affection, or invented relationship claims. An exact FACTS.relationshipSupport.approvedText is allowed when present and must not be expanded. For actionCompliance, inspect only the selected annotatedText. The one instruction is enclosed once by <approved_action> tags. Set actionCompliance=true when text outside those tags has no additional concrete instruction. The tags are critic-only metadata. Never count factual weight-change language, comparison material, an approved relationship-support sentence, or an unselected alternative. Ingredients and flavor inside the marked sentence are one instruction. For originality, use originalityEvidence as exact measurements: set originality=true when every freshness/cooldown flag is true and maxOrderedTrigramSimilarity is below rejectionThreshold. Do not subjectively reject required facts or similarities already below that threshold. If all six checks pass, return approved=true, the selected index, and reasonCode approved. Return only the required JSON."
+          content: "Select exactly one of the available validated alternatives that makes the strongest new story clearest, then independently evaluate all six critic checks for that selected candidate only. Never combine the alternatives or count language from an unselected candidate; they are separate paragraph choices. Every supplied candidate has already passed deterministic fact, evidence, verdict, single-action, privacy, safety, style, originality, and closed-copy checks. Approve only if every check passes for the selected candidate; reject with a concrete reason for any failed check. For verdict, FACTS.verdict is an internal classification, not required copy. verdictEvidence.approvedFamilyOpening is an exact deterministic family check. Set verdict=true when it is true unless the paragraph praises an adverse result, condemns a good-progress result, treats a verify outlier as settled, or claims a trend from a baseline. For privacySafety, reject diagnosis references, mental-health labels, alarmist framing, rejection-coded language, coercion, shame, blame, all-caps pressure, exclamation overload, sexual detail, conditional affection, or invented relationship claims. An exact FACTS.relationshipSupport.approvedText is allowed when present and must not be expanded. For actionCompliance, inspect only the selected annotatedText. The one instruction is enclosed once by <approved_action> tags. Set actionCompliance=true when text outside those tags has no additional concrete instruction. The tags are critic-only metadata. Never count factual weight-change language, comparison material, an approved relationship-support sentence, or an unselected alternative. Ingredients and flavor inside the marked sentence are one instruction. For originality, use originalityEvidence as exact measurements: set originality=true when every freshness/cooldown flag is true and maxOrderedTrigramSimilarity is below rejectionThreshold. Do not subjectively reject required facts or similarities already below that threshold. If all six checks pass, return approved=true, the selected index, and reasonCode approved. Return only the required JSON."
         },
         {
           role: "user",

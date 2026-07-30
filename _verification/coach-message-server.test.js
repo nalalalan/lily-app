@@ -792,6 +792,7 @@ async function run() {
   assert(currentLiveFallback.text.startsWith(specificFigureThought.text), "the exact current 32-weight history has a compliant Brain-led fallback instead of failing live refresh");
   assert.match(currentLiveFallback.text, /151 lb/);
   assert.match(currentLiveFallback.text, /about 156 lb/i);
+  assert(currentLiveFallback.text.indexOf(currentLiveFallback.action.text) > currentLiveFallback.text.toLowerCase().indexOf("outlook"), "the exact current Brain-led fallback finishes the analysis before giving its one action");
   assert.deepEqual(coach.validateCoachParagraph(currentLiveFallback.text, currentLiveContext, currentLivePrevious, { privateGoal: 117 }).errors, []);
 
   const cooldownWeights = [
@@ -1575,6 +1576,21 @@ async function run() {
   assert.equal(approvedGeneration.text, modelWrittenRows[1].text);
   assert.equal(approvedGeneration.criticResult.checks.originality, true);
   assert.equal(approvedGeneration.criticResult.reasonCode, "approved");
+
+  const partialWriterPayload = JSON.stringify({ candidates: [
+    { text: modelWrittenRows[0].text },
+    { text: wrongNumber },
+    { text: wrongNumber.replace("999 lb", "998 lb") }
+  ] });
+  const partialApprovedGeneration = await coach.generateCoachParagraph(july22, [], {
+    apiKey: "test-key",
+    privateGoal: 117,
+    fetchImpl: queuedFetch([partialWriterPayload, criticPayload(true, 0)]),
+    timeoutMs: 3000
+  });
+  assert.equal(partialApprovedGeneration.status, "generated-and-critic-approved", "one fully validated original candidate reaches the critic without an unnecessary second writer round");
+  assert.equal(partialApprovedGeneration.text, modelWrittenRows[0].text);
+  assert.equal(partialApprovedGeneration.diagnostics.validCandidateCount, 1);
 
   const invalidWriter = await coach.generateCoachParagraph(july22, [], {
     apiKey: "test-key",
