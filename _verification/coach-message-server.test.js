@@ -579,7 +579,7 @@ async function run() {
   assert.match(finalFallback.text, /up 2\.5 lb/);
   assert.match(finalFallback.text, /accelerat/i);
   assert.match(finalFallback.text, /about 146 lb/);
-  assert.deepEqual(Object.keys(finalFallback.personalAnchor).sort(), ["approvedText", "id", "semanticAnchorId", "sourceHash", "sourceTimestamp", "sourceType"].sort(), "private records retain only the approved anchor and opaque provenance needed for deterministic repair");
+  assert.deepEqual(Object.keys(finalFallback.personalAnchor).sort(), ["approvedText", "id", "semanticAnchorId", "sourceHash", "sourceTimestamp", "sourceType", "specificity"].sort(), "private records retain only the approved anchor and opaque provenance needed for deterministic repair");
   assert(finalFallback.text.includes(finalFallback.personalAnchor.approvedText));
   assert.equal(coach.personalAnchorFromCoachRecord(finalFallback).text, finalFallback.personalAnchor.approvedText);
   assert(!JSON.stringify(finalFallback.personalAnchor).includes(productionStore.memories[0].text), "raw Lily source text is never persisted with the coach anchor");
@@ -731,6 +731,24 @@ async function run() {
     createdAt: "2026-07-22T15:30:00.000Z"
   }, { cutoff: Date.parse("2026-07-22T16:05:00.000Z") }), null, "a media filename/title shell is not substantial personal context");
 
+  const specificFigureThought = coach.brainThoughtAnchorFromFile({
+    id: "brain-specific-figure",
+    sourceText: "I am debating the loading and unloading hysteresis for the constrained 3x3 module in Figure 2, especially whether the bottom row should have two plots or three plots.",
+    sourceCreatedAt: "2026-07-30T21:48:03.114Z"
+  }, { cutoff: Date.parse("2026-07-30T22:00:00.000Z") });
+  const specificAppThought = coach.brainThoughtAnchorFromFile({
+    id: "brain-specific-app",
+    sourceText: "I am fixing Virtual Violin bow tracking so the cursor follows the played string instead of jumping to the neighboring string.",
+    lifeLeverageHighlightText: "Virtual Violin bow tracking follows the played string",
+    sourceCreatedAt: "2026-07-30T21:49:03.114Z"
+  }, { cutoff: Date.parse("2026-07-30T22:00:00.000Z") });
+  assert.equal(specificFigureThought.specificity, "source-specific");
+  assert.match(specificFigureThought.text, /3x3|hysteresis|Figure 2/i, "a safe Brain reduction retains the actual research decision instead of only its broad topic");
+  assert.match(specificFigureThought.text, /two bottom-row plots or three/i);
+  assert.match(specificAppThought.text, /Virtual Violin bow tracking/i, "a second same-family note retains its own concrete subject");
+  assert.notEqual(specificFigureThought.text, specificAppThought.text);
+  assert(!Object.values(coach.BRAIN_THOUGHT_ANCHOR_COPY).flat().includes(specificFigureThought.text), "source-specific Brain context is not one of the fixed topic sentences");
+
   const cooldownWeights = [
     recordWeight("cooldown-prior", "2026-07-21", 150),
     recordWeight("cooldown-current", "2026-07-22", 150.2)
@@ -777,6 +795,26 @@ async function run() {
     fetchImpl: async () => ({ ok: true, json: async () => ({ files: [{ id: "different-cat-source", sourceText: "A saved thought about cats.", createdAt: "2026-07-22T15:05:00.000Z" }] }) })
   });
   assert.equal(semanticallyCooledSelection, null, "semantic cooldown rotates a cats anchor even when Lily and Brain use different source types and ids");
+  const sameTopicBrainStore = {
+    ...cooldownStore,
+    coachMessages: [{
+      ...cooldownStore.coachMessages[0],
+      id: "same-topic-brain-coach",
+      evidenceReferences: [{ type: "brain-thought-anchor", id: "older-app-source", role: "brain-thought-apps" }]
+    }]
+  };
+  const newerSameTopicSelection = await coach.fetchLatestBrainThoughtAnchor(sameTopicBrainStore, {
+    apiBase: "https://brain.test",
+    weightId: "cooldown-current",
+    cutoff: Date.parse("2026-07-22T16:05:00.000Z"),
+    fetchImpl: async () => ({ ok: true, json: async () => ({ files: [{
+      id: "newer-app-source",
+      sourceText: "I am changing Virtual Violin bow tracking so the active string stays visible.",
+      lifeLeverageHighlightText: "Virtual Violin bow tracking keeps the active string visible",
+      createdAt: "2026-07-22T15:08:00.000Z"
+    }] }) })
+  });
+  assert.equal(newerSameTopicSelection.id, "newer-app-source", "a genuinely new Brain source is not discarded merely because an older note shared its broad topic");
 
   const rawBrainLetter = [
     "Dear Lily, I am your boyfriend and I love you.",
@@ -1119,6 +1157,47 @@ async function run() {
   assert.equal(genericIdempotent.updated, false);
   assert.equal(genericIdempotent.status, "already-current", "generic reconciliation is idempotent once the newest source is attached");
 
+  const lateThoughtWeight = recordWeight("late-thought-weight", "2026-07-30", 151, "T21:30:30.660Z");
+  let lateThoughtStore = baseStore([lateThoughtWeight], { memories: substantialAnchorMemories("late-thought"), trackerEvents: [] });
+  lateThoughtStore = coach.addFallbackCoachForWeight(lateThoughtStore, lateThoughtWeight.id, "fallback-before-late-thought");
+  const lateThoughtBeforeCoach = coach.coachForWeight(lateThoughtStore, lateThoughtWeight.id);
+  const lateThoughtFile = {
+    id: "late-specific-brain-thought",
+    kind: "generated pdf",
+    mime: "application/pdf",
+    name: "brain-text-20260730-174803.pdf",
+    generatedNoteLayoutVersion: "test-v1",
+    sourceText: "I am debating the loading and unloading hysteresis for the constrained 3x3 module in Figure 2, especially whether the bottom row should have two plots or three plots.",
+    sourceCreatedAt: "2026-07-30T21:48:03.114Z",
+    createdAt: "2026-07-30T21:48:03.114Z"
+  };
+  await coach.writeStore(() => lateThoughtStore);
+  const lateThoughtBaseline = coach.coachRefreshPreservationSnapshot(lateThoughtStore, lateThoughtWeight.id);
+  const futureThoughtBlocked = await coach.reconcileLatestCoachBrainContext({
+    operationalNow: Date.parse("2026-07-30T21:40:00.000Z"),
+    bypassCooldown: true,
+    awaitGeneration: true,
+    apiBase: "https://brain.test",
+    fetchImpl: async () => ({ ok: true, json: async () => ({ files: [lateThoughtFile] }) })
+  });
+  assert.equal(futureThoughtBlocked.updated, false, "a Brain thought cannot be used before its real source timestamp");
+  const lateThoughtReconciled = await coach.reconcileLatestCoachBrainContext({
+    operationalNow: Date.parse("2026-07-30T21:50:00.000Z"),
+    bypassCooldown: true,
+    awaitGeneration: true,
+    apiBase: "https://brain.test",
+    fetchImpl: async () => ({ ok: true, json: async () => ({ files: [lateThoughtFile] }) })
+  });
+  assert.equal(lateThoughtReconciled.updated, true, "a generic Brain thought saved more than five minutes after the weigh-in still upgrades the current memo");
+  const lateThoughtFinalStore = await coach.readStore();
+  const lateThoughtCoach = coach.coachForWeight(lateThoughtFinalStore, lateThoughtWeight.id);
+  assert.equal(lateThoughtCoach.id, lateThoughtBeforeCoach.id);
+  assert.equal(lateThoughtCoach.createdAt, lateThoughtBeforeCoach.createdAt);
+  assert.equal(lateThoughtCoach.personalAnchor.id, lateThoughtFile.id);
+  assert.equal(lateThoughtCoach.personalAnchor.specificity, "source-specific");
+  assert.match(lateThoughtCoach.text, /3x3|hysteresis|Figure 2/i);
+  assert.equal(coach.assertCoachRefreshPreserved(lateThoughtBaseline, coach.coachRefreshPreservationSnapshot(lateThoughtFinalStore, lateThoughtWeight.id)), true, "late-source reconciliation preserves every non-target record and target identity");
+
   const authenticVariants = new Set();
   for (let index = 0; index < 30; index += 1) {
     const support = coach.brainRelationshipSupportFromFile({
@@ -1340,10 +1419,12 @@ async function run() {
   assert.deepEqual(coach.supportiveCoachStyleErrors(acceptanceExample), []);
   assert.doesNotMatch(acceptanceExample, /not good enough|warning|red alert|fight|attack|earn|prove|!{2,}/i);
   assert.doesNotMatch(acceptanceExample, /private-sensitive-label|diagnos\w*|clinical label/i);
+  const detachedAnchor = acceptanceExample.replace(`; ${july22.personalAnchor.text};`, `. ${july22.personalAnchor.text}.`);
+  assert(coach.validateCoachParagraph(detachedAnchor, july22, [], { privateGoal: 117 }).errors.includes("detached-personal-anchor"), "personal context must change the reasoning sentence instead of appearing as a detachable aside");
 
   const wrongNumber = fallback.replace("151 lb", "999 lb");
   assert(coach.validateCoachParagraph(wrongNumber, july22, [], { privateGoal: 117 }).errors.includes("unsupported-number"));
-  const leakedGoal = fallback.replace("about 146 lb", "about 117 lb");
+  const leakedGoal = fallback.replace(/about 146 lb/i, "about 117 lb");
   assert(coach.validateCoachParagraph(leakedGoal, july22, [], { privateGoal: 117 }).errors.includes("goal-leak"));
   const fallbackClosing = coach.FALLBACK_CLOSINGS[july22.verdict].find((closing) => fallback.endsWith(closing));
   assert(fallbackClosing, "the fallback ends with one approved supportive closing");
@@ -1411,11 +1492,31 @@ async function run() {
   const structureB = "WRONG WAY—149 lb is up 0.7 lb. The 3-day move is up 1.2 lb.";
   assert.equal(coach.structuralFingerprint(structureA, july22), coach.structuralFingerprint(structureB, july22), "changing numbers inside a repeated argument is not original analysis");
 
-  const writerRows = coach.buildContextualFallbackCandidates(july22, [], 3, { writerSafe: true });
+  const sameFrameActionA = july22.actionRealizations[0].text;
+  const sameFrameActionB = july22.actionRealizations[1].text;
+  const sameFrameA = coach.FALLBACK_STRUCTURES[0](
+    coach.WRITER_SAFE_OPENINGS["not-good-enough"][0], acceptanceFacts.current[0], acceptanceFacts.evidence[0], acceptanceFacts.outlook[0],
+    sameFrameActionA, coach.WRITER_SAFE_CLOSINGS["not-good-enough"][0], july22.personalAnchor.text
+  );
+  const sameFrameB = coach.FALLBACK_STRUCTURES[0](
+    coach.WRITER_SAFE_OPENINGS["not-good-enough"][1], acceptanceFacts.current[1], acceptanceFacts.evidence[1], acceptanceFacts.outlook[1],
+    sameFrameActionB, coach.WRITER_SAFE_CLOSINGS["not-good-enough"][1], july22.personalAnchor.text
+  );
+  assert.equal(coach.semanticArgumentFingerprint({ text: sameFrameA, actionText: sameFrameActionA }, july22), coach.semanticArgumentFingerprint({ text: sameFrameB, actionText: sameFrameActionB }, july22), "semantic framing identifies the repeated reasoning beneath different surface copy");
+  assert(coach.trigramSimilarity(sameFrameA, sameFrameB, july22) < 0.72, "the repeated reasoning fixture stays below the old lexical-only threshold");
+  assert(coach.noveltyErrors(sameFrameB, july22, [{ text: sameFrameA, actionText: sameFrameActionA }], { text: sameFrameActionB, id: "test", semantic: "test" }).includes("repeat-argument-frame"), "a repeated argument sequence fails even when its numbers and wording change");
+
+  const writerRows = coach.buildContextualFallbackCandidates(july22, [], 12, { writerSafe: true })
+    .filter((candidate) => candidate.wordCount < coach.COACH_RELATIONSHIP_MAX_WORDS)
+    .slice(0, 3);
   assert.equal(writerRows.length, 3, "the schema-enforced writer pool supplies several vetted paragraphs");
   assert.equal(new Set(writerRows.map((candidate) => coach.openingFingerprint(candidate.text))).size, 3, "writer-pool openings are distinct");
   assert.equal(new Set(writerRows.map((candidate) => coach.closingFingerprint(candidate.text))).size, 3, "writer-pool closings are distinct");
-  const writerPayload = JSON.stringify({ candidates: writerRows.map((candidate) => ({ text: candidate.text })) });
+  const modelWrittenRows = writerRows.map((candidate) => ({ ...candidate, text: candidate.text.replace("; ", ", while ") }));
+  assert(modelWrittenRows.every((candidate) => candidate.text !== writerRows.find((row) => row.structureId === candidate.structureId).text), "writer candidates are newly assembled rather than copied from the fallback pool");
+  const modelWrittenValidations = modelWrittenRows.map((candidate) => coach.validateCoachParagraph(candidate.text, july22, [], { privateGoal: 117 }));
+  assert(modelWrittenValidations.every((validation) => validation.ok), `newly assembled factual prose passes the deterministic gates: ${JSON.stringify(modelWrittenValidations.map((validation) => validation.errors))}`);
+  const writerPayload = JSON.stringify({ candidates: modelWrittenRows.map((candidate) => ({ text: candidate.text })) });
   const approvedGeneration = await coach.generateCoachParagraph(july22, [], {
     apiKey: "test-key",
     privateGoal: 117,
@@ -1423,7 +1524,7 @@ async function run() {
     timeoutMs: 3000
   });
   assert.equal(approvedGeneration.status, "generated-and-critic-approved");
-  assert.equal(approvedGeneration.text, writerRows[1].text);
+  assert.equal(approvedGeneration.text, modelWrittenRows[1].text);
   assert.equal(approvedGeneration.criticResult.checks.originality, true);
   assert.equal(approvedGeneration.criticResult.reasonCode, "approved");
 
@@ -1435,7 +1536,7 @@ async function run() {
   });
   assert.match(invalidWriter.status, /^fallback-writer-/);
   assert.equal(invalidWriter.text, fallback);
-  assert(invalidWriter.diagnostics.rejectionCodes.includes("writer-outside-pool"));
+  assert(invalidWriter.diagnostics.rejectionCodes.some((code) => ["unsupported-number", "closed-current-fact", "current-weight"].includes(code)), "model-written prose is rejected for wrong facts rather than merely for being outside a canned pool");
 
   const duplicateWriterPayload = JSON.stringify({ candidates: [writerRows[0], writerRows[0], writerRows[0]].map((candidate) => ({ text: candidate.text })) });
   const duplicateWriter = await coach.generateCoachParagraph(july22, [], {
