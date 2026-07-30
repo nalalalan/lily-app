@@ -58,6 +58,25 @@ function liveWeights(idPrefix = "live-weight-", timestampSuffix = "T16:00:00.000
   return rows.map(([date, weight], index) => recordWeight(`${idPrefix}${index}`, date, weight, timestampSuffix));
 }
 
+function liveWeightsThroughJul30(idPrefix = "current-live-weight-") {
+  const rows = [
+    ["2026-06-26", 149.4], ["2026-06-28", 148.5], ["2026-06-29", 147.4], ["2026-06-30", 149],
+    ["2026-07-01", 149.4], ["2026-07-02", 149.4], ["2026-07-03", 148.8], ["2026-07-04", 149.9],
+    ["2026-07-06", 150.7], ["2026-07-07", 149], ["2026-07-08", 147.5], ["2026-07-10", 150.3],
+    ["2026-07-11", 150.5], ["2026-07-12", 149.9], ["2026-07-13", 150], ["2026-07-14", 147.7],
+    ["2026-07-15", 149.4], ["2026-07-16", 150.3], ["2026-07-17", 149.9], ["2026-07-18", 149.4],
+    ["2026-07-19", 148.5], ["2026-07-20", 149.9], ["2026-07-21", 149.9], ["2026-07-22", 151],
+    ["2026-07-23", 151.8], ["2026-07-24", 151.4], ["2026-07-25", 150.5], ["2026-07-26", 151.2],
+    ["2026-07-27", 151.2], ["2026-07-28", 151.3], ["2026-07-29", 151.2], ["2026-07-30", 151]
+  ];
+  return rows.map(([date, weight], index) => recordWeight(
+    `${idPrefix}${index}`,
+    date,
+    weight,
+    date === "2026-07-30" ? "T21:30:30.660Z" : "T16:00:00.000Z"
+  ));
+}
+
 function savedContext() {
   return {
     memories: [
@@ -750,6 +769,30 @@ async function run() {
   assert.match(specificAppThought.text, /Virtual Violin bow tracking/i, "a second same-family note retains its own concrete subject");
   assert.notEqual(specificFigureThought.text, specificAppThought.text);
   assert(!Object.values(coach.BRAIN_THOUGHT_ANCHOR_COPY).flat().includes(specificFigureThought.text), "source-specific Brain context is not one of the fixed topic sentences");
+  const migratedSpecificAnchor = coach.personalAnchorFromCoachRecord({
+    personalAnchor: {
+      sourceType: "brain-thought-anchor",
+      id: "legacy-specific-figure",
+      sourceTimestamp: "2026-07-30T21:48:03.114Z",
+      sourceHash: "legacy-safe-hash",
+      semanticAnchorId: "brain-thought-research",
+      approvedText: "Alan is in Brain thinking through the constrained 3x3 loading/unloading hysteresis plot and whether figure 2 needs two bottom-row plots or three",
+      specificity: "source-specific"
+    }
+  });
+  assert.match(migratedSpecificAnchor.text, /Figure 2's constrained 3x3 loading\/unloading hysteresis and a two-versus-three-plot bottom row/i, "a private legacy sanitized anchor upgrades without needing the raw Brain note");
+  assert.match(migratedSpecificAnchor.text, /same close attention is here with you/i);
+
+  const currentLiveWeights = liveWeightsThroughJul30();
+  const currentLiveHistory = addAllFallbacks(baseStore(currentLiveWeights, { memories: substantialAnchorMemories("current-live"), trackerEvents: savedContext().trackerEvents })).store;
+  const currentLiveLatest = currentLiveWeights.at(-1);
+  const currentLiveContext = coach.buildCoachContext(currentLiveHistory, currentLiveLatest.id, { relationshipSupport: specificFigureThought });
+  const currentLivePrevious = coach.causalPreviousCoachMessages(currentLiveHistory, currentLiveLatest, 10);
+  const currentLiveFallback = coach.buildContextualFallbackResult(currentLiveContext, currentLivePrevious);
+  assert(currentLiveFallback.text.startsWith(specificFigureThought.text), "the exact current 32-weight history has a compliant Brain-led fallback instead of failing live refresh");
+  assert.match(currentLiveFallback.text, /151 lb/);
+  assert.match(currentLiveFallback.text, /about 156 lb/i);
+  assert.deepEqual(coach.validateCoachParagraph(currentLiveFallback.text, currentLiveContext, currentLivePrevious, { privateGoal: 117 }).errors, []);
 
   const cooldownWeights = [
     recordWeight("cooldown-prior", "2026-07-21", 150),

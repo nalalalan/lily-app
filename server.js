@@ -736,8 +736,8 @@ function brainResearchSpecificSubject(source) {
   const constrained = /\bconstrain\w*\b/i.test(text);
   const hysteresis = /\bhysteresis\b/i.test(text);
   const loading = /\bloading\b/i.test(text) && /\bunloading\b/i.test(text);
-  const bottomRow = /\bbottom\s+row\b/i.test(text);
-  const twoOrThree = /\b(?:2|two)\s+plots?\b/i.test(text) && /\b(?:3|three)\s+plots?\b/i.test(text);
+  const bottomRow = /\bbottom[-\s]+row\b/i.test(text);
+  const twoOrThree = /\b(?:2|two)\b/i.test(text) && /\b(?:3|three)\b/i.test(text) && /\bplots?\b/i.test(text);
   const object = [constrained ? "constrained" : "", grid, /\bmodule\b/i.test(text) ? "module" : /\barray\b/i.test(text) ? "array" : ""]
     .filter(Boolean)
     .join(" ");
@@ -769,6 +769,18 @@ function brainSpecificSubjectFromFile(file, source, topics = []) {
       return score(right) - score(left) || left.length - right.length;
     });
   return clauses.length ? `the thought “${clauses[0]}”` : "";
+}
+
+function brainSpecificCareText(subject) {
+  return `Alan is still weighing ${String(subject || "").trim()} in Brain—and that same close attention is here with you`;
+}
+
+function migrateSourceSpecificBrainCareText(value) {
+  const text = String(value || "").trim();
+  if (!text || /same close attention is here with you/i.test(text)) return text;
+  const legacySubject = text.replace(/^Alan is in Brain thinking through\s+/i, "").trim();
+  const subject = brainResearchSpecificSubject(legacySubject) || cleanBrainSpecificFragment(legacySubject, 18);
+  return subject ? brainSpecificCareText(subject) : text;
 }
 
 const BRAIN_THOUGHT_ANCHOR_COPY = Object.freeze({
@@ -883,7 +895,7 @@ function brainThoughtAnchorFromFile(file, options = {}) {
   const sourceHash = crypto.createHash("sha256").update(text).digest("hex");
   const specificSubject = brainSpecificSubjectFromFile(file, text, topics);
   const specificText = specificSubject
-    ? `Alan is still weighing ${specificSubject} in Brain—and that same close attention is here with you`
+    ? brainSpecificCareText(specificSubject)
     : "";
   return {
     id: String(file.id),
@@ -3020,13 +3032,16 @@ function sanitizePersonalAnchor(anchor) {
 function personalAnchorFromCoachRecord(message) {
   const anchor = message?.personalAnchor;
   if (!anchor?.id || !anchor?.approvedText || !anchor?.semanticAnchorId) return null;
+  const approvedText = anchor.sourceType === "brain-thought-anchor" && anchor.specificity === "source-specific"
+    ? migrateSourceSpecificBrainCareText(anchor.approvedText)
+    : String(anchor.approvedText);
   return {
     sourceType: String(anchor.sourceType || "memory-personal-anchor"),
     id: String(anchor.id),
     createdAt: String(anchor.sourceTimestamp || ""),
     sourceHash: String(anchor.sourceHash || ""),
     kind: String(anchor.semanticAnchorId),
-    text: String(anchor.approvedText),
+    text: approvedText,
     specificity: String(anchor.specificity || "")
   };
 }
