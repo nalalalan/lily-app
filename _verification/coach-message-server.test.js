@@ -602,7 +602,7 @@ async function run() {
   assert(Math.max(...fullFallbackRun.durations) < 1000, "each fallback is ready inside one second locally");
   const finalFallback = coach.coachForWeight(fullFallbackRun.store, productionWeights.at(-1).id);
   assert.match(finalFallback.text, /151 lb/);
-  assert.match(finalFallback.text, /3-day/);
+  assert.match(finalFallback.text, /3(?:-day| days)/);
   assert.match(finalFallback.text, /up 2\.5 lb/);
   assert.match(finalFallback.text, /accelerat/i);
   assert.match(finalFallback.text, /about 146 lb/i);
@@ -848,6 +848,18 @@ async function run() {
   assert.match(aug2PersonalFallback.text.slice(aug2DragonAnchor.text.length), /^[.!?]\s+/, "the Brain anchor ends as its own sentence before measurement analysis begins");
   assertParagraph(aug2PersonalFallback.text, "Aug 2 specific-Brain fallback");
   assert.equal(coach.validateCoachParagraph(aug2PersonalFallback.text, aug2PersonalContext, [], { privateGoal: 117 }).ok, true);
+  const aug2NaturalCandidate = `${aug2DragonAnchor.text}. Real progress: 150.5 lb is 1.1 lb lower today. Over 3 days, weight fell 0.5 lb, while the 28-day view is 1.3 lb higher. The 1-year outlook edged upward to about 157 lb. ${aug2PersonalContext.actionRealizations[0].text} More is possible.`;
+  assert.deepEqual(
+    coach.validateCoachParagraph(aug2NaturalCandidate, aug2PersonalContext, [], { privateGoal: 117, allowNaturalProse: true }).errors,
+    [],
+    "natural Aug 2 prose accepts grounded while/edged-upward language without loosening the exact Brain anchor, action, or numbers"
+  );
+  const misplacedAug2Anchor = `Today, ${aug2NaturalCandidate}`;
+  const misplacedAug2Errors = coach.validateCoachParagraph(misplacedAug2Anchor, aug2PersonalContext, [], { privateGoal: 117, allowNaturalProse: true }).errors;
+  assert(misplacedAug2Errors.includes("personal-anchor-not-leading") || misplacedAug2Errors.includes("personal-anchor-glued"), "source-specific Brain context cannot be demoted behind generic copy");
+  const paraphrasedAug2Action = aug2NaturalCandidate.replace(aug2PersonalContext.actionRealizations[0].text, "Take a comfortable walk after eating.");
+  const paraphrasedAug2Errors = coach.validateCoachParagraph(paraphrasedAug2Action, aug2PersonalContext, [], { privateGoal: 117, allowNaturalProse: true }).errors;
+  assert(paraphrasedAug2Errors.includes("required-action-realization") || paraphrasedAug2Errors.includes("extra-action"), "the writer cannot paraphrase or add to the single approved action");
 
   const formerlyExhaustingAnchor = {
     id: "aug2-formerly-exhausting-anchor",
@@ -1764,7 +1776,20 @@ async function run() {
   assert(modelWrittenValidations.every((validation) => validation.ok), `genuinely natural factual prose passes the deterministic gates: ${JSON.stringify(modelWrittenValidations.map((validation) => validation.errors))}`);
   const inventedPersonalState = modelWrittenRows[0].text.replace("There is still room to turn the direction.", "Alan knows you felt rejected today.");
   assert(coach.validateCoachParagraph(inventedPersonalState, july22, [], { privateGoal: 117, allowNaturalProse: true }).errors.includes("unsupported-personal-state"), "a writer cannot invent Lily's private emotional state outside the approved source sentence");
-  const writerPayload = JSON.stringify({ candidates: modelWrittenRows.map((candidate) => ({ text: candidate.text })) });
+  const writerBrief = coach.writerLeadFacts(july22);
+  const writerLeads = ["This needs a correction", "An unhelpful turn", "The line moved away"];
+  const renderedWriterLeads = writerLeads.map((lead, index) => coach.renderWriterLead(lead, july22, index));
+  assert(renderedWriterLeads.every((rendered) => rendered.ok), `all protected lead compositions render: ${JSON.stringify(renderedWriterLeads.map((rendered) => rendered.errors))}`);
+  const renderedWriterValidations = renderedWriterLeads.map((rendered) => coach.validateCoachParagraph(rendered.text, july22, [], { privateGoal: 117, allowNaturalProse: true }));
+  assert(renderedWriterValidations.every((validation) => validation.ok), `the composed leads pass every final fact and safety gate: ${JSON.stringify(renderedWriterValidations.map((validation) => validation.errors))}`);
+  assert(coach.writerLeadErrors("Correction").errors.includes("writer-lead-word-count"), "a one-word model fragment cannot masquerade as analyzed coaching");
+  assert(coach.writerLeadErrors("Progress at 999 lb").errors.includes("writer-lead-format"), "the model cannot inject or alter a protected number");
+  assert(coach.writerLeadErrors("Take a walk now").errors.includes("writer-lead-action"), "the model cannot add a second action");
+  assert(coach.writerLeadErrors("Steady improvement today", aug2PersonalContext).errors.includes("writer-lead-overclaim"), "a one-day correction cannot be inflated into a steady trend when the broad outlook contradicts it");
+  const unsafeWriterLead = coach.renderWriterLead("Worthless failure today", july22, 0);
+  assert(unsafeWriterLead.ok, "lead composition itself remains independent from prose safety");
+  assert(coach.validateCoachParagraph(unsafeWriterLead.text, july22, [], { privateGoal: 117, allowNaturalProse: true }).errors.includes("unsafe-language"), "unsafe generated lead prose still fails the final validator");
+  const writerPayload = JSON.stringify({ candidates: writerLeads.map((text) => ({ text })) });
   const writerRequestBodies = [];
   const approvedQueue = [writerPayload, criticPayload(true, 0)];
   const approvedGeneration = await coach.generateCoachParagraph(july22, [], {
@@ -1777,14 +1802,18 @@ async function run() {
     timeoutMs: 3000
   });
   assert.equal(approvedGeneration.status, "generated-and-critic-approved");
-  assert.equal(approvedGeneration.text, modelWrittenRows[0].text);
+  assert.equal(approvedGeneration.text, renderedWriterLeads[0].text);
   assert.equal(approvedGeneration.criticResult.checks.originality, true);
   assert.equal(approvedGeneration.criticResult.reasonCode, "approved");
   assert.equal(writerRequestBodies.length, 2, "the writer and critic each run once for approved natural prose");
-  assert(!JSON.stringify(writerRequestBodies[0]).includes("approvedCopyComponents"), "the writer receives structured facts and approved actions, never canned openings or closings");
+  assert(!JSON.stringify(writerRequestBodies[0]).includes("approvedCopyComponents"), "the writer receives a compact story brief and protected slots, never canned openings or closings");
+  const writerRequestText = JSON.stringify(writerRequestBodies[0]);
+  assert(writerRequestText.includes("three distinct 2-to-7-word verdict leads only"), "the writer receives only the compact story-and-tone task");
+  assert(!writerRequestText.includes(july22.personalAnchor.text) && !writerRequestText.includes(naturalActionA) && !writerRequestText.includes("151 lb"), "the writer cannot paraphrase protected context, action, or measurements because those values never enter its request");
+  assert(!/orderedTrigrams|recentActionSentences|structuralFingerprints/.test(writerRequestText), "opaque deterministic novelty data no longer overwhelms the writer prompt");
 
   const partialWriterPayload = JSON.stringify({ candidates: [
-    { text: modelWrittenRows[0].text },
+    { text: writerLeads[0] },
     { text: wrongNumber },
     { text: wrongNumber.replace("999 lb", "998 lb") }
   ] });
@@ -1795,7 +1824,7 @@ async function run() {
     timeoutMs: 3000
   });
   assert.equal(partialApprovedGeneration.status, "generated-and-critic-approved", "one fully validated original candidate reaches the critic without an unnecessary second writer round");
-  assert.equal(partialApprovedGeneration.text, modelWrittenRows[0].text);
+  assert.equal(partialApprovedGeneration.text, renderedWriterLeads[0].text);
   assert.equal(partialApprovedGeneration.diagnostics.validCandidateCount, 1);
 
   const invalidWriter = await coach.generateCoachParagraph(july22, [], {
@@ -1806,9 +1835,9 @@ async function run() {
   });
   assert.match(invalidWriter.status, /^fallback-writer-/);
   assert.equal(invalidWriter.text, fallback);
-  assert(invalidWriter.diagnostics.rejectionCodes.some((code) => ["unsupported-number", "closed-current-fact", "current-weight"].includes(code)), "model-written prose is rejected for wrong facts rather than merely for being outside a canned pool");
+  assert(invalidWriter.diagnostics.rejectionCodes.includes("writer-lead-format"), "unprotected model-written facts are rejected before they can alter a measurement");
 
-  const duplicateWriterPayload = JSON.stringify({ candidates: [writerRows[0], writerRows[0], writerRows[0]].map((candidate) => ({ text: candidate.text })) });
+  const duplicateWriterPayload = JSON.stringify({ candidates: [writerLeads[0], writerLeads[0], writerLeads[0]].map((text) => ({ text })) });
   const duplicateWriter = await coach.generateCoachParagraph(july22, [], {
     apiKey: "test-key",
     privateGoal: 117,
@@ -1914,8 +1943,13 @@ async function run() {
   const persistedPrevious = coach.causalPreviousCoachMessages(migrated, fixtureWeights.at(-1), 10);
   const beforeGenerated = coach.coachForWeight(migrated, "weight-5");
   const persistedGenerationHistory = [beforeGenerated, ...persistedPrevious];
-  const persistedWriterRows = coach.buildContextualFallbackCandidates(persistedContext, persistedGenerationHistory, 3, { writerSafe: true });
-  const persistedWriterPayload = JSON.stringify({ candidates: persistedWriterRows.map((candidate) => ({ text: candidate.text })) });
+  const persistedWriterLeads = ["This needs a response", "An unhelpful turn", "The line moved away"];
+  const persistedRenderedLeads = persistedWriterLeads.map((lead, index) => coach.renderWriterLead(lead, persistedContext, index, persistedGenerationHistory));
+  const persistedLeadValidations = persistedRenderedLeads.map((rendered) => rendered.ok
+    ? coach.validateCoachParagraph(rendered.text, persistedContext, persistedGenerationHistory, { privateGoal: 117, allowNaturalProse: true })
+    : rendered);
+  assert(persistedLeadValidations.some((validation) => validation.ok), `same-weight generated leads retain at least one original valid composition: ${JSON.stringify(persistedLeadValidations.map((validation) => validation.errors))}`);
+  const persistedWriterPayload = JSON.stringify({ candidates: persistedWriterLeads.map((text) => ({ text })) });
   const persistedRequestBodies = [];
   const persistedResponseQueue = [persistedWriterPayload, criticPayload(true, 0)];
   await coach.generateAndReplaceCoach("weight-5", {
@@ -1935,7 +1969,8 @@ async function run() {
   assert.equal(generatedRecord.criticResult.approved, true);
   assert.equal(generatedRecord.criticResult.reasonCode, "approved");
   assert.equal(generatedRecord.modelVersion, "writer:gpt-4.1-mini;critic:gpt-4.1-mini");
-  assert(JSON.stringify(persistedRequestBodies[0]).includes(coach.openingFingerprint(beforeGenerated.text)), "a same-weight regeneration tells the writer to avoid the currently visible memo");
+  assert(!JSON.stringify(persistedRequestBodies[0]).includes(beforeGenerated.text), "same-weight copy history stays in deterministic novelty checks instead of overwhelming the writer prompt");
+  assert(JSON.stringify(persistedRequestBodies[0]).includes("verdict leads only"), "same-weight regeneration gives the writer only a compact story brief");
   assert.equal(generatedStore.coachMessages.filter((message) => message.weightId === "weight-5").length, 1);
   assert(!generatedRecord.text.includes("999 lb"), "rejected draft copy is never persisted");
   assert(!Object.keys(generatedRecord).some((key) => /draft|raw/i.test(key)), "raw rejected draft fields are never persisted");
