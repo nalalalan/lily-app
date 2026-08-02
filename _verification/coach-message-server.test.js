@@ -823,6 +823,15 @@ async function run() {
   assert.equal(Number(aug2Context.outlookChange.toFixed(2)), 0.75);
   assert.equal(aug2Context.outlookDirection, "worsened");
   assert.equal(aug2Context.outlookEvidenceRelation, "contradicts", "the slow outlook honestly contradicts the fresh correction instead of changing its verdict");
+  const aug2HomologousWeights = aug2Weights.slice(-29);
+  const aug2HomologousContext = coach.buildCoachContext(
+    baseStore(aug2HomologousWeights, { memories: substantialAnchorMemories("aug2-homologous"), trackerEvents: savedContext().trackerEvents }),
+    aug2HomologousWeights.at(-1).id,
+    { privateGoal: 117 }
+  );
+  assert.equal(aug2HomologousContext.strongestEvidence.kind, "short-broad-contrast", "the same causal evidence keeps the same story without a magic 30-entry gate");
+  assert.equal(Number(aug2HomologousContext.strongestEvidence.movement.toFixed(1)), -0.5);
+  assert.equal(Number(aug2HomologousContext.strongestEvidence.comparisonMovement.toFixed(1)), 1.3);
 
   const aug2DragonAnchor = coach.brainThoughtAnchorFromFile({
     id: "5f127289-5d50-4d53-9f19-ef878114662f",
@@ -856,6 +865,19 @@ async function run() {
   assert(formerlyExhaustingFallback.text.startsWith(formerlyExhaustingAnchor.text), "the long authentic anchor survives fallback compaction");
   assert.match(formerlyExhaustingFallback.text.slice(formerlyExhaustingAnchor.text.length), /^[.!?]\s+/, "even the long anchor remains a standalone sentence");
   assert.equal(coach.validateCoachParagraph(formerlyExhaustingFallback.text, formerlyExhaustingContext, [], { privateGoal: 117 }).ok, true, "the old word-count exhaustion now produces a fully validated fallback");
+  let formerlyExhaustingWriterCalls = 0;
+  const formerlyExhaustingGeneration = await coach.generateCoachParagraph(formerlyExhaustingContext, [], {
+    apiKey: "test-key",
+    privateGoal: 117,
+    timeoutMs: 3000,
+    fetchImpl: async () => {
+      formerlyExhaustingWriterCalls += 1;
+      return response(JSON.stringify({ candidates: [] }));
+    }
+  });
+  assert(formerlyExhaustingWriterCalls > 0, "even a fallback-construction edge case cannot prevent the writer request from running");
+  assert.match(formerlyExhaustingGeneration.status, /^fallback-writer-/);
+  assertParagraph(formerlyExhaustingGeneration.text, "formerly exhausting generated fallback");
 
   const overwrittenAug2Text = "The trend moved against the plan. Alan noticed things felt off and wants this check-in to feel like he is beside you, not judging you. Today lands at 150.5 lb and is down 1.1 lb. A 1-day move of down 1.1 lb reversed the earlier direction. A worsened 1-year trend outlook now reads about 157 lb. Give yourself one easy walk after eating next. This number cannot define you!";
   const overwrittenAug2Action = coach.COACH_ACTION_CATALOG.find((action) => action.text === "Give yourself one easy walk after eating next.");
@@ -896,6 +918,43 @@ async function run() {
     status: "fallback-contextual",
     diagnostics: { stage: "fallback-created", attemptCount: 0 }
   }), true, "an attempt-zero contextual fallback remains eligible for checked generation and cannot become permanently stuck");
+  const retryContextA = coach.buildCoachContext(aug2Store, aug2Latest.id, { privateGoal: 100, relationshipSupport: aug2DragonAnchor });
+  const retryContextB = coach.buildCoachContext(aug2Store, aug2Latest.id, { privateGoal: 149, relationshipSupport: aug2DragonAnchor });
+  const retryInitial = coach.createCoachMessageRecord(retryContextA, aug2PersonalFallback.text, "fallback-contextual", "2026-08-02T17:00:00.000Z", null, {
+    action: aug2PersonalFallback.action,
+    structureId: aug2PersonalFallback.structureId,
+    previousMessages: [],
+    diagnostics: { stage: "fallback-created", attemptCount: 0, rejectionCodes: [], latencyMs: 0 }
+  });
+  const retryGoalVariant = coach.createCoachMessageRecord(retryContextB, aug2PersonalFallback.text, "fallback-contextual", "2026-08-02T17:00:01.000Z", null, {
+    action: aug2PersonalFallback.action,
+    structureId: aug2PersonalFallback.structureId,
+    previousMessages: [],
+    diagnostics: { stage: "fallback-created", attemptCount: 0, rejectionCodes: [], latencyMs: 0 }
+  });
+  assert.equal(retryInitial.generationInputHash, retryGoalVariant.generationInputHash, "the private goal cannot change retry identity or generation behavior");
+  const retryOnce = coach.createCoachMessageRecord(retryContextA, aug2PersonalFallback.text, "fallback-timeout", "2026-08-02T17:00:02.000Z", retryInitial, {
+    action: aug2PersonalFallback.action,
+    structureId: aug2PersonalFallback.structureId,
+    previousMessages: [retryInitial],
+    diagnostics: { stage: "timeout", attemptCount: 1, rejectionCodes: ["timeout"], latencyMs: 8000 }
+  });
+  const retryTwice = coach.createCoachMessageRecord(retryContextA, aug2PersonalFallback.text, "fallback-timeout", "2026-08-02T17:00:03.000Z", retryOnce, {
+    action: aug2PersonalFallback.action,
+    structureId: aug2PersonalFallback.structureId,
+    previousMessages: [retryOnce],
+    diagnostics: { stage: "timeout", attemptCount: 1, rejectionCodes: ["timeout"], latencyMs: 8000 }
+  });
+  assert.equal(retryOnce.diagnostics.attemptCount, 1);
+  assert.equal(retryTwice.diagnostics.attemptCount, 2, "same-input writer attempts accumulate instead of resetting to one forever");
+  assert.equal(coach.coachNeedsRepair(retryOnce), true);
+  assert.equal(coach.coachNeedsRepair(retryTwice), false, "two failed attempts stop the background retry loop");
+  const changedAnchor = { ...aug2DragonAnchor, id: "aug2-new-anchor", createdAt: "2026-08-02T17:01:00.000Z", sourceHash: "aug2-new-anchor-hash" };
+  const changedContext = coach.buildCoachContext(aug2Store, aug2Latest.id, { privateGoal: 100, relationshipSupport: changedAnchor });
+  const changedAttempt = coach.createCoachMessageRecord(changedContext, coach.buildContextualFallbackResult(changedContext, []).text, "fallback-timeout", "2026-08-02T17:01:01.000Z", retryTwice, {
+    diagnostics: { stage: "timeout", attemptCount: 1, rejectionCodes: ["timeout"], latencyMs: 8000 }
+  });
+  assert.equal(changedAttempt.diagnostics.attemptCount, 1, "a genuinely new approved context earns a fresh bounded generation attempt");
 
   const cooldownWeights = [
     recordWeight("cooldown-prior", "2026-07-21", 150),
@@ -994,16 +1053,17 @@ async function run() {
   }, "an Alan-authored Lily letter becomes only a bounded, approved relationship sentence plus source identity");
   assert.doesNotMatch(brainSupport.text, /depress|anxi|self-harm|sex|attract|breakup|weight/i, "sensitive raw letter material cannot enter the approved sentence");
 
+  const brainBaseCoach = coach.coachForWeight(observedMoodBase, reactionWeight.id);
   const brainRefresh = coach.refreshLatestCoachForBrainRelationship(
-    observedMoodRefresh.store,
+    observedMoodBase,
     brainSupport,
     "fallback-test-brain-relationship",
     Date.parse("2026-07-22T16:02:00.000Z")
   );
   assert.equal(brainRefresh.updated, true, "a fresh letter can add one relationship-safe sentence to the latest coach");
   const brainCoach = coach.coachForWeight(brainRefresh.store, reactionWeight.id);
-  assert.equal(brainCoach.id, observedMoodCoach.id, "Brain warmth refresh preserves the coach id");
-  assert.equal(brainCoach.createdAt, observedMoodCoach.createdAt, "Brain warmth refresh preserves coach creation time");
+  assert.equal(brainCoach.id, brainBaseCoach.id, "Brain warmth refresh preserves the coach id");
+  assert.equal(brainCoach.createdAt, brainBaseCoach.createdAt, "Brain warmth refresh preserves coach creation time");
   assert.equal((brainCoach.text.match(/Your nerdy PhD boyfriend/g) || []).length, 1);
   assert(brainCoach.evidenceReferences.some((reference) => reference.type === "brain-letter" && reference.id === brainFile.id && reference.sourceHash === brainSupport.sourceHash && reference.sourceCreatedAt === brainSupport.createdAt));
   assert(!JSON.stringify(brainCoach).includes(rawBrainLetter), "the raw Brain letter is never persisted in the coach record");
@@ -1154,6 +1214,27 @@ async function run() {
     cutoff: Date.parse(delayedWeight.createdAt),
     operationalNow: Date.parse("2026-07-25T19:23:01.000Z")
   });
+  const newerThoughtFile = {
+    id: "brain-newer-dragon-thought",
+    name: "ordinary-dragon-note.txt",
+    kind: "upload",
+    mime: "text/plain",
+    sourceText: "if we know where the enemy team is, we can do dragon if its safe",
+    sourceCreatedAt: "2026-07-25T19:22:30.000Z",
+    createdAt: "2026-07-25T19:22:30.000Z"
+  };
+  const newestAcrossTypes = await coach.fetchLatestBrainPersonalAnchor(delayedBase, {
+    apiBase: "https://brain.test",
+    weight: delayedWeight,
+    weightId: delayedWeight.id,
+    excludedWeightId: delayedWeight.id,
+    earliest: Date.parse(delayedWeight.createdAt) - coach.BRAIN_WEIGHT_CONTEXT_LOOKBACK_MS,
+    cutoff: Date.parse(delayedWeight.createdAt) + coach.BRAIN_WEIGHT_INDEX_GRACE_MS,
+    thoughtCutoff: Date.parse("2026-07-25T19:24:00.000Z"),
+    operationalNow: Date.parse("2026-07-25T19:24:00.000Z"),
+    fetchImpl: async () => ({ ok: true, json: async () => ({ files: [olderBrainFile, newerThoughtFile] }) })
+  });
+  assert.equal(newestAcrossTypes.id, newerThoughtFile.id, "newest eligible context wins by source timestamp instead of an older letter winning by type");
   const olderRefresh = coach.refreshLatestCoachForBrainRelationship(
     delayedBase,
     olderBrainSupport,
@@ -1162,6 +1243,14 @@ async function run() {
   );
   assert.equal(olderRefresh.updated, true);
   assert(coach.coachForWeight(olderRefresh.store, delayedWeight.id).text.includes(olderBrainSupport.text));
+  const newerThoughtRefresh = coach.refreshLatestCoachForBrainRelationship(
+    olderRefresh.store,
+    newestAcrossTypes,
+    "fallback-test-newest-cross-type-context",
+    Date.parse("2026-07-25T19:24:00.000Z")
+  );
+  assert.equal(newerThoughtRefresh.updated, true, "a newer thought replaces an older attached letter instead of being blocked by source type");
+  assert.equal(coach.coachForWeight(newerThoughtRefresh.store, delayedWeight.id).personalAnchor.sourceType, "brain-thought-anchor");
   await coach.writeStore(() => olderRefresh.store);
   let delayedFetchCount = 0;
   const reconciled = await coach.reconcileLatestCoachBrainContext({
@@ -1663,24 +1752,36 @@ async function run() {
   assert.equal(writerRows.length, 3, "the schema-enforced writer pool supplies several vetted paragraphs");
   assert.equal(new Set(writerRows.map((candidate) => coach.openingFingerprint(candidate.text))).size, 3, "writer-pool openings are distinct");
   assert.equal(new Set(writerRows.map((candidate) => coach.closingFingerprint(candidate.text))).size, 3, "writer-pool closings are distinct");
-  const modelWrittenRows = writerRows.map((candidate) => {
-    const outlookFact = acceptanceFacts.outlook.find((fact) => candidate.text.includes(fact));
-    return { ...candidate, text: candidate.text.replace(outlookFact, `Meanwhile, ${outlookFact}`) };
-  });
-  assert(modelWrittenRows.every((candidate) => candidate.text !== writerRows.find((row) => row.structureId === candidate.structureId).text), "writer candidates are newly assembled rather than copied from the fallback pool");
+  const naturalActionA = july22.actionRealizations[0].text;
+  const naturalActionB = july22.actionRealizations[1].text;
+  const modelWrittenRows = [
+    `The newest result needs a correction: at 151 lb, today is 1.1 lb higher. ${july22.personalAnchor.text}. Over three days, weight increased 2.5 lb and the move accelerated from the prior read. The one-year outlook worsened to about 146 lb. ${naturalActionA} There is still room to turn the direction.`,
+    `This is an unhelpful turn, with 151 lb up 1.1 lb today. ${july22.personalAnchor.text}. The 3-day line rose 2.5 lb, a stronger signal than before. The one-year outlook moved the wrong way to about 146 lb. ${naturalActionB} A better direction remains possible.`,
+    `The line moved away from the plan: 151 lb is 1.1 lb higher today. Across the three-day window, there was an increase of 2.5 lb, accelerated versus the earlier read. ${july22.personalAnchor.text}. About 146 lb is the worsened one-year outlook. ${naturalActionA} The path forward is still open.`
+  ].map((text, index) => ({ text, structureId: `handwritten-natural-${index + 1}` }));
+  assert(modelWrittenRows.every((candidate) => !writerRows.some((row) => row.text === candidate.text)), "the natural-writer fixture is genuinely hand-written rather than a punctuated fallback template");
   const modelWrittenValidations = modelWrittenRows.map((candidate) => coach.validateCoachParagraph(candidate.text, july22, [], { privateGoal: 117, allowNaturalProse: true }));
-  assert(modelWrittenValidations.every((validation) => validation.ok), `newly assembled factual prose passes the deterministic gates: ${JSON.stringify(modelWrittenValidations.map((validation) => validation.errors))}`);
+  assert(modelWrittenValidations.every((validation) => validation.ok), `genuinely natural factual prose passes the deterministic gates: ${JSON.stringify(modelWrittenValidations.map((validation) => validation.errors))}`);
+  const inventedPersonalState = modelWrittenRows[0].text.replace("There is still room to turn the direction.", "Alan knows you felt rejected today.");
+  assert(coach.validateCoachParagraph(inventedPersonalState, july22, [], { privateGoal: 117, allowNaturalProse: true }).errors.includes("unsupported-personal-state"), "a writer cannot invent Lily's private emotional state outside the approved source sentence");
   const writerPayload = JSON.stringify({ candidates: modelWrittenRows.map((candidate) => ({ text: candidate.text })) });
+  const writerRequestBodies = [];
+  const approvedQueue = [writerPayload, criticPayload(true, 0)];
   const approvedGeneration = await coach.generateCoachParagraph(july22, [], {
     apiKey: "test-key",
     privateGoal: 117,
-    fetchImpl: queuedFetch([writerPayload, criticPayload(true, 1)]),
+    fetchImpl: async (_url, init) => {
+      writerRequestBodies.push(JSON.parse(init.body));
+      return response(approvedQueue.shift() || "");
+    },
     timeoutMs: 3000
   });
   assert.equal(approvedGeneration.status, "generated-and-critic-approved");
-  assert.equal(approvedGeneration.text, modelWrittenRows[1].text);
+  assert.equal(approvedGeneration.text, modelWrittenRows[0].text);
   assert.equal(approvedGeneration.criticResult.checks.originality, true);
   assert.equal(approvedGeneration.criticResult.reasonCode, "approved");
+  assert.equal(writerRequestBodies.length, 2, "the writer and critic each run once for approved natural prose");
+  assert(!JSON.stringify(writerRequestBodies[0]).includes("approvedCopyComponents"), "the writer receives structured facts and approved actions, never canned openings or closings");
 
   const partialWriterPayload = JSON.stringify({ candidates: [
     { text: modelWrittenRows[0].text },
@@ -1800,7 +1901,7 @@ async function run() {
   for (const key of [
     "analysisPlan", "analysisVersion", "actionId", "actionSemantic", "actionText", "contextHash", "createdAt",
     "criticPromptVersion", "criticResult", "diagnostics", "evidenceReferences", "fallbackVersion", "fingerprintHash",
-    "generationVersion", "modelVersion", "nearestPriorMessageId", "nearestPriorSimilarity", "normalizedFingerprint",
+    "generationInputHash", "generationVersion", "modelVersion", "nearestPriorMessageId", "nearestPriorSimilarity", "normalizedFingerprint",
     "promptVersion", "safetyVersion", "status", "styleVersion", "text", "updatedAt", "validatorVersion", "verdict", "weightId", "writerPromptVersion"
   ]) assert(Object.prototype.hasOwnProperty.call(latestRecord, key), `private coach record includes ${key}`);
   assert(latestRecord.evidenceReferences.some((reference) => reference.type === "tracker" && reference.id === "period-current"));
@@ -1811,13 +1912,19 @@ async function run() {
 
   const persistedContext = coach.buildCoachContext(migrated, "weight-5", { privateGoal: 117 });
   const persistedPrevious = coach.causalPreviousCoachMessages(migrated, fixtureWeights.at(-1), 10);
-  const persistedWriterRows = coach.buildContextualFallbackCandidates(persistedContext, persistedPrevious, 3, { writerSafe: true });
-  const persistedWriterPayload = JSON.stringify({ candidates: persistedWriterRows.map((candidate) => ({ text: candidate.text })) });
   const beforeGenerated = coach.coachForWeight(migrated, "weight-5");
+  const persistedGenerationHistory = [beforeGenerated, ...persistedPrevious];
+  const persistedWriterRows = coach.buildContextualFallbackCandidates(persistedContext, persistedGenerationHistory, 3, { writerSafe: true });
+  const persistedWriterPayload = JSON.stringify({ candidates: persistedWriterRows.map((candidate) => ({ text: candidate.text })) });
+  const persistedRequestBodies = [];
+  const persistedResponseQueue = [persistedWriterPayload, criticPayload(true, 0)];
   await coach.generateAndReplaceCoach("weight-5", {
     apiKey: "test-key",
     privateGoal: 117,
-    fetchImpl: queuedFetch([persistedWriterPayload, criticPayload(true, 0)]),
+    fetchImpl: async (_url, init) => {
+      persistedRequestBodies.push(JSON.parse(init.body));
+      return response(persistedResponseQueue.shift() || "");
+    },
     timeoutMs: 3000
   });
   const generatedStore = await coach.readStore();
@@ -1828,6 +1935,7 @@ async function run() {
   assert.equal(generatedRecord.criticResult.approved, true);
   assert.equal(generatedRecord.criticResult.reasonCode, "approved");
   assert.equal(generatedRecord.modelVersion, "writer:gpt-4.1-mini;critic:gpt-4.1-mini");
+  assert(JSON.stringify(persistedRequestBodies[0]).includes(coach.openingFingerprint(beforeGenerated.text)), "a same-weight regeneration tells the writer to avoid the currently visible memo");
   assert.equal(generatedStore.coachMessages.filter((message) => message.weightId === "weight-5").length, 1);
   assert(!generatedRecord.text.includes("999 lb"), "rejected draft copy is never persisted");
   assert(!Object.keys(generatedRecord).some((key) => /draft|raw/i.test(key)), "raw rejected draft fields are never persisted");
@@ -1868,7 +1976,8 @@ async function run() {
     assertParagraph(after.text, `regenerated ${weight.createdAt}`);
     const context = coach.buildCoachContext(afterRegeneration, weight.id, { privateGoal: 117 });
     const previous = coach.causalPreviousCoachMessages(afterRegeneration, weight, 10);
-    assert.deepEqual(coach.noveltyErrors(after.text, context, previous), []);
+    const regeneratedNoveltyErrors = coach.noveltyErrors(after.text, context, previous);
+    assert.deepEqual(regeneratedNoveltyErrors, [], `regenerated ${weight.id} remains original: ${JSON.stringify(regeneratedNoveltyErrors)}`);
   }
 
   await assert.rejects(coach.writeStore(() => { throw new Error("intentional write failure"); }));

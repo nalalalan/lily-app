@@ -24,6 +24,7 @@ const privateCoachBlockedTerms = String(process.env.LILY_PRIVATE_COACH_BLOCKED_T
   .map((term) => term.trim().toLowerCase())
   .filter(Boolean);
 const coachGenerationTimeoutMs = Math.max(500, Number(process.env.LILY_COACH_TIMEOUT_MS || 8000));
+const coachBackgroundGenerationTimeoutMs = Math.max(coachGenerationTimeoutMs, Number(process.env.LILY_COACH_BACKGROUND_TIMEOUT_MS || 20000));
 const brainApiBase = String(process.env.BRAIN_API_BASE || "").trim().replace(/\/+$/, "");
 const brainRequestTimeoutMs = Math.max(250, Number(process.env.LILY_BRAIN_TIMEOUT_MS || 2000));
 const trackerTimeZone = process.env.LILY_TRACKER_TIME_ZONE || "America/New_York";
@@ -71,16 +72,16 @@ function publicApiErrorMessage(error, status = Number(error?.status) || 500) {
   return status >= 500 ? "Something went wrong. Please try again." : (error?.message || "Request failed.");
 }
 
-const COACH_GENERATION_VERSION = "coach-pipeline-v17";
-const COACH_ANALYSIS_VERSION = "coach-analysis-v9";
-const COACH_WRITER_PROMPT_VERSION = "coach-writer-v13";
+const COACH_GENERATION_VERSION = "coach-pipeline-v18";
+const COACH_ANALYSIS_VERSION = "coach-analysis-v10";
+const COACH_WRITER_PROMPT_VERSION = "coach-writer-v14";
 const COACH_CRITIC_PROMPT_VERSION = "coach-critic-v8";
-const COACH_VALIDATOR_VERSION = "coach-validator-v7";
-const COACH_FALLBACK_VERSION = "coach-fallback-v13";
+const COACH_VALIDATOR_VERSION = "coach-validator-v8";
+const COACH_FALLBACK_VERSION = "coach-fallback-v14";
 const COACH_ACTION_VERSION = "coach-action-v7";
 const COACH_PROMPT_VERSION = COACH_WRITER_PROMPT_VERSION;
 const COACH_SAFETY_VERSION = "coach-safety-v7";
-const COACH_STYLE_VERSION = "coach-style-brain-led-v8";
+const COACH_STYLE_VERSION = "coach-style-brain-led-v9";
 const COACH_PENDING_STATUS = "pending-contextual-repair";
 const COACH_MIN_WORDS = 35;
 const COACH_MAX_WORDS = 55;
@@ -1094,28 +1095,31 @@ async function fetchLatestBrainPersonalAnchor(store, options = {}) {
     const recentKeys = personalAnchorReferenceKeys(previousMessages);
     const usedLetterIds = referencedBrainLetterIds(store?.coachMessages, options.excludedWeightId || options.weightId);
     const rows = files.slice().sort((left, right) => String(right?.sourceCreatedAt || right?.createdAt || "").localeCompare(String(left?.sourceCreatedAt || left?.createdAt || "")));
+    const candidates = [];
     for (const file of rows) {
-      if (usedLetterIds.has(String(file?.id || ""))) continue;
       const support = brainRelationshipSupportFromFile(file, options);
-      if (!support
-        || recentKeys.has(`id:${support.id}`)
-        || recentKeys.has(`semantic:${personalAnchorSemanticKind(support.kind)}`)) continue;
-      if (!weight || brainSourceWithinWeightWindow(weight, support, options.operationalNow)) {
-        options.onDiagnostic?.({ status: "selected", sourceType: support.sourceType, sourceId: support.id, sourceKind: support.kind });
-        return support;
+      if (support
+        && !usedLetterIds.has(String(file?.id || ""))
+        && !recentKeys.has(`id:${support.id}`)
+        && !recentKeys.has(`semantic:${personalAnchorSemanticKind(support.kind)}`)
+        && (!weight || brainSourceWithinWeightWindow(weight, support, options.operationalNow))) {
+        candidates.push(support);
       }
     }
     const thoughtCutoff = Number.isFinite(Number(options.thoughtCutoff)) ? Number(options.thoughtCutoff) : Number(options.cutoff);
-    const thoughtAnchors = rows
+    candidates.push(...rows
       .map((file) => brainThoughtAnchorFromFile(file, { ...options, cutoff: thoughtCutoff }))
       .filter(Boolean)
-      .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)) || left.id.localeCompare(right.id));
-    const thought = thoughtAnchors.find((anchor) => !recentKeys.has(`id:${anchor.id}`)
-      && !recentKeys.has(`semantic:${personalAnchorSemanticKind(anchor.kind)}`)) || null;
-    options.onDiagnostic?.(thought
-      ? { status: "selected", sourceType: thought.sourceType, sourceId: thought.id, sourceKind: thought.kind }
+      .filter((anchor) => !recentKeys.has(`id:${anchor.id}`)
+        && !recentKeys.has(`semantic:${personalAnchorSemanticKind(anchor.kind)}`)));
+    const selected = candidates
+      .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt))
+        || Number(right.sourceType === "brain-letter") - Number(left.sourceType === "brain-letter")
+        || String(left.id).localeCompare(String(right.id)))[0] || null;
+    options.onDiagnostic?.(selected
+      ? { status: "selected", sourceType: selected.sourceType, sourceId: selected.id, sourceKind: selected.kind }
       : { status: "no-eligible-source" });
-    return thought;
+    return selected;
   } catch (error) {
     options.onDiagnostic?.({ status: error?.name === "AbortError" ? "timeout" : "request-error" });
     return null;
@@ -1430,8 +1434,7 @@ function selectStrongestCoachEvidence({ points, movements, previousMovements, la
   });
   const short = windowRows.find((row) => row.windowDays === 3);
   const broad = windowRows.slice().reverse().find((row) => Number.isFinite(row.current) && Math.abs(row.current) >= 0.3);
-  const correctiveShortBroadTurn = points.length >= 30
-    && latestDailyChange <= -0.5
+  const correctiveShortBroadTurn = latestDailyChange <= -0.5
     && short && broad
     && Number.isFinite(short.current) && short.current <= -0.3
     && Number.isFinite(short.previous) && short.previous >= 0.05
@@ -2277,8 +2280,13 @@ function tokenWords(text) {
   return String(text || "").normalize("NFKC").toLowerCase().match(/[a-z0-9]+/g) || [];
 }
 
-function openingFingerprint(text) {
-  return tokenWords(String(text || "").split(/[—:.!?]/, 1)[0]).slice(0, 10).join(" ");
+function openingFingerprint(text, context = null) {
+  let source = String(text || "");
+  const support = String(context?.relationshipSupport?.text || "").trim();
+  if (support && source.toLowerCase().startsWith(support.toLowerCase())) {
+    source = source.slice(support.length).replace(/^[\s.!?;:—–-]+/, "");
+  }
+  return tokenWords(source.split(/[—:.!?]/, 1)[0]).slice(0, 10).join(" ");
 }
 
 function closingFingerprint(text) {
@@ -2434,7 +2442,7 @@ function acceptedCopySignature(message, context = null) {
   if (!message || typeof message !== "object" || !message.text) return null;
   const normalizedFingerprint = String(message.normalizedFingerprint || structuralFingerprint(message.text, null));
   return {
-    openingFingerprint: openingFingerprint(message.text),
+    openingFingerprint: openingFingerprint(message.text, context),
     closingFingerprint: closingFingerprint(message.text),
     normalizedFingerprint,
     argumentFingerprint: String(message.argumentFingerprint || semanticArgumentFingerprint(message, context)),
@@ -2450,6 +2458,14 @@ function acceptedCopySignatures(messages, limit = 10, context = null) {
       : [];
     return [current, ...archived].filter(Boolean);
   });
+}
+
+function coachCopyCooldownMessages(messages, context, causalLimit) {
+  const rows = Array.isArray(messages) ? messages : [];
+  if (!context?.weightId) return rows.slice(0, causalLimit);
+  const sameWeight = rows.filter((message) => message?.weightId === context.weightId);
+  const causal = rows.filter((message) => message?.weightId !== context.weightId);
+  return [...sameWeight, ...causal.slice(0, causalLimit)];
 }
 
 function trigramSet(text, context) {
@@ -2471,11 +2487,13 @@ function trigramSimilarity(left, right, context) {
 }
 
 function noveltyErrors(text, context, previousMessages = [], selectedAction = identifyApprovedAction(text, context)) {
-  const openingRecent = acceptedCopySignatures(previousMessages, 6, context);
-  const structuralRecent = acceptedCopySignatures(previousMessages, 10, context);
-  const actionRecent = (previousMessages || []).slice(0, COACH_COOLDOWN_COUNT);
+  const openingRecent = acceptedCopySignatures(coachCopyCooldownMessages(previousMessages, context, 6), 7, context);
+  const structuralRecent = acceptedCopySignatures(coachCopyCooldownMessages(previousMessages, context, 10), 11, context);
+  const actionRecent = (previousMessages || [])
+    .filter((message) => !context?.weightId || !message?.weightId || message.weightId !== context.weightId)
+    .slice(0, COACH_COOLDOWN_COUNT);
   const errors = [];
-  const opening = openingFingerprint(text);
+  const opening = openingFingerprint(text, context);
   const closing = closingFingerprint(text);
   const structure = structuralFingerprint(text, context);
   const argumentFrame = semanticArgumentFingerprint({ text, actionText: selectedAction?.text }, context);
@@ -2511,8 +2529,9 @@ function buildContextualFallbackCandidates(context, previousMessages = [], limit
   const structures = brainLed ? BRAIN_LED_FALLBACK_STRUCTURES : FALLBACK_STRUCTURES;
   const start = stableIndex(`${presentationSeed}|fallback`, structures.length);
   const rejectionCounts = {};
-  const recentOpeningFingerprints = new Set(previousMessages.slice(0, 6).map((message) => openingFingerprint(message.text || message)));
-  const recentClosingFingerprints = new Set(previousMessages.slice(0, 6).map((message) => closingFingerprint(message.text || message)));
+  const recentCopyMessages = coachCopyCooldownMessages(previousMessages, context, 6);
+  const recentOpeningFingerprints = new Set(recentCopyMessages.map((message) => openingFingerprint(message.text || message, context)));
+  const recentClosingFingerprints = new Set(recentCopyMessages.map((message) => closingFingerprint(message.text || message)));
   const actionRows = context.actionRealizations || [{ id: context.actionId, text: context.action }];
   const allEligibleOpenings = rotateCandidates(openings
     .map((text, index) => ({ text, index }))
@@ -2550,10 +2569,13 @@ function buildContextualFallbackCandidates(context, previousMessages = [], limit
               continue;
             }
             const structureId = `${brainLed ? "brain-led-" : ""}${context.verdict}-${structureIndex + 1}-${openingEntry.index + 1}-${closingEntry.index + 1}-${currentIndex + 1}-${evidenceIndex + 1}-${outlookIndex + 1}-${actionOffset + 1}`;
+            const fragmentPenalty = [facts.current[currentIndex], facts.evidence[evidenceIndex], facts.outlook[outlookIndex]]
+              .filter((value) => /^(?:\d+(?:\.\d+)?\s+lb\s*:|\d+-day(?:\s*:|\s)|1-year outlook\s*:)/i.test(String(value || "")))
+              .length;
             scheduled.push({
               text,
               structureId,
-              narrativePenalty: brainLed && structureIndex >= 6 ? 1 : 0,
+              narrativePenalty: (brainLed && structureIndex >= 6 ? 1 : 0) + fragmentPenalty * 2,
               scheduleRank: stableIndex(`${presentationSeed}|${structureId}`, 0x7fffffff)
             });
           }
@@ -2567,7 +2589,7 @@ function buildContextualFallbackCandidates(context, previousMessages = [], limit
   const selectedOpenings = new Set();
   const selectedClosings = new Set();
   const selectedStructures = new Set();
-  const comparisonMessages = previousMessages.slice(0, 10);
+  const comparisonMessages = coachCopyCooldownMessages(previousMessages, context, 10);
   const comparisonTrigrams = comparisonMessages.map((message) => trigramSet(message.text || message, context));
   for (let batchStart = 0; batchStart < scheduled.length; batchStart += validationBatchSize) {
     const rankedCandidates = scheduled.slice(batchStart, batchStart + validationBatchSize).map((candidate) => {
@@ -2593,7 +2615,7 @@ function buildContextualFallbackCandidates(context, previousMessages = [], limit
         wordCount: validation.wordCount,
         maxPriorSimilarity: candidate.maxPriorSimilarity
       };
-      const opening = openingFingerprint(validCandidate.text);
+      const opening = openingFingerprint(validCandidate.text, context);
       const closing = closingFingerprint(validCandidate.text);
       const structure = structuralFingerprint(validCandidate.text, context);
       if (selectedOpenings.has(opening) || selectedClosings.has(closing) || selectedStructures.has(structure)) continue;
@@ -2660,7 +2682,22 @@ function coachClaimScopes(text) {
 }
 
 function movementClaimPattern(direction, movement) {
-  return new RegExp(`\\b${direction}\\s+${trimCoachNumber(Math.abs(movement)).replace(".", "\\.")}\\s+lb\\b`, "i");
+  const amount = trimCoachNumber(Math.abs(movement)).replace(".", "\\.");
+  const directionWords = direction === "down"
+    ? "(?:down|lower|fell|fallen|dropped|decreased|declined)"
+    : direction === "up"
+      ? "(?:up|higher|rose|risen|increased|climbed|gained)"
+      : "(?:flat|unchanged|steady)";
+  const noun = direction === "down" ? "(?:drop|decrease|decline|loss)" : "(?:gain|increase|rise)";
+  return new RegExp(`(?:\\b${directionWords}\\s+(?:by\\s+)?${amount}\\s+lb\\b|\\b${amount}\\s+lb\\s+${directionWords}\\b|\\b${noun}\\s+of\\s+${amount}\\s+lb\\b)`, "i");
+}
+
+function windowClaimPattern(days) {
+  const value = Number(days);
+  const words = { 1: "one", 3: "three", 7: "seven", 14: "fourteen", 28: "twenty[- ]eight" }[value];
+  const alternatives = [`${value}-day`, `${value} days`];
+  if (words) alternatives.push(`${words}-day`, `${words} days`);
+  return new RegExp(`\\b(?:${alternatives.join("|")})\\b`, "i");
 }
 
 function evidenceClaimMatches(scope, context) {
@@ -2681,12 +2718,12 @@ function evidenceClaimMatches(scope, context) {
   }
   if (evidence.kind === "short-broad-contrast") {
     const comparisonDirection = evidence.comparisonMovement < 0 ? "down" : "up";
-    return scope.includes("3-day")
-      && scope.includes(`${evidence.comparisonWindowDays} days`)
+    return windowClaimPattern(3).test(scope)
+      && windowClaimPattern(evidence.comparisonWindowDays).test(scope)
       && movementClaimPattern(comparisonDirection, evidence.comparisonMovement).test(scope)
-      && /\bcontrast\w*\b/i.test(scope);
+      && /\b(?:contrast\w*|versus|vs\.?|while|although|even though|compared (?:with|to)|against|but)\b/i.test(scope);
   }
-  return scope.includes(`${evidence.windowDays}-day`)
+  return windowClaimPattern(evidence.windowDays).test(scope)
     && (evidence.kind !== "outlier" || /\boutlier\b/i.test(scope));
 }
 
@@ -2798,6 +2835,10 @@ function naturalCoachGrammarErrors(text, context, selectedAction = null) {
     .replace(context?.relationshipSupport?.text || "", "")
     .replace(selectedAction?.text || "", "");
   if (/\b(?:because|therefore|thus|which caused|so the outlook|so weight)\b/i.test(factualSource)) errors.push("unsupported-causality");
+  if (/\bnot\s+(?:down|lower|fell|dropped|decreased|up|higher|rose|increased|gained)\b/i.test(factualSource)) errors.push("negated-fact");
+  if (/\balan\s+(?:knows?|thinks?|believes?|noticed|remembers?|wants?)\s+(?:that\s+)?(?:you|lily)\b|\b(?:you|lily)\s+(?:felt|feel|seem(?:ed|s)?|are|were)\s+(?:rejected|sad|upset|hurt|afraid|anxious|depressed|unsafe|alone|unmotivated)\b/i.test(factualSource)) {
+    errors.push("unsupported-personal-state");
+  }
   return errors;
 }
 
@@ -3036,8 +3077,7 @@ function publicCoachFacts(context) {
     relationshipSupport: context.relationshipSupport ? { kind: context.relationshipSupport.kind, approvedText: context.relationshipSupport.text } : null,
     personalContextLeads: sourceSpecificBrainContextLeads(context),
     communicationStyle: "warm, clear, hopeful, low-overwhelm, data-directed, and non-coercive",
-    urgency: "one doable next action with no alarm, rejection, or pressure",
-    approvedCopyComponents: approvedCoachCopyComponents(context)
+    urgency: "one doable next action with no alarm, rejection, or pressure"
   };
 }
 
@@ -3056,14 +3096,18 @@ function criticCoachFacts(context) {
   };
 }
 
-function recentCoachAvoidance(previousMessages = []) {
-  const recentActions = previousMessages.slice(0, COACH_COOLDOWN_COUNT).map(inferActionMetadata).filter(Boolean);
+function recentCoachAvoidance(previousMessages = [], context = null) {
+  const causalMessages = previousMessages
+    .filter((message) => !context?.weightId || !message?.weightId || message.weightId !== context.weightId);
+  const recentActions = causalMessages.slice(0, COACH_COOLDOWN_COUNT)
+    .map(inferActionMetadata).filter(Boolean);
+  const recentSignatures = acceptedCopySignatures(coachCopyCooldownMessages(previousMessages, context, 10), 11, context);
   return {
-    openings: previousMessages.slice(0, 6).map((message) => openingFingerprint(message.text || message)).filter(Boolean),
-    closings: previousMessages.slice(0, 6).map((message) => closingFingerprint(message.text || message)).filter(Boolean),
-    structuralFingerprints: previousMessages.slice(0, 10).map((message) => structuralFingerprint(message.text || message, null)).filter(Boolean),
-    semanticArgumentFrames: previousMessages.slice(0, 10).map((message) => semanticArgumentFingerprint(message, null)).filter(Boolean),
-    orderedTrigrams: previousMessages.slice(0, 10).map((message) => Array.from(trigramSet(message.text || message, null))),
+    openings: recentSignatures.slice(0, 12).map((signature) => signature.openingFingerprint).filter(Boolean),
+    closings: recentSignatures.slice(0, 12).map((signature) => signature.closingFingerprint).filter(Boolean),
+    structuralFingerprints: recentSignatures.map((signature) => signature.normalizedFingerprint).filter(Boolean),
+    semanticArgumentFrames: recentSignatures.map((signature) => signature.argumentFingerprint).filter(Boolean),
+    orderedTrigrams: recentSignatures.map((signature) => signature.orderedTrigrams || []),
     recentActionSentences: recentActions.map((action) => action.text).filter(Boolean),
     recentActionMeanings: recentActions.map((action) => action.semantic).filter(Boolean)
   };
@@ -3073,7 +3117,8 @@ function criticCandidatePayload(candidate, context = null, previousMessages = []
   const text = String(candidate?.text || "");
   const actionText = String(candidate?.action?.text || "");
   const start = actionText ? text.indexOf(actionText) : -1;
-  const similarities = previousMessages.slice(0, 10).map((message) => trigramSimilarity(text, message.text || message, context));
+  const similarities = coachCopyCooldownMessages(previousMessages, context, 10)
+    .map((message) => trigramSimilarity(text, message.text || message, context));
   const novelty = noveltyErrors(text, context, previousMessages, candidate?.action || null);
   const payload = {
     annotatedText: start < 0 ? text : `${text.slice(0, start)}<approved_action>${actionText}</approved_action>${text.slice(start + actionText.length)}`,
@@ -3106,6 +3151,29 @@ function generationDiagnostics(stage, attemptCount, rejectionCodes, startedAt, e
   };
 }
 
+function coachGenerationInputHash(context) {
+  const support = context?.relationshipSupport || null;
+  return crypto.createHash("sha256").update(JSON.stringify({
+    pipelineVersion: COACH_GENERATION_VERSION,
+    analysisVersion: COACH_ANALYSIS_VERSION,
+    writerVersion: COACH_WRITER_PROMPT_VERSION,
+    criticVersion: COACH_CRITIC_PROMPT_VERSION,
+    validatorVersion: COACH_VALIDATOR_VERSION,
+    weightId: context?.weightId || "",
+    measurementAt: context?.measurementAt || "",
+    analysisPlan: context?.analysisPlan || null,
+    trackerModifier: context?.trackerModifier || null,
+    relationshipSupport: support ? {
+      id: support.id,
+      sourceType: support.sourceType,
+      kind: support.kind,
+      createdAt: support.createdAt,
+      sourceHash: support.sourceHash || crypto.createHash("sha256").update(String(support.text || "")).digest("hex")
+    } : null,
+    communicationStyle: context?.communicationStyle || ""
+  })).digest("hex");
+}
+
 function sanitizeGenerationDiagnostics(value) {
   if (!value || typeof value !== "object") return null;
   const sanitized = {
@@ -3118,6 +3186,23 @@ function sanitizeGenerationDiagnostics(value) {
     if (Number.isFinite(Number(value[key]))) sanitized[key] = Math.max(0, Number(value[key]));
   }
   return sanitized;
+}
+
+function mergedGenerationDiagnostics(existing, context, value) {
+  const current = sanitizeGenerationDiagnostics(value);
+  if (!current || current.attemptCount <= 0 || !existing) return current;
+  const nextInputHash = coachGenerationInputHash(context);
+  const sameInput = existing.generationInputHash
+    ? existing.generationInputHash === nextInputHash
+    : existing.contextHash === context?.contextHash;
+  if (!sameInput) return current;
+  const prior = sanitizeGenerationDiagnostics(existing.diagnostics);
+  if (!prior) return current;
+  return {
+    ...current,
+    attemptCount: Math.min(99, prior.attemptCount + current.attemptCount),
+    rejectionCodes: Array.from(new Set([...(prior.rejectionCodes || []), ...(current.rejectionCodes || [])])).slice(0, 20)
+  };
 }
 
 function sanitizeCriticResult(value) {
@@ -3180,12 +3265,12 @@ function personalAnchorFromCoachRecord(message) {
   };
 }
 
-function mergedAcceptedCopyHistory(existing, nextText) {
+function mergedAcceptedCopyHistory(existing, nextText, context = null) {
   const prior = Array.isArray(existing?.acceptedCopyHistory)
     ? existing.acceptedCopyHistory.filter((entry) => entry && typeof entry === "object")
     : [];
   const changed = existing?.text && normalizeCoachParagraph(existing.text) !== normalizeCoachParagraph(nextText);
-  const rows = changed ? [acceptedCopySignature(existing), ...prior].filter(Boolean) : prior;
+  const rows = changed ? [acceptedCopySignature(existing, context), ...prior].filter(Boolean) : prior;
   const seen = new Set();
   return rows.filter((entry) => {
     const key = [entry.openingFingerprint, entry.closingFingerprint, entry.normalizedFingerprint, entry.argumentFingerprint].join("|");
@@ -3249,7 +3334,7 @@ async function generateCoachParagraph(context, previousMessages = [], options = 
       ].join(" ");
       const writerText = await requestCoachResponse([
         { role: "system", content: system },
-        { role: "user", content: `FACTS: ${JSON.stringify(publicCoachFacts(context))}\nRECENT ARGUMENTS TO AVOID: ${JSON.stringify(recentCoachAvoidance(previousMessages))}` }
+        { role: "user", content: `FACTS: ${JSON.stringify(publicCoachFacts(context))}\nRECENT ARGUMENTS TO AVOID: ${JSON.stringify(recentCoachAvoidance(previousMessages, context))}` }
       ], { ...options, model: options.model || coachWriterModel, timeoutMs: remainingTimeoutMs(), schema: writerSchema, schemaName: "lily_coach_candidates_v7", maxOutputTokens: 620 });
       const candidates = parseWriterCandidates(writerText);
       if (candidates.length !== COACH_CANDIDATE_COUNT) {
@@ -3349,6 +3434,7 @@ function createCoachMessageRecord(context, text, status, now = new Date().toISOS
     verdict: context.verdict,
     evidenceReferences: context.evidenceReferences,
     contextHash: context.contextHash,
+    generationInputHash: coachGenerationInputHash(context),
     generationVersion: COACH_GENERATION_VERSION,
     analysisVersion: COACH_ANALYSIS_VERSION,
     writerPromptVersion: COACH_WRITER_PROMPT_VERSION,
@@ -3366,8 +3452,8 @@ function createCoachMessageRecord(context, text, status, now = new Date().toISOS
     fallbackStructureId: metadata.structureId || null,
     analysisPlan: context.analysisPlan,
     personalAnchor: sanitizePersonalAnchor(context.personalAnchor),
-    acceptedCopyHistory: mergedAcceptedCopyHistory(existing, text),
-    diagnostics: sanitizeGenerationDiagnostics(metadata.diagnostics),
+    acceptedCopyHistory: mergedAcceptedCopyHistory(existing, text, context),
+    diagnostics: mergedGenerationDiagnostics(existing, context, metadata.diagnostics),
     criticResult: sanitizeCriticResult(metadata.criticResult),
     ...fingerprint,
     status,
@@ -3565,9 +3651,6 @@ function refreshLatestCoachForBrainRelationship(store, relationshipSupport, stat
   const existingSupportTime = Date.parse(existingAnchor?.createdAt || existingBrainReference?.sourceCreatedAt || "");
   const strictRelationshipSource = relationshipSupport.sourceType === "brain-letter";
   const genericThoughtSource = relationshipSupport.sourceType === "brain-thought-anchor";
-  const existingStrictIsAdjacent = existingAnchor?.sourceType === "brain-letter"
-    && brainSourceWithinWeightWindow(latestWeight, existingAnchor, now);
-  const strictRelationshipPriority = strictRelationshipSource && !existingStrictIsAdjacent;
   const sourceIsCausal = strictRelationshipSource
     ? brainSourceWithinWeightWindow(latestWeight, relationshipSupport, now)
     : genericThoughtSource
@@ -3576,8 +3659,7 @@ function refreshLatestCoachForBrainRelationship(store, relationshipSupport, stat
         && now - weightTime <= BRAIN_RELATIONSHIP_MAX_AGE_MS
       : false;
   if (!sourceIsCausal
-    || (existingStrictIsAdjacent && !strictRelationshipSource)
-    || (!strictRelationshipPriority && Number.isFinite(existingSupportTime) && supportTime <= existingSupportTime)
+    || (Number.isFinite(existingSupportTime) && supportTime <= existingSupportTime)
     || (existingBrainReference && !Number.isFinite(existingSupportTime) && supportTime < weightTime)
     || !personalAnchorIsAvailable(store, relationshipSupport, latestWeight.id)) {
     return { store, updated: false, alreadyCurrent: false, weightId: latestWeight.id, latestCoach: publicCoach(existing) };
@@ -3689,7 +3771,8 @@ async function reconcileLatestCoachBrainContext(options = {}) {
     personalContextCutoff: Number.isFinite(prepared.personalContextCutoff) ? prepared.personalContextCutoff : undefined,
     relationshipContextCutoff: Math.min(operationalNow, weightTime + BRAIN_WEIGHT_INDEX_GRACE_MS),
     thoughtContextCutoff: operationalNow,
-    relationshipSupport
+    relationshipSupport,
+    timeoutMs: Math.max(1, Number(options.timeoutMs || coachBackgroundGenerationTimeoutMs))
   };
   if (options.awaitGeneration) {
     await generateAndReplaceCoach(prepared.weightId, generationOptions);
@@ -3727,7 +3810,7 @@ function scheduleCoachGeneration(weightId, operationalNow = Date.now(), options 
   const schedule = options.schedule || setImmediate;
   const generate = options.generate || generateAndReplaceCoach;
   schedule(() => {
-    Promise.resolve(generate(id))
+    Promise.resolve(generate(id, { timeoutMs: Math.max(1, Number(options.timeoutMs || coachBackgroundGenerationTimeoutMs)) }))
       .catch((error) => console.warn("Lily coach generation or repair failed", String(error?.name || "error")));
   });
   return true;
@@ -3921,9 +4004,7 @@ async function generateAndReplaceCoach(weightId, options = {}) {
     });
   if (!relationshipSupportExplicit) {
     const lilyAnchor = baseContext?.personalAnchor || null;
-    relationshipSupport = relationshipSupport?.sourceType === "brain-letter"
-      ? relationshipSupport
-      : newestPersonalAnchor(relationshipSupport, lilyAnchor);
+    relationshipSupport = newestPersonalAnchor(relationshipSupport, lilyAnchor);
   }
   const context = relationshipSupport ? buildCoachContext(snapshot, weightId, {
     privateGoal: Object.prototype.hasOwnProperty.call(options, "privateGoal") ? options.privateGoal : privateCoachGoal,
@@ -3932,7 +4013,8 @@ async function generateAndReplaceCoach(weightId, options = {}) {
   }) : baseContext;
   let fallbackRecord = coachForWeight(snapshot, weightId);
   if (!context?.personalAnchor) return publicCoach(fallbackRecord);
-  const previousMessages = causalPreviousCoachMessages(snapshot, currentWeight, 10);
+  const causalPreviousMessages = causalPreviousCoachMessages(snapshot, currentWeight, 10);
+  let previousMessages = [fallbackRecord, ...causalPreviousMessages].filter(Boolean);
   if (!fallbackRecord) {
     const fallback = buildContextualFallbackResult(context, previousMessages);
     await writeStore((store) => {
@@ -3955,6 +4037,9 @@ async function generateAndReplaceCoach(weightId, options = {}) {
     });
   }
   if (!fallbackRecord) return null;
+  if (!previousMessages.some((message) => message.id && message.id === fallbackRecord.id)) {
+    previousMessages = [fallbackRecord, ...previousMessages];
+  }
   const result = await generateCoachParagraph(context, previousMessages, options);
   const expectedContextHashes = new Set([baseContext?.contextHash, context.contextHash].filter(Boolean));
   if (result.status.startsWith("fallback-")) {
@@ -4912,7 +4997,10 @@ async function handleApi(req, res, pathname) {
     });
     if (coachRefresh.updated && coachRefresh.weightId) {
       setImmediate(() => {
-        generateAndReplaceCoach(coachRefresh.weightId, { personalContextCutoff }).catch(() => {});
+        generateAndReplaceCoach(coachRefresh.weightId, {
+          personalContextCutoff,
+          timeoutMs: coachBackgroundGenerationTimeoutMs
+        }).catch(() => {});
       });
     }
     return;
