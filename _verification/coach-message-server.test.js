@@ -578,6 +578,36 @@ async function run() {
   const outlierContext = coach.buildCoachContext(baseStore(outlierWeights, { memories: [], trackerEvents: [] }), "out-4");
   assert.equal(outlierContext.strongestEvidence.kind, "outlier");
   assert.equal(outlierContext.verdict, "verify");
+  const anchoredOutlierContext = coach.buildCoachContext(baseStore(outlierWeights), "out-4");
+  assert.equal(anchoredOutlierContext.verdict, "verify");
+
+  const cleanLossWeights = [154, 153, 152, 151, 150].map((weight, index) => recordWeight(`clean-loss-${index}`, `2026-07-${18 + index}`, weight));
+  const cleanLossContext = coach.buildCoachContext(baseStore(cleanLossWeights), "clean-loss-4", { privateGoal: 117 });
+  assert.equal(cleanLossContext.verdict, "good-progress");
+  assert.equal(cleanLossContext.strongestEvidence.kind, "streak");
+  assert.equal(cleanLossContext.outlookEvidenceRelation, "reinforces");
+
+  const baselineWeight = recordWeight("baseline-1", "2026-07-22", 150);
+  const baselineContext = coach.buildCoachContext(baseStore([baselineWeight]), baselineWeight.id, { privateGoal: 117 });
+  assert.equal(baselineContext.verdict, "baseline");
+
+  const flatAdverseWeights = [149, 150, 151, 151].map((weight, index) => recordWeight(`flat-adverse-${index}`, `2026-07-${19 + index}`, weight));
+  const flatAdverseContext = coach.buildCoachContext(baseStore(flatAdverseWeights), "flat-adverse-3", { privateGoal: 117 });
+  assert.equal(flatAdverseContext.verdict, "not-good-enough");
+  assert.equal(flatAdverseContext.changeDirection, "unchanged");
+  assert.equal(Number(flatAdverseContext.strongestEvidence.movement.toFixed(1)), 2);
+  assert.equal(flatAdverseContext.outlookDirection, "worsened");
+
+  const slowingLossWeights = Array.from({ length: 34 }, (_, index) => {
+    const weight = index === 0 ? 200 : index <= 3 ? 200 - (0.5 * index) : 198.5 - (0.051 * (index - 3));
+    const date = new Date(Date.UTC(2026, 5, 26 + index)).toISOString().slice(0, 10);
+    return recordWeight(`slowing-loss-${index}`, date, Number(weight.toFixed(3)));
+  });
+  const slowingLossContext = coach.buildCoachContext(baseStore(slowingLossWeights), "slowing-loss-33", { privateGoal: 117 });
+  assert(slowingLossWeights.every((weight, index) => index === 0 || weight.weight < slowingLossWeights[index - 1].weight), "the slowing-loss regression contains no gain, tie, or setback");
+  assert.equal(slowingLossContext.verdict, "good-progress");
+  assert.equal(slowingLossContext.outlookEvidenceRelation, "contradicts");
+  assert.equal(slowingLossContext.outlookDirection, "worsened");
 
   const reversalWeights = [
     recordWeight("rev-1", "2026-07-19", 151), recordWeight("rev-2", "2026-07-20", 150),
@@ -887,8 +917,9 @@ async function run() {
       return response(JSON.stringify({ candidates: [] }));
     }
   });
-  assert(formerlyExhaustingWriterCalls > 0, "even a fallback-construction edge case cannot prevent the writer request from running");
+  assert.equal(formerlyExhaustingWriterCalls, 0, "a prevalidated empty writer slot avoids a model call that cannot satisfy the final word bound");
   assert.match(formerlyExhaustingGeneration.status, /^fallback-writer-/);
+  assert(formerlyExhaustingGeneration.diagnostics.rejectionCodes.includes("writer-no-validated-lead-slot"));
   assertParagraph(formerlyExhaustingGeneration.text, "formerly exhausting generated fallback");
 
   const overwrittenAug2Text = "The trend moved against the plan. Alan noticed things felt off and wants this check-in to feel like he is beside you, not judging you. Today lands at 150.5 lb and is down 1.1 lb. A 1-day move of down 1.1 lb reversed the earlier direction. A worsened 1-year trend outlook now reads about 157 lb. Give yourself one easy walk after eating next. This number cannot define you!";
@@ -1777,6 +1808,35 @@ async function run() {
   const inventedPersonalState = modelWrittenRows[0].text.replace("There is still room to turn the direction.", "Alan knows you felt rejected today.");
   assert(coach.validateCoachParagraph(inventedPersonalState, july22, [], { privateGoal: 117, allowNaturalProse: true }).errors.includes("unsupported-personal-state"), "a writer cannot invent Lily's private emotional state outside the approved source sentence");
   const writerBrief = coach.writerLeadFacts(july22);
+  assert(!coach.writerLeadFacts(slowingLossContext).allowedPhrases.some((phrase) => /setback/i.test(phrase)), "a worsening slow outlook cannot invent setbacks inside a strictly decreasing history");
+  assert(
+    coach.writerLeadErrors("Real progress despite recent setbacks", slowingLossContext).errors.some((error) => ["writer-lead-unsupported-language", "writer-lead-unsupported-structure"].includes(error)),
+    "an exact setback phrase is rejected when only the slow outlook worsened"
+  );
+  for (const [label, familyContext] of [
+    ["not-good", july22],
+    ["good", cleanLossContext],
+    ["good-with-slower-forecast-but-no-setback", slowingLossContext],
+    ["good-with-adverse-context", aug2PersonalContext],
+    ["not-good-flat-with-adverse-context", flatAdverseContext],
+    ["verify", anchoredOutlierContext],
+    ["baseline", baselineContext]
+  ]) {
+    const familyBrief = coach.writerLeadFacts(familyContext);
+    assert(familyBrief.allowedPhrases.length >= 12, `${label} exposes enough safe lead variety`);
+    assert(familyBrief.allowedPhrases.every((lead) => coach.writerLeadErrors(lead, familyContext).ok), `${label} exposes no phrase that its deterministic gate rejects`);
+    assert.equal(familyBrief.allowedPhrasesByCandidate.length, 3);
+    assert.equal(familyBrief.compositionIndexes.length, 3);
+    for (let candidateIndex = 0; candidateIndex < 3; candidateIndex += 1) {
+      assert(familyBrief.allowedPhrasesByCandidate[candidateIndex].length >= 3, `${label} candidate slot ${candidateIndex} has enough prevalidated choices`);
+      for (const lead of familyBrief.allowedPhrasesByCandidate[candidateIndex]) {
+        const compositionIndex = familyBrief.compositionIndexes[candidateIndex];
+        const rendered = coach.renderWriterLead(lead, familyContext, compositionIndex);
+        assert(rendered.ok, `${label} lead renders in candidate slot ${candidateIndex}: ${lead}`);
+        assert(coach.validateCoachParagraph(rendered.text, familyContext, [], { privateGoal: 117, allowNaturalProse: true }).ok, `${label} lead passes the full final gate in candidate slot ${candidateIndex}: ${lead}`);
+      }
+    }
+  }
   const writerLeads = ["This needs a correction", "An unhelpful turn", "The line moved away"];
   const renderedWriterLeads = writerLeads.map((lead, index) => coach.renderWriterLead(lead, july22, index));
   assert(renderedWriterLeads.every((rendered) => rendered.ok), `all protected lead compositions render: ${JSON.stringify(renderedWriterLeads.map((rendered) => rendered.errors))}`);
@@ -1788,25 +1848,39 @@ async function run() {
   assert(coach.writerLeadErrors("Steady improvement today", aug2PersonalContext).errors.includes("writer-lead-overclaim"), "a one-day correction cannot be inflated into a steady trend when the broad outlook contradicts it");
   assert(Array.isArray(writerBrief.allowedWords) && writerBrief.allowedWords.includes("correction") && !writerBrief.allowedWords.includes("outlook"), "the writer receives an explicit verdict-family vocabulary without fact-bearing language");
   const unsupportedWriterLeads = [
-    "The outlook improved",
-    "Real progress makes Alan proud",
-    "Alan loves this real progress",
-    "Your boyfriend sees real progress",
-    "Be better after this setback",
-    "Fix this setback now",
-    "This setback means work harder"
+    ["The outlook improved", aug2PersonalContext],
+    ["Real progress makes Alan proud", aug2PersonalContext],
+    ["Alan loves this real progress", aug2PersonalContext],
+    ["Your boyfriend sees real progress", aug2PersonalContext],
+    ["Be better after this setback", july22],
+    ["Fix this setback now", july22],
+    ["This setback means work harder", july22],
+    ["Step forward today", aug2PersonalContext],
+    ["A win; step forward today", aug2PersonalContext],
+    ["Recheck this unsettled result", july22],
+    ["Simple reset; reset this setback", july22],
+    ["Unhelpful turn; turn this direction", july22],
+    ["Real progress 🐷", aug2PersonalContext],
+    ["Real progress despite recent setbacks", cleanLossContext],
+    ["A confirming signal", outlierContext],
+    ["A unhelpful turn", july22],
+    ["A encouraging improvement", aug2PersonalContext],
+    ["An fair recheck", outlierContext],
+    ["Today moved away", flatAdverseContext],
+    ["Today took a setback", flatAdverseContext],
+    ["The result moved away", flatAdverseContext]
   ];
-  for (const lead of unsupportedWriterLeads) {
-    const targetContext = /progress/i.test(lead) ? aug2PersonalContext : july22;
-    assert(coach.writerLeadErrors(lead, targetContext).errors.includes("writer-lead-unsupported-language"), `unsupported fact, relationship, or command language is rejected: ${lead}`);
+  for (const [lead, targetContext] of unsupportedWriterLeads) {
+    const errors = coach.writerLeadErrors(lead, targetContext).errors;
+    assert(errors.some((error) => ["writer-lead-action", "writer-lead-format", "writer-lead-unsupported-language", "writer-lead-unsupported-structure"].includes(error)), `unsupported fact, relationship, command, or symbol language is rejected: ${lead}`);
   }
   const unsafeWriterLead = coach.renderWriterLead("Worthless failure today", july22, 0);
   assert(!unsafeWriterLead.ok && unsafeWriterLead.errors.includes("writer-lead-unsupported-language"), "unsafe generated lead prose fails before composition");
 
   const contradictoryWriterPayload = JSON.stringify({ candidates: [
-    "The outlook improved",
-    "Real progress makes Alan proud",
-    "Fix this setback now"
+    "Step forward today",
+    "A win; step forward today",
+    "Real progress 🐷"
   ].map((text) => ({ text })) });
   const contradictoryGeneration = await coach.generateCoachParagraph(aug2PersonalContext, [], {
     apiKey: "test-key",
@@ -1815,7 +1889,64 @@ async function run() {
     timeoutMs: 3000
   });
   assert.match(contradictoryGeneration.status, /^fallback-writer-/);
-  assert(!/outlook improved|alan proud|fix this setback/i.test(contradictoryGeneration.text), "an all-true critic cannot rescue an unsupported AI lead into persisted copy");
+  assert(!/step forward today|🐷/i.test(contradictoryGeneration.text), "an all-true critic cannot rescue an unsupported command or symbol into persisted copy");
+
+  const flatAdversePayload = JSON.stringify({ candidates: [
+    "Today moved away",
+    "Today took a setback",
+    "The line moved away"
+  ].map((text) => ({ text })) });
+  const flatAdverseGeneration = await coach.generateCoachParagraph(flatAdverseContext, [], {
+    apiKey: "test-key",
+    privateGoal: 117,
+    fetchImpl: queuedFetch([flatAdversePayload, criticPayload(true, 0)]),
+    timeoutMs: 3000
+  });
+  assert.equal(flatAdverseGeneration.status, "generated-and-critic-approved");
+  assert.match(flatAdverseGeneration.text, /The line moved away/i);
+  assert.doesNotMatch(flatAdverseGeneration.text, /Today (?:moved away|took a setback)/i, "an unchanged latest reading cannot be described as moving away today");
+  assert.match(flatAdverseGeneration.text, /(?:Today’s 151 lb reading is unchanged|151 lb.*unchanged today)/i);
+
+  const inventedSetbackPayload = JSON.stringify({ candidates: [
+    "Real progress despite recent setbacks",
+    "Meaningful improvement amid recent setbacks",
+    "A genuine win despite some setbacks"
+  ].map((text) => ({ text })) });
+  const inventedSetbackGeneration = await coach.generateCoachParagraph(cleanLossContext, [], {
+    apiKey: "test-key",
+    privateGoal: 117,
+    fetchImpl: queuedFetch([inventedSetbackPayload, inventedSetbackPayload, criticPayload(true, 0)]),
+    timeoutMs: 3000
+  });
+  assert.match(inventedSetbackGeneration.status, /^fallback-writer-/);
+  assert(!/despite|amid|setback/i.test(inventedSetbackGeneration.text.split(".", 1)[0]), "a clean loss streak cannot acquire an invented setback through an all-true critic");
+
+  const slowingLossSetbackGeneration = await coach.generateCoachParagraph(slowingLossContext, [], {
+    apiKey: "test-key",
+    privateGoal: 117,
+    fetchImpl: queuedFetch([inventedSetbackPayload, inventedSetbackPayload, criticPayload(true, 0)]),
+    timeoutMs: 3000
+  });
+  assert.match(slowingLossSetbackGeneration.status, /^fallback-writer-/);
+  assert.doesNotMatch(
+    slowingLossSetbackGeneration.text,
+    /(?:despite|amid)(?: some| recent)? setbacks?/i,
+    "a worsening slow outlook cannot acquire an invented observed setback through an all-true critic"
+  );
+
+  const falseConfirmationPayload = JSON.stringify({ candidates: [
+    "A confirming signal",
+    "A confirming result",
+    "A confirming point"
+  ].map((text) => ({ text })) });
+  const falseConfirmationGeneration = await coach.generateCoachParagraph(anchoredOutlierContext, [], {
+    apiKey: "test-key",
+    privateGoal: 117,
+    fetchImpl: queuedFetch([falseConfirmationPayload, falseConfirmationPayload, criticPayload(true, 0)]),
+    timeoutMs: 3000
+  });
+  assert.match(falseConfirmationGeneration.status, /^fallback-writer-/);
+  assert(!/confirming signal|confirming result|confirming point/i.test(falseConfirmationGeneration.text), "an unconfirmed outlier cannot acquire a false confirmation claim through an all-true critic");
   const writerPayload = JSON.stringify({ candidates: writerLeads.map((text) => ({ text })) });
   const writerRequestBodies = [];
   const approvedQueue = [writerPayload, criticPayload(true, 0)];
@@ -1835,7 +1966,7 @@ async function run() {
   assert.equal(writerRequestBodies.length, 2, "the writer and critic each run once for approved natural prose");
   assert(!JSON.stringify(writerRequestBodies[0]).includes("approvedCopyComponents"), "the writer receives a compact story brief and protected slots, never canned openings or closings");
   const writerRequestText = JSON.stringify(writerRequestBodies[0]);
-  assert(writerRequestText.includes("three distinct 2-to-7-word verdict leads only"), "the writer receives only the compact story-and-tone task");
+  assert(writerRequestText.includes("select three distinct verdict leads verbatim from allowedPhrases only"), "the writer receives only the compact story-and-tone selection task");
   assert(!writerRequestText.includes(july22.personalAnchor.text) && !writerRequestText.includes(naturalActionA) && !writerRequestText.includes("151 lb"), "the writer cannot paraphrase protected context, action, or measurements because those values never enter its request");
   assert(!/orderedTrigrams|recentActionSentences|structuralFingerprints/.test(writerRequestText), "opaque deterministic novelty data no longer overwhelms the writer prompt");
 
@@ -1970,8 +2101,12 @@ async function run() {
   const persistedPrevious = coach.causalPreviousCoachMessages(migrated, fixtureWeights.at(-1), 10);
   const beforeGenerated = coach.coachForWeight(migrated, "weight-5");
   const persistedGenerationHistory = [beforeGenerated, ...persistedPrevious];
-  const persistedWriterLeads = ["This needs a response", "An unhelpful turn", "The line moved away"];
-  const persistedRenderedLeads = persistedWriterLeads.map((lead, index) => coach.renderWriterLead(lead, persistedContext, index, persistedGenerationHistory));
+  const persistedWriterBrief = coach.writerLeadFacts(persistedContext, persistedGenerationHistory);
+  const persistedWriterLeads = [];
+  for (let candidateIndex = 0; candidateIndex < 3; candidateIndex += 1) {
+    persistedWriterLeads.push(persistedWriterBrief.allowedPhrasesByCandidate[candidateIndex].find((phrase) => !persistedWriterLeads.includes(phrase)));
+  }
+  const persistedRenderedLeads = persistedWriterLeads.map((lead, index) => coach.renderWriterLead(lead, persistedContext, persistedWriterBrief.compositionIndexes[index], persistedGenerationHistory));
   const persistedLeadValidations = persistedRenderedLeads.map((rendered) => rendered.ok
     ? coach.validateCoachParagraph(rendered.text, persistedContext, persistedGenerationHistory, { privateGoal: 117, allowNaturalProse: true })
     : rendered);
@@ -1997,7 +2132,7 @@ async function run() {
   assert.equal(generatedRecord.criticResult.reasonCode, "approved");
   assert.equal(generatedRecord.modelVersion, "writer:gpt-4.1-mini;critic:gpt-4.1-mini");
   assert(!JSON.stringify(persistedRequestBodies[0]).includes(beforeGenerated.text), "same-weight copy history stays in deterministic novelty checks instead of overwhelming the writer prompt");
-  assert(JSON.stringify(persistedRequestBodies[0]).includes("verdict leads only"), "same-weight regeneration gives the writer only a compact story brief");
+  assert(JSON.stringify(persistedRequestBodies[0]).includes("verdict leads verbatim from allowedPhrases only"), "same-weight regeneration gives the writer only a compact story brief");
   assert.equal(generatedStore.coachMessages.filter((message) => message.weightId === "weight-5").length, 1);
   assert(!generatedRecord.text.includes("999 lb"), "rejected draft copy is never persisted");
   assert(!Object.keys(generatedRecord).some((key) => /draft|raw/i.test(key)), "raw rejected draft fields are never persisted");

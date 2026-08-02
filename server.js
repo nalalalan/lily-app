@@ -72,11 +72,11 @@ function publicApiErrorMessage(error, status = Number(error?.status) || 500) {
   return status >= 500 ? "Something went wrong. Please try again." : (error?.message || "Request failed.");
 }
 
-const COACH_GENERATION_VERSION = "coach-pipeline-v20";
+const COACH_GENERATION_VERSION = "coach-pipeline-v23";
 const COACH_ANALYSIS_VERSION = "coach-analysis-v10";
-const COACH_WRITER_PROMPT_VERSION = "coach-writer-v16";
+const COACH_WRITER_PROMPT_VERSION = "coach-writer-v19";
 const COACH_CRITIC_PROMPT_VERSION = "coach-critic-v8";
-const COACH_VALIDATOR_VERSION = "coach-validator-v10";
+const COACH_VALIDATOR_VERSION = "coach-validator-v13";
 const COACH_FALLBACK_VERSION = "coach-fallback-v14";
 const COACH_ACTION_VERSION = "coach-action-v7";
 const COACH_PROMPT_VERSION = COACH_WRITER_PROMPT_VERSION;
@@ -2186,7 +2186,7 @@ function fallbackFactClauseVariants(context) {
     evidenceText = relation.map((phrase, index) => [
       `The ${evidence.count}-entry streak is ${evidence.direction} ${movement} lb and ${phrase}`,
       `Across the ${evidence.count}-entry streak, weight moved ${evidence.direction} ${movement} lb and the signal is ${phrase}`,
-      `A ${evidence.count}-entry streak now runs ${evidence.direction} ${movement} lb and is ${phrase}`,
+      `A ${evidence.count}-entry streak moved ${evidence.direction} ${movement} lb and ${phrase}`,
       `The ${evidence.count}-entry streak moved ${evidence.direction} ${movement} lb and the signal is ${phrase}`
     ][index % 4]);
   } else if (evidence.kind === "short-broad-contrast") {
@@ -2909,7 +2909,7 @@ function validateCoachParagraph(text, context, previousMessages = [], options = 
     verify: /\b(?:pause|verify|confirmation|confirm\w*|unconfirmed|outlier|recheck|unsettled|uncertain|unusual to judge|outside the usual pattern|on hold|follow-up|direction is still open|not clear)\b/i,
     baseline: /\b(?:baseline|starting (?:line|point)|first (?:number|weigh-in|data point|anchor)|where the line begins|trend has its first|day one)\b/i
   }[context.verdict];
-  if (verdictPattern && !verdictPattern.test(leadVerdict)) errors.push("verdict");
+  if (verdictPattern && !verdictPattern.test(leadVerdict) && !approvedWriterLeadAtStart(paragraph, context)) errors.push("verdict");
   if (context?.verdict === "not-good-enough" && /\b(?:amazing|awesome|great job|a win|approved)\b/i.test(paragraph)) errors.push("verdict-conflict");
   if (context?.verdict === "good-progress" && /\b(?:not good enough|not approved|failure|bad result)\b/i.test(paragraph)) errors.push("verdict-conflict");
   const allowedNumbers = context ? [
@@ -3050,37 +3050,138 @@ const COACH_WRITER_ROLE_ORDERS = Object.freeze([
   ["current", "action", "outlook", "evidence"]
 ]);
 
-const WRITER_LEAD_COMMON_WORDS = Object.freeze([
-  "a", "an", "and", "but", "despite", "the", "this", "today"
-]);
+function writerLeadHasAdverseBackdrop(context) {
+  const evidence = context?.analysisPlan?.strongestEvidence || context?.strongestEvidence || null;
+  return context?.outlookEvidenceRelation === "contradicts"
+    || context?.outlookDirection === "worsened"
+    || Number(evidence?.movement) > 0
+    || Number(evidence?.comparisonMovement) > 0
+    || evidence?.direction === "up";
+}
 
-const WRITER_LEAD_VERDICT_WORDS = Object.freeze({
+function writerLeadHasObservedSetback(context) {
+  const evidence = context?.analysisPlan?.strongestEvidence || context?.strongestEvidence || null;
+  return Number(evidence?.movement) > 0
+    || Number(evidence?.comparisonMovement) > 0
+    || evidence?.direction === "up";
+}
+
+const WRITER_LEAD_BASE_PHRASES = Object.freeze({
   "not-good-enough": [
-    "away", "calm", "change", "correction", "course", "direction", "gentle", "line", "moved", "needs", "off", "reset",
-    "result", "setback", "signal", "simple", "took", "turn", "unhelpful"
+    "This needs a calm reset", "This needs a gentle reset", "This needs a simple reset", "This needs a correction",
+    "This needs a course correction", "An unhelpful result", "The line needs a reset",
+    "The line needs a correction", "The direction needs a reset", "The direction needs a correction",
+    "The result needs a reset", "The result needs a correction", "The signal needs a reset",
+    "The signal needs a correction", "Today needs a reset", "Today needs a correction",
+    "This result needs a calm reset", "This signal needs a gentle reset", "This direction needs a simple correction"
   ],
   "good-progress": [
-    "amid", "encouraging", "forward", "genuine", "improvement", "meaningful", "notable", "progress", "real", "recent", "setback",
-    "setbacks", "step", "welcome", "win"
+    "A real correction", "A genuine correction", "A meaningful correction", "A notable improvement", "A welcome improvement",
+    "An encouraging improvement", "A real step forward", "A genuine step forward", "A meaningful step forward",
+    "A genuine win", "A welcome win", "Real progress", "Genuine progress", "Meaningful progress", "Notable progress",
+    "Encouraging progress", "This is real progress", "This is meaningful progress", "Today brought genuine progress",
+    "Today brought meaningful progress", "A genuine step forward today", "A meaningful correction today",
+    "A welcome improvement today"
   ],
   verify: [
-    "confirmation", "confirming", "fair", "needs", "outlier", "point", "reading", "recheck", "result", "signal", "still", "swing",
-    "uncertain", "unconfirmed", "unsettled", "unusual"
+    "This reading needs confirmation", "This result needs confirmation", "This signal needs confirmation",
+    "This swing needs confirmation", "This reading needs a fair recheck", "This result needs a fair recheck",
+    "This signal is uncertain", "This result is unsettled", "This swing is unusual", "A fair recheck",
+    "An uncertain reading", "An unsettled result", "An unusual point", "The reading is uncertain",
+    "The signal is unsettled", "The result is unconfirmed", "This is an outlier", "This is an uncertain reading"
   ],
   baseline: [
-    "baseline", "beginning", "first", "has", "here", "honest", "is", "now", "opening", "point", "set", "signal", "start", "starting"
+    "This is the starting point", "This is the first honest signal", "The baseline is now set",
+    "The starting point is now set", "A first point", "A first signal", "A first baseline", "An honest point",
+    "An honest signal", "An honest start", "An honest baseline", "An opening point", "An opening signal",
+    "The beginning is here", "The baseline is here", "The start is here", "The starting point is here"
   ]
 });
 
-function writerLeadAllowedWords(context) {
-  const verdict = Object.prototype.hasOwnProperty.call(WRITER_LEAD_VERDICT_WORDS, context?.verdict)
+const WRITER_LEAD_ADVERSE_PHRASES = Object.freeze({
+  "not-good-enough": [
+    "An unhelpful turn", "An unhelpful setback", "A simple setback", "The line moved away",
+    "The direction moved away", "The result moved away", "The signal moved away", "The line took a setback",
+    "The result took a setback", "The signal moved off course", "Today moved away", "Today took a setback"
+  ],
+  "good-progress": [
+    "Real progress despite recent setbacks", "Meaningful progress despite recent setbacks",
+    "Encouraging progress amid recent setbacks", "A real correction despite setbacks",
+    "A genuine correction amid setbacks", "A meaningful correction amid setbacks",
+    "A welcome improvement despite setbacks", "An encouraging improvement amid setbacks",
+    "A real step forward despite setbacks", "A meaningful step forward amid setbacks",
+    "A genuine win despite some setbacks"
+  ]
+});
+
+function writerLeadAllowedPhrases(context, previousMessages = []) {
+  const verdict = Object.prototype.hasOwnProperty.call(WRITER_LEAD_BASE_PHRASES, context?.verdict)
     ? context.verdict
     : "baseline";
-  return Array.from(new Set([...WRITER_LEAD_COMMON_WORDS, ...WRITER_LEAD_VERDICT_WORDS[verdict]])).sort();
+  let phrases = WRITER_LEAD_BASE_PHRASES[verdict].slice();
+  const allowsAdversePhrases = verdict === "good-progress"
+    ? writerLeadHasObservedSetback(context)
+    : writerLeadHasAdverseBackdrop(context);
+  if (allowsAdversePhrases && WRITER_LEAD_ADVERSE_PHRASES[verdict]) {
+    const adversePhrases = verdict === "not-good-enough" && context?.changeDirection !== "up"
+      ? WRITER_LEAD_ADVERSE_PHRASES[verdict].filter((phrase) => /^(?:The line|The direction|The signal)\b/.test(phrase))
+      : WRITER_LEAD_ADVERSE_PHRASES[verdict];
+    phrases.push(...adversePhrases);
+  }
+  if (previousMessages.length) {
+    const recentOpenings = new Set(acceptedCopySignatures(coachCopyCooldownMessages(previousMessages, context, 6), 10, context)
+      .map((signature) => signature.openingFingerprint)
+      .filter(Boolean));
+    const fresh = phrases.filter((phrase) => !recentOpenings.has(openingFingerprint(phrase)));
+    if (fresh.length >= COACH_CANDIDATE_COUNT) phrases = fresh;
+  }
+  return Array.from(new Set(phrases));
 }
 
-function writerLeadFacts(context) {
+function approvedWriterLeadAtStart(paragraph, context) {
+  let remainder = String(paragraph || "").trim();
+  const support = String(context?.relationshipSupport?.text || "").trim();
+  if (support && remainder.toLowerCase().startsWith(support.toLowerCase())) {
+    remainder = remainder.slice(support.length).replace(/^[\s.!?;:—–-]+/, "");
+  }
+  const lower = remainder.toLowerCase();
+  return writerLeadAllowedPhrases(context).some((phrase) => {
+    const expected = phrase.toLowerCase();
+    return lower === expected || (lower.startsWith(expected) && /^[.!?;:—–-]/.test(remainder.slice(phrase.length)));
+  });
+}
+
+function writerLeadAllowedWords(context) {
+  return Array.from(new Set(writerLeadAllowedPhrases(context).flatMap(tokenWords))).sort();
+}
+
+function writerLeadViablePhrasesForIndex(context, previousMessages = [], candidateIndex = 0) {
+  return writerLeadAllowedPhrases(context, previousMessages).filter((phrase) => {
+    const rendered = renderWriterLead(phrase, context, candidateIndex, previousMessages);
+    if (!rendered.ok) return false;
+    return validateCoachParagraph(rendered.text, context, previousMessages, { allowNaturalProse: true }).ok;
+  });
+}
+
+function writerLeadPromptPhrases(context, previousMessages = []) {
+  return Array.from(new Set(writerLeadCompositionPlan(context, previousMessages).flatMap((slot) => slot.allowedPhrases)));
+}
+
+function writerLeadCompositionPlan(context, previousMessages = []) {
+  const slots = [];
+  for (let compositionIndex = 0; compositionIndex < COACH_WRITER_ROLE_ORDERS.length * 2 && slots.length < COACH_CANDIDATE_COUNT; compositionIndex += 1) {
+    const allowedPhrases = writerLeadViablePhrasesForIndex(context, previousMessages, compositionIndex);
+    if (allowedPhrases.length >= COACH_CANDIDATE_COUNT) slots.push({ compositionIndex, allowedPhrases });
+  }
+  return slots;
+}
+
+function writerLeadFacts(context, previousMessages = []) {
   const evidence = context?.analysisPlan?.strongestEvidence || null;
+  const compositionPlan = writerLeadCompositionPlan(context, previousMessages);
+  const compositionIndexes = compositionPlan.map((slot) => slot.compositionIndex);
+  const allowedPhrasesByCandidate = compositionPlan.map((slot) => slot.allowedPhrases);
+  const allowedPhrases = Array.from(new Set(allowedPhrasesByCandidate.flat()));
   return {
     verdict: context?.verdict || "baseline",
     currentDirection: context?.changeDirection || "unchanged",
@@ -3093,8 +3194,11 @@ function writerLeadFacts(context) {
     outlookDirection: context?.includeOutlook ? context.outlookDirection : null,
     outlookRelationship: context?.includeOutlook ? context.outlookEvidenceRelation : null,
     personalContextLeads: sourceSpecificBrainContextLeads(context),
-    allowedWords: writerLeadAllowedWords(context),
-    requestedOutput: "three distinct 2-to-7-word verdict leads only",
+    compositionIndexes,
+    allowedPhrases,
+    allowedPhrasesByCandidate,
+    allowedWords: Array.from(new Set(allowedPhrases.flatMap(tokenWords))).sort(),
+    requestedOutput: "select three distinct verdict leads verbatim from allowedPhrases only",
     communicationStyle: "warm, specific, hopeful, low-overwhelm, data-directed, and non-coercive"
   };
 }
@@ -3105,12 +3209,14 @@ function writerLeadErrors(value, context = null) {
   const errors = [];
   const words = coachWordCount(source);
   if (words < 2 || words > 7) errors.push("writer-lead-word-count");
-  if (!source || /[\r\n{}<>]|\d/.test(source)) errors.push("writer-lead-format");
+  if (!source || !/^[A-Za-z]+(?: [A-Za-z]+)*$/.test(source)) errors.push("writer-lead-format");
   if (containsAdditionalBehaviorAction(source)) errors.push("writer-lead-action");
   if (context?.outlookEvidenceRelation === "contradicts" && /\b(?:steady|consistent|sustained|trend|momentum|turnaround|fixed)\b/i.test(source)) errors.push("writer-lead-overclaim");
   if (context) {
     const allowedWords = new Set(writerLeadAllowedWords(context));
     if (tokenWords(source).some((word) => !allowedWords.has(word))) errors.push("writer-lead-unsupported-language");
+    const allowedPhrases = new Set(writerLeadAllowedPhrases(context).map((phrase) => phrase.toLowerCase()));
+    if (!allowedPhrases.has(source.toLowerCase())) errors.push("writer-lead-unsupported-structure");
   }
   return { ok: errors.length === 0, errors: Array.from(new Set(errors)), text: source };
 }
@@ -3452,7 +3558,18 @@ async function generateCoachParagraph(context, previousMessages = [], options = 
   }
 
   const writerSchema = coachWriterSchema();
+  const writerBrief = writerLeadFacts(context, previousMessages);
   const rejectionCodes = [];
+  if (writerBrief.allowedPhrasesByCandidate.length !== COACH_CANDIDATE_COUNT || writerBrief.allowedPhrasesByCandidate.some((phrases) => phrases.length === 0)) {
+    if (!fallback) throw fallbackError || new Error("coach writer has no validated lead slot");
+    return {
+      text: fallback.text,
+      status: "fallback-writer-validation",
+      structureId: fallback.structureId,
+      action: fallback.action,
+      diagnostics: generationDiagnostics("writer-no-validated-lead-slot", 0, ["writer-no-validated-lead-slot"], startedAt)
+    };
+  }
   let lastStatus = "fallback-writer-validation";
   let lastCritic = null;
   let attempts = 0;
@@ -3460,32 +3577,38 @@ async function generateCoachParagraph(context, previousMessages = [], options = 
     attempts += 1;
     try {
       const system = [
-        "Write three genuinely different short verdict leads for Lily and return only the required JSON. Each candidate.text must contain only one natural 2-to-7-word verdict phrase; the server, not you, will add all facts, context, actions, and closing language.",
-        "Use no numbers, units, measurements, foods, activities, actions, advice, punctuation-heavy slogans, personal details, placeholders, braces, JSON/meta labels, or instructions. Do not write a sentence or paragraph. Every word in every candidate must appear in BRIEF.allowedWords; do not inflect, conjugate, or add any other word.",
+        "Select three genuinely different short verdict leads for Lily and return only the required JSON. Candidate 1 must be copied verbatim from BRIEF.allowedPhrasesByCandidate[0], candidate 2 from [1], and candidate 3 from [2]. Do not combine, rewrite, inflect, punctuate, reorder candidates, or add words. The server, not you, adds every fact, personal context, action, and closing.",
+        "Use no numbers, measurements, personal details, actions, advice, symbols, emoji, slogans, placeholders, JSON/meta labels, instructions, sentences, or paragraphs beyond the required JSON envelope.",
         "Make BRIEF.verdict unmistakable. When currentDirection is down and outlookDirection is worsened, the phrase must credit the real correction rather than condemn it; do not call it steady, consistent, sustained, a trend, momentum, a turnaround, or fixed.",
         "Make the three phrases genuinely different in wording and tone. Warm, concise, human language such as a real correction or encouraging progress is appropriate when supported; avoid all-caps, pressure, shame, or generic commands.",
         "Never mention a goal, target weight, private strategy, BMI, diagnosis, mental-health context, appearance, worth, fasting, skipped meals, restriction, compensation, punishment, JYP, or idol training. Never select alarmist, rejecting, coercive, all-caps, or exclamation-heavy copy."
       ].join(" ");
       const writerText = await requestCoachResponse([
         { role: "system", content: system },
-        { role: "user", content: `BRIEF: ${JSON.stringify(writerLeadFacts(context))}` }
-      ], { ...options, model: options.model || coachWriterModel, timeoutMs: remainingTimeoutMs(), schema: writerSchema, schemaName: "lily_coach_verdict_leads_v10", maxOutputTokens: 140 });
+        { role: "user", content: `BRIEF: ${JSON.stringify(writerBrief)}` }
+      ], { ...options, model: options.model || coachWriterModel, timeoutMs: remainingTimeoutMs(), schema: writerSchema, schemaName: "lily_coach_verdict_leads_v13", maxOutputTokens: 140 });
       const leads = parseWriterCandidates(writerText);
       if (leads.length !== COACH_CANDIDATE_COUNT) {
         lastStatus = "fallback-writer-format";
         rejectionCodes.push("writer-format");
         continue;
       }
-      if (new Set(leads).size !== COACH_CANDIDATE_COUNT) {
+      if (new Set(leads.map((lead) => lead.toLowerCase())).size !== COACH_CANDIDATE_COUNT) {
         lastStatus = "fallback-writer-validation";
         rejectionCodes.push("writer-duplicate-candidates");
         continue;
       }
       const validCandidates = [];
       for (let candidateIndex = 0; candidateIndex < leads.length; candidateIndex += 1) {
-        const rendered = renderWriterLead(leads[candidateIndex], context, candidateIndex, previousMessages);
+        const compositionIndex = writerBrief.compositionIndexes[candidateIndex];
+        const rendered = renderWriterLead(leads[candidateIndex], context, compositionIndex, previousMessages);
         if (!rendered.ok) {
           rejectionCodes.push(...rendered.errors);
+          continue;
+        }
+        const slotPhrases = new Set(writerBrief.allowedPhrasesByCandidate[candidateIndex].map((phrase) => phrase.toLowerCase()));
+        if (!slotPhrases.has(leads[candidateIndex].toLowerCase())) {
+          rejectionCodes.push("writer-lead-outside-validated-slot");
           continue;
         }
         const validation = validateCoachParagraph(rendered.text, context, previousMessages, {
@@ -5399,7 +5522,11 @@ if (process.env.NODE_ENV === "test" || process.env.LILY_COACH_CLI === "1") {
     publicCoachFacts,
     renderWriterLead,
     writerLeadErrors,
+    writerLeadAllowedPhrases,
     writerLeadAllowedWords,
+    writerLeadCompositionPlan,
+    writerLeadPromptPhrases,
+    writerLeadViablePhrasesForIndex,
     writerLeadFacts,
     publicCoach,
     publicApiErrorMessage,
