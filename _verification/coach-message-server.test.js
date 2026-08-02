@@ -77,6 +77,14 @@ function liveWeightsThroughJul30(idPrefix = "current-live-weight-") {
   ));
 }
 
+function liveWeightsThroughAug2(idPrefix = "aug2-live-weight-") {
+  return [
+    ...liveWeightsThroughJul30(idPrefix),
+    recordWeight(`${idPrefix}32`, "2026-08-01", 151.6),
+    recordWeight(`${idPrefix}33`, "2026-08-02", 150.5, "T16:58:44.053Z")
+  ];
+}
+
 function savedContext() {
   return {
     memories: [
@@ -248,7 +256,7 @@ function verifyWeightPersistsWhenCoachFallbackThrows() {
         readBody
       }));
       await new Promise((resolve) => lily.server.close(resolve));
-      process.exit(0);
+      await new Promise((resolve) => setImmediate(resolve));
     })().catch((error) => {
       console.error(error);
       process.exit(1);
@@ -794,6 +802,100 @@ async function run() {
   assert.match(currentLiveFallback.text, /about 156 lb/i);
   assert(currentLiveFallback.text.indexOf(currentLiveFallback.action.text) > currentLiveFallback.text.toLowerCase().indexOf("outlook"), "the exact current Brain-led fallback finishes the analysis before giving its one action");
   assert.deepEqual(coach.validateCoachParagraph(currentLiveFallback.text, currentLiveContext, currentLivePrevious, { privateGoal: 117 }).errors, []);
+
+  const aug2Weights = liveWeightsThroughAug2();
+  assert.equal(aug2Weights.length, 34, "the Aug 2 regression carries the complete 34-weigh-in causal history");
+  const aug2Store = baseStore(aug2Weights, { memories: substantialAnchorMemories("aug2"), trackerEvents: savedContext().trackerEvents });
+  const aug2Latest = aug2Weights.at(-1);
+  const aug2Context = coach.buildCoachContext(aug2Store, aug2Latest.id, { privateGoal: 117 });
+  assert.equal(aug2Context.currentWeight, 150.5);
+  assert.equal(Number(aug2Context.latestDailyChange.toFixed(1)), -1.1, "Aug 2 is a meaningful one-day correction, not another wrong-way result");
+  assert.equal(Number(aug2Context.movements.days3.toFixed(1)), -0.5);
+  assert.equal(Number(aug2Context.movements.days28.toFixed(1)), 1.3);
+  assert.equal(aug2Context.strongestEvidence.kind, "short-broad-contrast", "the fresh three-day correction wins over another recycled one-day-reversal argument");
+  assert.equal(aug2Context.strongestEvidence.windowDays, 3);
+  assert.equal(Number(aug2Context.strongestEvidence.movement.toFixed(1)), -0.5);
+  assert.equal(aug2Context.strongestEvidence.comparisonWindowDays, 28);
+  assert.equal(Number(aug2Context.strongestEvidence.comparisonMovement.toFixed(1)), 1.3);
+  assert.equal(aug2Context.verdict, "good-progress", "today's real correction is approved without pretending the broad trend is fixed");
+  assert.equal(aug2Context.analysisPlan.verdict, "good-progress");
+  assert.equal(Number(aug2Context.outlook.toFixed(1)), 157.4);
+  assert.equal(Number(aug2Context.outlookChange.toFixed(2)), 0.75);
+  assert.equal(aug2Context.outlookDirection, "worsened");
+  assert.equal(aug2Context.outlookEvidenceRelation, "contradicts", "the slow outlook honestly contradicts the fresh correction instead of changing its verdict");
+
+  const aug2DragonAnchor = coach.brainThoughtAnchorFromFile({
+    id: "5f127289-5d50-4d53-9f19-ef878114662f",
+    sourceText: "if we know where the enemy team is, we can do dragon if its safe",
+    sourceCreatedAt: "2026-07-31T02:10:27.128Z"
+  }, { cutoff: Date.parse("2026-08-02T16:58:44.053Z") });
+  assert(aug2DragonAnchor, "the newest safe Brain thought produces a usable personal anchor");
+  assert.equal(aug2DragonAnchor.specificity, "source-specific");
+  assert.match(aug2DragonAnchor.text, /enemy (?:team )?position|dragon call|dragon.*safe/i, "the approved anchor keeps the concrete League decision rather than collapsing to a generic topic");
+  assert.doesNotMatch(aug2DragonAnchor.text, /;/, "the approved personal detail is already a natural standalone sentence");
+  const aug2PersonalContext = coach.buildCoachContext(aug2Store, aug2Latest.id, { privateGoal: 117, relationshipSupport: aug2DragonAnchor });
+  const aug2PersonalFallback = coach.buildContextualFallbackResult(aug2PersonalContext, []);
+  assert.equal(aug2PersonalFallback.text.indexOf(aug2DragonAnchor.text), 0, "the newest specific Brain thought leads the Aug 2 memo");
+  assert.match(aug2PersonalFallback.text.slice(aug2DragonAnchor.text.length), /^[.!?]\s+/, "the Brain anchor ends as its own sentence before measurement analysis begins");
+  assertParagraph(aug2PersonalFallback.text, "Aug 2 specific-Brain fallback");
+  assert.equal(coach.validateCoachParagraph(aug2PersonalFallback.text, aug2PersonalContext, [], { privateGoal: 117 }).ok, true);
+
+  const formerlyExhaustingAnchor = {
+    id: "aug2-formerly-exhausting-anchor",
+    sourceType: "brain-thought-anchor",
+    kind: "brain-thought-games",
+    text: "Alan is still weighing the thought if we know where the enemy team is, we can do dragon if its safe in Brain and that same close attention is here with you",
+    createdAt: "2026-07-31T02:10:27.128Z",
+    sourceHash: "aug2-formerly-exhausting-hash",
+    specificity: "source-specific"
+  };
+  assert.equal(coach.coachWordCount(formerlyExhaustingAnchor.text), 32, "the regression retains the exact long-anchor pressure that exhausted all 4,608 old arrangements");
+  const formerlyExhaustingContext = coach.buildCoachContext(aug2Store, aug2Latest.id, { privateGoal: 117, relationshipSupport: formerlyExhaustingAnchor });
+  const formerlyExhaustingFallback = coach.buildContextualFallbackResult(formerlyExhaustingContext, []);
+  assertParagraph(formerlyExhaustingFallback.text, "formerly exhausting Aug 2 fallback");
+  assert(formerlyExhaustingFallback.text.startsWith(formerlyExhaustingAnchor.text), "the long authentic anchor survives fallback compaction");
+  assert.match(formerlyExhaustingFallback.text.slice(formerlyExhaustingAnchor.text.length), /^[.!?]\s+/, "even the long anchor remains a standalone sentence");
+  assert.equal(coach.validateCoachParagraph(formerlyExhaustingFallback.text, formerlyExhaustingContext, [], { privateGoal: 117 }).ok, true, "the old word-count exhaustion now produces a fully validated fallback");
+
+  const overwrittenAug2Text = "The trend moved against the plan. Alan noticed things felt off and wants this check-in to feel like he is beside you, not judging you. Today lands at 150.5 lb and is down 1.1 lb. A 1-day move of down 1.1 lb reversed the earlier direction. A worsened 1-year trend outlook now reads about 157 lb. Give yourself one easy walk after eating next. This number cannot define you!";
+  const overwrittenAug2Action = coach.COACH_ACTION_CATALOG.find((action) => action.text === "Give yourself one easy walk after eating next.");
+  assert(overwrittenAug2Action, "the exact failed live action remains identifiable for signature-only archival");
+  const aug2FirstAccepted = coach.createCoachMessageRecord(
+    aug2PersonalContext,
+    overwrittenAug2Text,
+    "fallback-contextual",
+    "2026-08-02T16:58:44.196Z",
+    null,
+    { action: overwrittenAug2Action, structureId: "historic-aug2-failure", previousMessages: [] }
+  );
+  const aug2Replacement = coach.createCoachMessageRecord(
+    aug2PersonalContext,
+    aug2PersonalFallback.text,
+    "generated-and-critic-approved",
+    "2026-08-02T16:59:02.000Z",
+    aug2FirstAccepted,
+    { action: aug2PersonalFallback.action, structureId: aug2PersonalFallback.structureId, previousMessages: [aug2FirstAccepted] }
+  );
+  assert.notEqual(coach.openingFingerprint(aug2Replacement.text), coach.openingFingerprint(aug2FirstAccepted.text));
+  assert.notEqual(coach.closingFingerprint(aug2Replacement.text), coach.closingFingerprint(aug2FirstAccepted.text));
+  assert(Array.isArray(aug2Replacement.acceptedCopyHistory) && aug2Replacement.acceptedCopyHistory.length >= 1, "replacement preserves bounded signatures for accepted copy that is no longer visible");
+  const archivedAug2Copy = aug2Replacement.acceptedCopyHistory.find((entry) => (
+    entry.openingFingerprint === coach.openingFingerprint(aug2FirstAccepted.text)
+    && entry.closingFingerprint === coach.closingFingerprint(aug2FirstAccepted.text)
+  ));
+  assert(archivedAug2Copy, "the overwritten Aug 2 opening and closing remain in originality memory");
+  assert.deepEqual(Object.keys(archivedAug2Copy).sort(), ["argumentFingerprint", "closingFingerprint", "normalizedFingerprint", "openingFingerprint", "orderedTrigrams"].sort(), "accepted-copy history stores signatures only, never the replaced paragraph");
+  assert(!JSON.stringify(aug2Replacement.acceptedCopyHistory).includes(aug2FirstAccepted.text), "accepted-copy history does not retain full private coaching prose");
+  assert.equal(archivedAug2Copy.openingFingerprint, "the trend moved against the plan", "the exact failed live opening remains blocked after replacement");
+  assert.equal(archivedAug2Copy.closingFingerprint, "this number cannot define you", "the exact failed live closing remains blocked after replacement");
+  const archivedReplayErrors = coach.noveltyErrors(aug2FirstAccepted.text, aug2PersonalContext, [aug2Replacement], overwrittenAug2Action);
+  assert(archivedReplayErrors.includes("repeat-opening"), "an overwritten opening cannot return after a coach refresh");
+  assert(archivedReplayErrors.includes("repeat-closing"), "an overwritten closing cannot return after a coach refresh");
+
+  assert.equal(coach.coachNeedsRepair({
+    status: "fallback-contextual",
+    diagnostics: { stage: "fallback-created", attemptCount: 0 }
+  }), true, "an attempt-zero contextual fallback remains eligible for checked generation and cannot become permanently stuck");
 
   const cooldownWeights = [
     recordWeight("cooldown-prior", "2026-07-21", 150),
@@ -1468,8 +1570,8 @@ async function run() {
   assert.deepEqual(coach.supportiveCoachStyleErrors(acceptanceExample), []);
   assert.doesNotMatch(acceptanceExample, /not good enough|warning|red alert|fight|attack|earn|prove|!{2,}/i);
   assert.doesNotMatch(acceptanceExample, /private-sensitive-label|diagnos\w*|clinical label/i);
-  const detachedAnchor = acceptanceExample.replace(`; ${july22.personalAnchor.text};`, `. ${july22.personalAnchor.text}.`);
-  assert(coach.validateCoachParagraph(detachedAnchor, july22, [], { privateGoal: 117 }).errors.includes("detached-personal-anchor"), "personal context must change the reasoning sentence instead of appearing as a detachable aside");
+  const gluedAnchor = acceptanceExample.replace(`. ${july22.personalAnchor.text}.`, `; ${july22.personalAnchor.text};`);
+  assert(coach.validateCoachParagraph(gluedAnchor, july22, [], { privateGoal: 117 }).errors.includes("personal-anchor-glued"), "personal context must remain a complete human sentence instead of semicolon glue");
 
   const wrongNumber = fallback.replace("151 lb", "999 lb");
   assert(coach.validateCoachParagraph(wrongNumber, july22, [], { privateGoal: 117 }).errors.includes("unsupported-number"));
@@ -1513,24 +1615,24 @@ async function run() {
   }
 
   const falseEvidenceRelation = acceptanceExample.replace(
-    "The 3-day weight change is up 2.5 lb and accelerated from the prior read.",
-    "The 3-day weight change is up 2.5 lb and weaker than before. A worsened 1-year trend outlook reads about 146 lb."
+    acceptanceFacts.evidence[0],
+    "3-day evidence is up 2.5 lb and weaker than before"
   );
   assert(coach.validateCoachParagraph(falseEvidenceRelation, july22, [], { privateGoal: 117 }).errors.includes("evidence-claim"), "the outlook cannot satisfy a contradictory broader-evidence relation");
 
   for (const contradicted of [
-    acceptanceExample.replace("151 lb is up 1.1 lb today", "151 lb is not up 1.1 lb today"),
-    acceptanceExample.replace("is up 2.5 lb and accelerated", "is up 2.5 lb and not accelerated"),
-    acceptanceExample.replace("outlook worsened", "outlook not worsened")
+    acceptanceExample.replace(acceptanceFacts.current[0], "151 lb is not up 1.1 lb today"),
+    acceptanceExample.replace(acceptanceFacts.evidence[0], "3-day evidence is up 2.5 lb and not accelerated"),
+    acceptanceExample.replace(acceptanceFacts.outlook[0], "The 1-year outlook not worsened to about 146 lb")
   ]) {
     const result = coach.validateCoachParagraph(contradicted, july22, [], { privateGoal: 117 });
     assert(result.errors.some((error) => error.startsWith("closed-") || error.endsWith("-claim")), "negation cannot coexist with a positively matched fact");
   }
 
   for (const falseArgument of [
-    acceptanceExample.replace("today. The 3-day", "today because the 3-day"),
-    acceptanceExample.replace("prior read. The 1-year", "prior read, so the 1-year"),
-    acceptanceExample.replace("151 lb is up 1.1 lb today.", "151 lb is up 1.1 lb today?"),
+    acceptanceExample.replace(`${acceptanceFacts.current[0]}.`, `${acceptanceFacts.current[0]} because`),
+    acceptanceExample.replace(`${acceptanceFacts.evidence[0]}.`, `${acceptanceFacts.evidence[0]}, so`),
+    acceptanceExample.replace(`${acceptanceFacts.current[0]}.`, `${acceptanceFacts.current[0]}?`),
     `${coach.WRITER_SAFE_OPENINGS["not-good-enough"][0]}—${acceptanceAction}. ${acceptanceFacts.current[0]}. ${acceptanceFacts.evidence[0]}. ${acceptanceFacts.outlook[0]}. ${coach.WRITER_SAFE_CLOSINGS["not-good-enough"][0]}`
   ]) {
     const result = coach.validateCoachParagraph(falseArgument, july22, [], { privateGoal: 117 });
@@ -1561,9 +1663,12 @@ async function run() {
   assert.equal(writerRows.length, 3, "the schema-enforced writer pool supplies several vetted paragraphs");
   assert.equal(new Set(writerRows.map((candidate) => coach.openingFingerprint(candidate.text))).size, 3, "writer-pool openings are distinct");
   assert.equal(new Set(writerRows.map((candidate) => coach.closingFingerprint(candidate.text))).size, 3, "writer-pool closings are distinct");
-  const modelWrittenRows = writerRows.map((candidate) => ({ ...candidate, text: candidate.text.replace("; ", ", while ") }));
+  const modelWrittenRows = writerRows.map((candidate) => {
+    const outlookFact = acceptanceFacts.outlook.find((fact) => candidate.text.includes(fact));
+    return { ...candidate, text: candidate.text.replace(outlookFact, `Meanwhile, ${outlookFact}`) };
+  });
   assert(modelWrittenRows.every((candidate) => candidate.text !== writerRows.find((row) => row.structureId === candidate.structureId).text), "writer candidates are newly assembled rather than copied from the fallback pool");
-  const modelWrittenValidations = modelWrittenRows.map((candidate) => coach.validateCoachParagraph(candidate.text, july22, [], { privateGoal: 117 }));
+  const modelWrittenValidations = modelWrittenRows.map((candidate) => coach.validateCoachParagraph(candidate.text, july22, [], { privateGoal: 117, allowNaturalProse: true }));
   assert(modelWrittenValidations.every((validation) => validation.ok), `newly assembled factual prose passes the deterministic gates: ${JSON.stringify(modelWrittenValidations.map((validation) => validation.errors))}`);
   const writerPayload = JSON.stringify({ candidates: modelWrittenRows.map((candidate) => ({ text: candidate.text })) });
   const approvedGeneration = await coach.generateCoachParagraph(july22, [], {

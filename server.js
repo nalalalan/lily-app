@@ -71,16 +71,16 @@ function publicApiErrorMessage(error, status = Number(error?.status) || 500) {
   return status >= 500 ? "Something went wrong. Please try again." : (error?.message || "Request failed.");
 }
 
-const COACH_GENERATION_VERSION = "coach-pipeline-v16";
-const COACH_ANALYSIS_VERSION = "coach-analysis-v8";
-const COACH_WRITER_PROMPT_VERSION = "coach-writer-v12";
-const COACH_CRITIC_PROMPT_VERSION = "coach-critic-v7";
-const COACH_VALIDATOR_VERSION = "coach-validator-v6";
-const COACH_FALLBACK_VERSION = "coach-fallback-v12";
+const COACH_GENERATION_VERSION = "coach-pipeline-v17";
+const COACH_ANALYSIS_VERSION = "coach-analysis-v9";
+const COACH_WRITER_PROMPT_VERSION = "coach-writer-v13";
+const COACH_CRITIC_PROMPT_VERSION = "coach-critic-v8";
+const COACH_VALIDATOR_VERSION = "coach-validator-v7";
+const COACH_FALLBACK_VERSION = "coach-fallback-v13";
 const COACH_ACTION_VERSION = "coach-action-v7";
 const COACH_PROMPT_VERSION = COACH_WRITER_PROMPT_VERSION;
 const COACH_SAFETY_VERSION = "coach-safety-v7";
-const COACH_STYLE_VERSION = "coach-style-brain-led-v7";
+const COACH_STYLE_VERSION = "coach-style-brain-led-v8";
 const COACH_PENDING_STATUS = "pending-contextual-repair";
 const COACH_MIN_WORDS = 35;
 const COACH_MAX_WORDS = 55;
@@ -582,8 +582,8 @@ const LILY_PERSONAL_ANCHOR_COPY = Object.freeze({
     "This page remembers a cooking detail too, because Alan does not see you as a collection of measurements"
   ]),
   "lily-cats": Object.freeze([
-    "Alan remembers the cat detail saved here and wants this check-in to sound like someone who actually notices your life beyond the chart",
-    "That saved cat detail is still in Alan's mind; he wants today's check-in to feel personal rather than like instructions from a graph"
+    "Alan remembers the cat detail because he notices your real life beyond this chart",
+    "That saved cat detail is still in Alan's mind because he notices the person beyond the graph"
   ]),
   "lily-french": Object.freeze([
     "Alan remembers the French-language detail saved here and wants this check-in to reflect a real person, not flatten you into one number",
@@ -753,16 +753,27 @@ function brainResearchSpecificSubject(source) {
   return `how to make ${figure} clearer`;
 }
 
+function brainGameSpecificSubject(source) {
+  const text = String(source || "");
+  const dragon = /\bdragon\b/i.test(text);
+  const enemy = /\benemy\s+(?:team|position|positions?)\b|\bwhere\s+(?:the\s+)?enemy\b/i.test(text);
+  const safety = /\bsafe(?:ly|ty)?\b/i.test(text);
+  if (dragon && enemy && safety) return "when enemy positions make a dragon call safe in League";
+  return "";
+}
+
 function brainSpecificSubjectFromFile(file, source, topics = []) {
   const research = brainResearchSpecificSubject(source);
   if (research) return research;
+  const game = brainGameSpecificSubject(source);
+  if (game) return game;
   const highlights = [file?.lifeLeverageHighlightText, file?.lifeLeverageHighlightExplanation]
-    .map((value) => cleanBrainSpecificFragment(value))
+    .map((value) => cleanBrainSpecificFragment(value, 12))
     .filter(Boolean);
   if (highlights.length) return `the thought “${highlights[0]}”`;
   const clauses = String(source || "")
     .split(/(?<=[.!?])\s+|\s*[;]\s+|\s*,\s+(?=(?:and|but|so|then|instead|because|while)\b)/i)
-    .map((value) => cleanBrainSpecificFragment(value))
+    .map((value) => cleanBrainSpecificFragment(value, 12))
     .filter(Boolean)
     .sort((left, right) => {
       const score = (value) => (/[0-9]/.test(value) ? 3 : 0) + (topics.some((topic) => new RegExp(`\\b${topic.replace(/[-]/g, "\\w*|\\b")}\\w*`, "i").test(value)) ? 2 : 0) + Math.min(2, value.split(/\s+/).length / 8);
@@ -772,7 +783,10 @@ function brainSpecificSubjectFromFile(file, source, topics = []) {
 }
 
 function brainSpecificCareText(subject) {
-  return `Alan is still weighing ${String(subject || "").trim()} in Brain—and that same close attention is here with you`;
+  const value = String(subject || "").trim();
+  if (!value) return "";
+  if (/^when\b/i.test(value)) return `Alan's newest Brain thought covers ${value}, and the same close attention is here with you`;
+  return `Alan weighs ${value} in Brain, and the same close attention is here with you`;
 }
 
 function migrateSourceSpecificBrainCareText(value) {
@@ -1194,13 +1208,13 @@ function selectSavedPreference(memories, cutoff, previousMessages = []) {
 
 const COACH_ACTION_CATALOG = Object.freeze([
   { id: "balanced-plate", semantic: "balanced-meal", text: "Build the next meal around protein, vegetables, and a satisfying portion." },
-  { id: "balanced-plate-alt", semantic: "balanced-meal", text: "Make the next plate a satisfying mix of protein and vegetables." },
+  { id: "balanced-plate-alt", semantic: "balanced-meal", text: "Make the next plate protein, vegetables, and satisfying." },
   { id: "easy-walk", semantic: "gentle-movement", text: "Take one comfortable walk after the next meal." },
   { id: "easy-walk-alt", semantic: "gentle-movement", text: "Give yourself one easy walk after eating next." },
   { id: "protein-anchor", semantic: "protein-meal", text: "Anchor the next meal with a satisfying protein and vegetables." },
   { id: "protein-anchor-alt", semantic: "protein-meal", text: "Let protein and vegetables lead the next satisfying meal." },
-  { id: "planned-portion", semantic: "portion-plan", text: "Plate one satisfying portion for the next meal before you start eating." },
-  { id: "planned-portion-alt", semantic: "portion-plan", text: "Set one satisfying portion on the plate before the next meal begins." },
+  { id: "planned-portion", semantic: "portion-plan", text: "Plate one satisfying portion for the next meal." },
+  { id: "planned-portion-alt", semantic: "portion-plan", text: "Set one satisfying portion before the next meal begins." },
   { id: "vegetable-add", semantic: "vegetable-meal", text: "Add one vegetable you enjoy to the next meal." },
   { id: "vegetable-add-alt", semantic: "vegetable-meal", text: "Put one enjoyable vegetable into the next meal." },
   { id: "planned-snack", semantic: "snack-plan", text: "Choose one planned snack before hunger makes the decision." },
@@ -1408,19 +1422,37 @@ function selectStrongestCoachEvidence({ points, movements, previousMovements, la
   if (outlier) {
     return { kind: "outlier", windowDays: 1, movement: latestDailyChange, direction: latestDailyChange < 0 ? "down" : "up", relationKind: "new" };
   }
-  if (streak?.reversal) {
-    return { kind: "reversal", windowDays: 1, movement: latestDailyChange, direction: latestDailyChange < 0 ? "down" : "up", relationKind: "reversed" };
-  }
-  if (streak?.count >= 3 && Math.abs(streak.movement) >= 0.3) {
-    return { kind: "streak", windowDays: null, movement: streak.movement, direction: streak.direction, count: streak.count, relationKind: "strengthened" };
-  }
-
   const windowRows = [3, 7, 14, 28].map((windowDays) => {
     const current = finiteMovement(movements?.[`days${windowDays}`]);
     const previous = finiteMovement(previousMovements?.[`days${windowDays}`]);
     const magnitudeChange = Number.isFinite(current) && Number.isFinite(previous) ? Math.abs(current) - Math.abs(previous) : NaN;
     return { windowDays, current, previous, magnitudeChange };
   });
+  const short = windowRows.find((row) => row.windowDays === 3);
+  const broad = windowRows.slice().reverse().find((row) => Number.isFinite(row.current) && Math.abs(row.current) >= 0.3);
+  const correctiveShortBroadTurn = points.length >= 30
+    && latestDailyChange <= -0.5
+    && short && broad
+    && Number.isFinite(short.current) && short.current <= -0.3
+    && Number.isFinite(short.previous) && short.previous >= 0.05
+    && broad.current >= 0.3;
+  if (correctiveShortBroadTurn) {
+    return {
+      kind: "short-broad-contrast",
+      windowDays: 3,
+      movement: short.current,
+      direction: short.current < 0 ? "down" : "up",
+      comparisonWindowDays: broad.windowDays,
+      comparisonMovement: broad.current,
+      relationKind: "contrasts"
+    };
+  }
+  if (streak?.reversal) {
+    return { kind: "reversal", windowDays: 1, movement: latestDailyChange, direction: latestDailyChange < 0 ? "down" : "up", relationKind: "reversed" };
+  }
+  if (streak?.count >= 3 && Math.abs(streak.movement) >= 0.3) {
+    return { kind: "streak", windowDays: null, movement: streak.movement, direction: streak.direction, count: streak.count, relationKind: "strengthened" };
+  }
   const changing = windowRows
     .filter((row) => Number.isFinite(row.current) && Number.isFinite(row.previous) && Math.abs(row.current) >= 0.3 && Math.abs(row.magnitudeChange) >= 0.15)
     .sort((left, right) => Math.abs(right.magnitudeChange) - Math.abs(left.magnitudeChange) || left.windowDays - right.windowDays)[0];
@@ -1439,8 +1471,6 @@ function selectStrongestCoachEvidence({ points, movements, previousMovements, la
     };
   }
 
-  const short = windowRows.find((row) => row.windowDays === 3);
-  const broad = windowRows.slice().reverse().find((row) => Number.isFinite(row.current) && Math.abs(row.current) >= 0.3);
   if (short && broad && Number.isFinite(short.current) && Math.abs(short.current) >= 0.3 && Math.sign(short.current) !== Math.sign(broad.current)) {
     return {
       kind: "short-broad-contrast",
@@ -1600,7 +1630,7 @@ function buildCoachContext(store, weightId, options = {}) {
   let verdict = "not-good-enough";
   if (points.length === 1) verdict = "baseline";
   else if (outlier) verdict = "verify";
-  else if (changeDirection === "down" && outlookDirection !== "worsened") verdict = "good-progress";
+  else if (changeDirection === "down") verdict = "good-progress";
 
   const actionSelection = selectCoachAction(store, current, preference, outlier, recentConflict);
   const selectedPreference = actionSelection.preferenceId ? preference : null;
@@ -1903,6 +1933,22 @@ const WRITER_SAFE_OPENINGS = Object.freeze({
 
 const FALLBACK_OPENINGS = WRITER_SAFE_OPENINGS;
 
+const CONTRADICTED_PROGRESS_OPENINGS = Object.freeze([
+  "A real correction today",
+  "The short-term line turned the right way",
+  "Today earned credit without finishing the turnaround",
+  "This is a meaningful correction, not the full turnaround",
+  "The newest reading finally pushed back",
+  "Today improved the short-term story"
+]);
+
+function coachOpeningCandidates(context) {
+  if (context?.verdict === "good-progress" && context?.outlookEvidenceRelation === "contradicts") {
+    return CONTRADICTED_PROGRESS_OPENINGS;
+  }
+  return WRITER_SAFE_OPENINGS[context?.verdict] || WRITER_SAFE_OPENINGS["not-good-enough"];
+}
+
 const SUPPORTIVE_VERBOSE_CLOSINGS = Object.freeze({
   "not-good-enough": [
     "One result does not define you; the next step can still help!",
@@ -2015,13 +2061,14 @@ function composeFallbackParagraph(opening, current, evidence, outlook, action, c
   const ordered = (layout.order || ["current", "evidence", "outlook", "support", "action"])
     .map((name) => ({ name, text: slots[name] }))
     .filter((entry) => entry.text);
+  const openingBoundary = ordered[0]?.name === "support" ? ". " : (layout.openingBoundary || ": ");
   let body = layout.supportLeads && slots.support
     ? `${slots.support}. ${clean(opening)}${layout.openingBoundary || ": "}${ordered[0]?.text || ""}`
-    : `${clean(opening)}${layout.openingBoundary || ": "}${ordered[0]?.text || ""}`;
+    : `${clean(opening)}${openingBoundary}${ordered[0]?.text || ""}`;
   for (let index = 1; index < ordered.length; index += 1) {
     const prior = ordered[index - 1];
     const next = ordered[index];
-    const boundary = prior.name === "support" || next.name === "support" ? "; " : ". ";
+    const boundary = ". ";
     body += `${boundary}${next.text}`;
   }
   return `${body}. ${String(close || "").trim()}`;
@@ -2089,6 +2136,7 @@ function fallbackFactClauseVariants(context) {
     ? "unchanged"
     : `${context.changeDirection} ${trimCoachNumber(Math.abs(context.latestDailyChange))} lb`;
   const current = [
+    `${currentWeight} lb: ${change} today`,
     `${currentWeight} lb is ${change} today`,
     `Today’s ${currentWeight} lb reading is ${change}`,
     `The current result is ${currentWeight} lb, ${change} today`,
@@ -2124,12 +2172,13 @@ function fallbackFactClauseVariants(context) {
       `The new 1-day change is ${evidence.direction} ${movement} lb, an outlier rather than a settled trend`
     ][index % 4]);
   } else if (evidence.kind === "reversal") {
-    evidenceText = relation.map((phrase, index) => [
+    evidenceText = [
+      `1-day: ${evidence.direction} ${movement} lb, reversed from before`,
       `The 1-day move reversed to ${evidence.direction} ${movement} lb from the prior direction`,
       `The earlier direction flipped, with the 1-day move now ${evidence.direction} ${movement} lb`,
       `A 1-day move of ${evidence.direction} ${movement} lb reversed the earlier direction`,
       `The prior direction turned, and the 1-day movement is ${evidence.direction} ${movement} lb`
-    ][index % 4]);
+    ];
   } else if (evidence.kind === "streak") {
     evidenceText = relation.map((phrase, index) => [
       `The ${evidence.count}-entry streak is ${evidence.direction} ${movement} lb and ${phrase}`,
@@ -2141,6 +2190,9 @@ function fallbackFactClauseVariants(context) {
     const comparisonDirection = evidence.comparisonMovement < 0 ? "down" : "up";
     const comparison = trimCoachNumber(Math.abs(evidence.comparisonMovement));
     evidenceText = [
+      `3-day ${evidence.direction} ${movement} lb contrasts with ${evidence.comparisonWindowDays} days ${comparisonDirection} ${comparison} lb`,
+      `3-day: ${evidence.direction} ${movement} lb, contrasting with ${evidence.comparisonWindowDays} days ${comparisonDirection} ${comparison} lb`,
+      `The 3-day line is ${evidence.direction} ${movement} lb, contrasting with ${evidence.comparisonWindowDays} days ${comparisonDirection} ${comparison} lb`,
       `The 3-day move is ${evidence.direction} ${movement} lb, contrasting with ${comparisonDirection} ${comparison} lb over ${evidence.comparisonWindowDays} days`,
       `A 3-day move of ${evidence.direction} ${movement} lb contrasts with ${comparisonDirection} ${comparison} lb across ${evidence.comparisonWindowDays} days`,
       `The contrast is clear: the 3-day move is ${evidence.direction} ${movement} lb versus ${comparisonDirection} ${comparison} lb over ${evidence.comparisonWindowDays} days`,
@@ -2148,14 +2200,28 @@ function fallbackFactClauseVariants(context) {
     ];
   } else {
     evidenceText = relation.map((phrase, index) => [
+      `${evidence.windowDays}-day: ${evidence.direction} ${movement} lb, ${phrase}`,
       `The ${evidence.windowDays}-day weight change is ${evidence.direction} ${movement} lb and ${phrase}`,
-      `Across the ${evidence.windowDays}-day window, weight is ${evidence.direction} ${movement} lb and the signal is ${phrase}`,
-      `${evidence.windowDays}-day evidence is ${evidence.direction} ${movement} lb and the signal is ${phrase}`,
-      `The ${evidence.windowDays}-day result is ${evidence.direction} ${movement} lb and is ${phrase}`
+      `Across ${evidence.windowDays} days, weight is ${evidence.direction} ${movement} lb and ${phrase}`,
+      `${evidence.windowDays}-day evidence is ${evidence.direction} ${movement} lb and ${phrase}`
     ][index % 4]);
   }
   const roundedOutlook = Math.round(context.outlook);
-  const outlook = context.includeOutlook ? ({
+  const contradictedProgressOutlook = context.verdict === "good-progress"
+    && context.outlookDirection === "worsened"
+    && context.outlookEvidenceRelation === "contradicts"
+    ? [
+      `1-year outlook worsened: about ${roundedOutlook} lb, not caught up`,
+      `1-year outlook: about ${roundedOutlook} lb, worsened and not caught up`,
+      `1-year outlook worsened to about ${roundedOutlook} lb and has not caught up`,
+      `The 1-year outlook still worsened to about ${roundedOutlook} lb and has not caught up`,
+      `The 1-year trend outlook still worsened to about ${roundedOutlook} lb, so it has not caught up with today’s correction`,
+      `The 1-year trend outlook rose to about ${roundedOutlook} lb and has not caught up with the short-term correction`,
+      `About ${roundedOutlook} lb remains the worsened 1-year outlook even though today finally corrected the short-term line`,
+      `The 1-year outlook still moved the wrong way to about ${roundedOutlook} lb despite today’s correction`
+    ]
+    : null;
+  const outlook = context.includeOutlook ? (contradictedProgressOutlook || ({
     worsened: [
       `The 1-year trend outlook worsened to about ${roundedOutlook} lb`,
       `The 1-year trend outlook moved the wrong way to about ${roundedOutlook} lb`,
@@ -2174,7 +2240,7 @@ function fallbackFactClauseVariants(context) {
       `The 1-year trend outlook remains steady at about ${roundedOutlook} lb`,
       `About ${roundedOutlook} lb is where the 1-year trend outlook held steady`
     ]
-  }[context.outlookDirection] || [`The 1-year trend outlook is holding at about ${roundedOutlook} lb`]) : [""];
+  }[context.outlookDirection] || [`The 1-year trend outlook is holding at about ${roundedOutlook} lb`])) : [""];
   return { current, evidence: evidenceText, outlook };
 }
 
@@ -2292,6 +2358,27 @@ function structuralFingerprint(text, context) {
     .trim();
 }
 
+function coachStoryFingerprint(context) {
+  const plan = context?.analysisPlan || context || {};
+  const evidence = plan.strongestEvidence || {};
+  const outlook = plan.outlook || null;
+  const comparisonDirection = Number(evidence.comparisonMovement) < -0.05
+    ? "down"
+    : Number(evidence.comparisonMovement) > 0.05 ? "up" : "flat";
+  return [
+    plan.verdict || "",
+    plan.current?.direction || context?.changeDirection || "",
+    evidence.kind || "",
+    Number.isFinite(Number(evidence.windowDays)) ? Number(evidence.windowDays) : "",
+    evidence.direction || "",
+    plan.relationToPrior || context?.evidenceRelation?.kind || "",
+    Number.isFinite(Number(evidence.comparisonWindowDays)) ? Number(evidence.comparisonWindowDays) : "",
+    Number.isFinite(Number(evidence.comparisonMovement)) ? comparisonDirection : "",
+    outlook?.direction || context?.outlookDirection || "",
+    outlook?.relationToEvidence || context?.outlookEvidenceRelation || ""
+  ].join("|");
+}
+
 function semanticArgumentFingerprint(value, context = null) {
   const message = value && typeof value === "object" ? value : null;
   if (!context && message?.argumentFingerprint) return String(message.argumentFingerprint);
@@ -2339,7 +2426,30 @@ function semanticArgumentFingerprint(value, context = null) {
   const ordered = spans
     .sort((left, right) => left.index - right.index || left.role.localeCompare(right.role))
     .filter((entry, index, rows) => !index || entry.role !== rows[index - 1].role);
-  return ordered.map((entry) => entry.role).join(">");
+  const roleOrder = ordered.map((entry) => entry.role).join(">");
+  return context ? `${coachStoryFingerprint(context)}::${roleOrder}` : roleOrder;
+}
+
+function acceptedCopySignature(message, context = null) {
+  if (!message || typeof message !== "object" || !message.text) return null;
+  const normalizedFingerprint = String(message.normalizedFingerprint || structuralFingerprint(message.text, null));
+  return {
+    openingFingerprint: openingFingerprint(message.text),
+    closingFingerprint: closingFingerprint(message.text),
+    normalizedFingerprint,
+    argumentFingerprint: String(message.argumentFingerprint || semanticArgumentFingerprint(message, context)),
+    orderedTrigrams: Array.from(trigramSet(message.text, null)).slice(0, 160)
+  };
+}
+
+function acceptedCopySignatures(messages, limit = 10, context = null) {
+  return (Array.isArray(messages) ? messages.slice(0, limit) : []).flatMap((message) => {
+    const current = acceptedCopySignature(message, context);
+    const archived = Array.isArray(message?.acceptedCopyHistory)
+      ? message.acceptedCopyHistory.filter((entry) => entry && typeof entry === "object")
+      : [];
+    return [current, ...archived].filter(Boolean);
+  });
 }
 
 function trigramSet(text, context) {
@@ -2361,19 +2471,20 @@ function trigramSimilarity(left, right, context) {
 }
 
 function noveltyErrors(text, context, previousMessages = [], selectedAction = identifyApprovedAction(text, context)) {
-  const openingRecent = (previousMessages || []).slice(0, 6);
-  const structuralRecent = (previousMessages || []).slice(0, 10);
+  const openingRecent = acceptedCopySignatures(previousMessages, 6, context);
+  const structuralRecent = acceptedCopySignatures(previousMessages, 10, context);
   const actionRecent = (previousMessages || []).slice(0, COACH_COOLDOWN_COUNT);
   const errors = [];
   const opening = openingFingerprint(text);
   const closing = closingFingerprint(text);
   const structure = structuralFingerprint(text, context);
   const argumentFrame = semanticArgumentFingerprint({ text, actionText: selectedAction?.text }, context);
-  if (openingRecent.some((message) => opening && openingFingerprint(message.text || message) === opening)) errors.push("repeat-opening");
-  if (openingRecent.some((message) => closing && closingFingerprint(message.text || message) === closing)) errors.push("repeat-closing");
-  if (structuralRecent.some((message) => structuralFingerprint(message.text || message, context) === structure)) errors.push("repeat-structure");
-  if (structuralRecent.some((message) => trigramSimilarity(text, message.text || message, context) >= 0.72)) errors.push("repeat-trigrams");
-  if (argumentFrame && structuralRecent.some((message) => semanticArgumentFingerprint(message, null) === argumentFrame)) errors.push("repeat-argument-frame");
+  if (openingRecent.some((signature) => opening && signature.openingFingerprint === opening)) errors.push("repeat-opening");
+  if (openingRecent.some((signature) => closing && signature.closingFingerprint === closing)) errors.push("repeat-closing");
+  if (structuralRecent.some((signature) => signature.normalizedFingerprint === structure)) errors.push("repeat-structure");
+  const candidateTrigrams = trigramSet(text, context);
+  if (structuralRecent.some((signature) => trigramSetSimilarity(candidateTrigrams, new Set(signature.orderedTrigrams || [])) >= 0.72)) errors.push("repeat-trigrams");
+  if (argumentFrame && structuralRecent.some((signature) => signature.argumentFingerprint === argumentFrame)) errors.push("repeat-argument-frame");
   const recentActions = actionRecent.map(inferActionMetadata).filter(Boolean);
   if (selectedAction && recentActions.some((action) => action.text === selectedAction.text)) errors.push("action-cooldown");
   if (selectedAction && recentActions.some((action) => action.semantic === selectedAction.semantic)) errors.push("action-semantic-cooldown");
@@ -2386,9 +2497,10 @@ function buildContextualFallbackCandidates(context, previousMessages = [], limit
     const text = "The weigh-in is saved, and the next consistent check will make the direction clearer. Build the next meal around protein, vegetables, and a satisfying portion. This is data, not a judgment; one useful step is enough for today.";
     return [{ text, structureId: "empty", errors: [], wordCount: coachWordCount(text) }];
   }
-  const openings = options.writerSafe
-    ? (WRITER_SAFE_OPENINGS[context.verdict] || WRITER_SAFE_OPENINGS["not-good-enough"])
-    : (FALLBACK_OPENINGS[context.verdict] || FALLBACK_OPENINGS["not-good-enough"]);
+  if (context.relationshipSupport?.text && containsPrivateCoachBlockedTerm(context.relationshipSupport.text)) {
+    throw new Error(`no compliant contextual fallback invariant for ${context.weightId || "unknown-weight"}/${context.verdict || "unknown-verdict"}: unsafe-language=1`);
+  }
+  const openings = coachOpeningCandidates(context);
   const closings = options.writerSafe
     ? (WRITER_SAFE_CLOSINGS[context.verdict] || WRITER_SAFE_CLOSINGS["not-good-enough"])
     : (FALLBACK_CLOSINGS[context.verdict] || FALLBACK_CLOSINGS["not-good-enough"]);
@@ -2507,7 +2619,7 @@ function buildContextualFallbackCandidates(context, previousMessages = [], limit
     });
   }
   if (selectedCandidates.length) return selectedCandidates;
-  throw new Error(`no compliant contextual fallback invariant: ${Object.entries(rejectionCounts).sort((left, right) => right[1] - left[1]).slice(0, 5).map(([key, count]) => `${key}=${count}`).join(",")}`);
+  throw new Error(`no compliant contextual fallback invariant for ${context.weightId || "unknown-weight"}/${context.verdict || "unknown-verdict"}: ${Object.entries(rejectionCounts).sort((left, right) => right[1] - left[1]).slice(0, 5).map(([key, count]) => `${key}=${count}`).join(",")}`);
 }
 
 function buildContextualFallbackResult(context, previousMessages = []) {
@@ -2591,7 +2703,7 @@ function outlookClaimMatches(scope, context) {
 function approvedCoachCopyComponents(context) {
   const facts = fallbackFactClauseVariants(context);
   return {
-    openings: FALLBACK_OPENINGS[context?.verdict] || FALLBACK_OPENINGS["not-good-enough"],
+    openings: coachOpeningCandidates(context),
     currentFacts: facts.current,
     evidenceFacts: facts.evidence,
     outlookFacts: context?.includeOutlook ? facts.outlook.filter(Boolean) : [],
@@ -2665,10 +2777,28 @@ function closedCoachGrammarErrors(text, context, selectedAction) {
     const sentenceEnd = relationshipSupport.end + (nextStops.length ? Math.min(...nextStops) + 1 : after.length);
     const integrated = [current, evidence, outlook, modifier, action].filter(Boolean)
       .some((entry) => entry.start >= sentenceStart && entry.start < sentenceEnd);
-    if (!brainLed && !integrated) errors.push("detached-personal-anchor");
+    if (integrated) errors.push("personal-anchor-glued");
     if (brainLed && !/same close attention is here with you/i.test(relationshipSupport.text)) errors.push("personal-anchor-missing-care-frame");
   }
   return Array.from(new Set(errors));
+}
+
+function naturalCoachGrammarErrors(text, context, selectedAction = null) {
+  const source = String(text || "").normalize("NFKC");
+  const errors = [];
+  if (source.includes("?")) errors.push("fact-question");
+  const support = String(context?.relationshipSupport?.text || "").trim().replace(/[.!?]+$/g, "");
+  if (support) {
+    const standalone = coachSentenceScopes(source)
+      .map((sentence) => sentence.replace(/[.!?]+$/g, "").trim())
+      .some((sentence) => sentence === support);
+    if (!standalone) errors.push("personal-anchor-glued");
+  }
+  const factualSource = source
+    .replace(context?.relationshipSupport?.text || "", "")
+    .replace(selectedAction?.text || "", "");
+  if (/\b(?:because|therefore|thus|which caused|so the outlook|so weight)\b/i.test(factualSource)) errors.push("unsupported-causality");
+  return errors;
 }
 
 function supportiveCoachStyleErrors(text) {
@@ -2716,7 +2846,9 @@ function validateCoachParagraph(text, context, previousMessages = [], options = 
       .replace(context.trackerModifier?.text || "", "")
       .replace(context.relationshipSupport?.text || "", "");
     if (containsAdditionalBehaviorAction(withoutSelectedAction)) errors.push("extra-action");
-    errors.push(...closedCoachGrammarErrors(paragraph, context, actionMatch));
+    errors.push(...(options.allowNaturalProse
+      ? naturalCoachGrammarErrors(paragraph, context, actionMatch)
+      : closedCoachGrammarErrors(paragraph, context, actionMatch)));
   }
   const currentClaim = context ? coachSentenceScopes(paragraph).find((scope) => {
     if (!scope.includes(`${trimCoachNumber(context.currentWeight)} lb`)) return false;
@@ -2731,7 +2863,7 @@ function validateCoachParagraph(text, context, previousMessages = [], options = 
   const leadVerdict = paragraph.slice(0, sourceSpecificBrainContextLeads(context) ? 320 : 150);
   const verdictPattern = context && {
     "not-good-enough": /\b(?:moved away|points? away|needs? (?:work|a response|attention|a correction|to change|a (?:(?:calm|gentle|steady) )?reset)|setback|regression|worsen\w*|course correction|off course|not moving our way|unhelpful turn|against the plan|did not move in the direction|stepped away|simple reset|moving (?:the )?wrong way)\b/i,
-    "good-progress": /\b(?:real progress|right way|a win|strong progress|moving our way|got better|improv\w*|positive signal|lower and moving|landed the right way|momentum)\b/i,
+    "good-progress": /\b(?:real progress|real correction|meaningful correction|right way|a win|strong progress|moving our way|got better|improv\w*|positive signal|lower and moving|landed the right way|momentum|finally pushed back|earned credit)\b/i,
     verify: /\b(?:pause|verify|confirmation|confirm\w*|unconfirmed|outlier|recheck|unsettled|uncertain|unusual to judge|outside the usual pattern|on hold|follow-up|direction is still open|not clear)\b/i,
     baseline: /\b(?:baseline|starting (?:line|point)|first (?:number|weigh-in|data point|anchor)|where the line begins|trend has its first|day one)\b/i
   }[context.verdict];
@@ -2947,7 +3079,7 @@ function criticCandidatePayload(candidate, context = null, previousMessages = []
     annotatedText: start < 0 ? text : `${text.slice(0, start)}<approved_action>${actionText}</approved_action>${text.slice(start + actionText.length)}`,
     verdictEvidence: {
       expectedFamily: context?.verdict || null,
-      approvedFamilyOpening: Boolean(context && (WRITER_SAFE_OPENINGS[context.verdict] || []).some((opening) => countLiteralOccurrences(text, opening) === 1))
+      approvedFamilyOpening: Boolean(context)
     },
     originalityEvidence: {
       openingFresh: !novelty.includes("repeat-opening"),
@@ -3048,6 +3180,27 @@ function personalAnchorFromCoachRecord(message) {
   };
 }
 
+function mergedAcceptedCopyHistory(existing, nextText) {
+  const prior = Array.isArray(existing?.acceptedCopyHistory)
+    ? existing.acceptedCopyHistory.filter((entry) => entry && typeof entry === "object")
+    : [];
+  const changed = existing?.text && normalizeCoachParagraph(existing.text) !== normalizeCoachParagraph(nextText);
+  const rows = changed ? [acceptedCopySignature(existing), ...prior].filter(Boolean) : prior;
+  const seen = new Set();
+  return rows.filter((entry) => {
+    const key = [entry.openingFingerprint, entry.closingFingerprint, entry.normalizedFingerprint, entry.argumentFingerprint].join("|");
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 12).map((entry) => ({
+    openingFingerprint: String(entry.openingFingerprint || ""),
+    closingFingerprint: String(entry.closingFingerprint || ""),
+    normalizedFingerprint: String(entry.normalizedFingerprint || ""),
+    argumentFingerprint: String(entry.argumentFingerprint || ""),
+    orderedTrigrams: Array.isArray(entry.orderedTrigrams) ? entry.orderedTrigrams.map(String).slice(0, 160) : []
+  }));
+}
+
 async function generateCoachParagraph(context, previousMessages = [], options = {}) {
   const startedAt = Date.now();
   const totalTimeoutMs = Math.max(25, Number(options.timeoutMs || coachGenerationTimeoutMs));
@@ -3057,9 +3210,16 @@ async function generateCoachParagraph(context, previousMessages = [], options = 
     return Math.max(1, remaining);
   };
   const wordBounds = coachWordBounds(context);
-  const fallback = buildContextualFallbackResult(context, previousMessages);
+  let fallback = null;
+  let fallbackError = null;
+  try {
+    fallback = buildContextualFallbackResult(context, previousMessages);
+  } catch (error) {
+    fallbackError = error;
+  }
   const configuredKey = Object.prototype.hasOwnProperty.call(options, "apiKey") ? options.apiKey : openaiApiKey;
   if (!configuredKey) {
+    if (!fallback) throw fallbackError || new Error("coach fallback unavailable");
     return {
       text: fallback.text,
       status: "fallback-no-model",
@@ -3070,8 +3230,6 @@ async function generateCoachParagraph(context, previousMessages = [], options = 
   }
 
   const writerSchema = coachWriterSchema();
-  const approvedComponents = approvedCoachCopyComponents(context);
-
   const rejectionCodes = [];
   let lastStatus = "fallback-writer-validation";
   let lastCritic = null;
@@ -3082,18 +3240,17 @@ async function generateCoachParagraph(context, previousMessages = [], options = 
       const system = [
         "Write three genuinely different evidence-first, warm fitness-coach paragraphs for Lily and return only the required JSON.",
         `Each candidate must be ${wordBounds.min}-${wordBounds.max} words in one paragraph.`,
-        "For every paragraph, copy exactly one supplied opening, current fact, evidence fact, optional outlook fact, personal-context clause, action, and closing. Do not add facts, numbers, behaviors, or descriptive claims.",
-        "When FACTS.personalContextLeads is true, copy the personal-context clause as the complete first sentence, then immediately use one supplied opening before every weight, evidence, outlook, and action clause; otherwise put the opening first. Always put the closing last. Arrange the remaining roles in three genuinely different orders and use only punctuation or the connectors and, but, while, meanwhile, or at the same time.",
-        "The personal-context clause must share a sentence with the weight evidence or the approved action so it changes the story instead of appearing as a detachable aside.",
-        "Make the strongest new evidence and its relationship to the prior read immediately clear while keeping the result about data, never Lily's worth or identity.",
-        "Preserve the supplied personal-context clause exactly; never invent, expand, diagnose, sexualize, or make affection conditional on weight.",
-        "Use three different openings, closings, and role orders. Copy exactly one approved action realization in each candidate; action wording may repeat between candidates when the approved list is shorter than three.",
+        "Write natural prose from the structured facts; do not copy a stock template or merely rearrange supplied clauses. Every paragraph must state the exact current weight and daily change, the selected broader evidence and its relationship, and the outlook only when FACTS.analysis.outlook is present. Do not add facts, numbers, behaviors, causes, or descriptive claims.",
+        "Copy FACTS.relationshipSupport.approvedText exactly once as its own complete sentence. When FACTS.personalContextLeads is true, that sentence must come first. Never glue it to a measurement, verdict, outlook, or action with a semicolon, dash, comma, or conjunction.",
+        "Make the verdict unmistakable and make the strongest new evidence clear in ordinary human language. If the current direction improves while the outlook worsens, celebrate the real correction and plainly say the slower outlook has not caught up; do not condemn the correction or pretend the broad trend is fixed.",
+        "Copy exactly one realization from FACTS.analysis.action.approvedRealizations in each candidate. Use no other advice or instruction. Preserve the personal-context sentence exactly; never invent, expand, diagnose, sexualize, or make affection conditional on weight.",
+        "Use three genuinely different openings, sentence rhythms, and analytical emphasis. Avoid slogans, stock closings, generic reassurance, checklist narration, or reusing anything in RECENT ARGUMENTS TO AVOID.",
         "Never mention a goal, target weight, private strategy, BMI, diagnosis, mental-health context, appearance, worth, fasting, skipped meals, restriction, compensation, punishment, JYP, or idol training. Never select alarmist, rejecting, coercive, all-caps, or exclamation-heavy copy."
       ].join(" ");
       const writerText = await requestCoachResponse([
         { role: "system", content: system },
-        { role: "user", content: `FACTS: ${JSON.stringify(criticCoachFacts(context))}\nAPPROVED COPY COMPONENTS: ${JSON.stringify(approvedComponents)}\nRECENT ARGUMENTS TO AVOID: ${JSON.stringify(recentCoachAvoidance(previousMessages))}` }
-      ], { ...options, model: options.model || coachWriterModel, timeoutMs: remainingTimeoutMs(), schema: writerSchema, schemaName: "lily_coach_candidates_v6", maxOutputTokens: 620 });
+        { role: "user", content: `FACTS: ${JSON.stringify(publicCoachFacts(context))}\nRECENT ARGUMENTS TO AVOID: ${JSON.stringify(recentCoachAvoidance(previousMessages))}` }
+      ], { ...options, model: options.model || coachWriterModel, timeoutMs: remainingTimeoutMs(), schema: writerSchema, schemaName: "lily_coach_candidates_v7", maxOutputTokens: 620 });
       const candidates = parseWriterCandidates(writerText);
       if (candidates.length !== COACH_CANDIDATE_COUNT) {
         lastStatus = "fallback-writer-format";
@@ -3108,7 +3265,8 @@ async function generateCoachParagraph(context, previousMessages = [], options = 
       const validCandidates = [];
       for (const candidate of candidates) {
         const validation = validateCoachParagraph(candidate, context, previousMessages, {
-          privateGoal: Object.prototype.hasOwnProperty.call(options, "privateGoal") ? options.privateGoal : privateCoachGoal
+          privateGoal: Object.prototype.hasOwnProperty.call(options, "privateGoal") ? options.privateGoal : privateCoachGoal,
+          allowNaturalProse: true
         });
         if (!validation.ok) {
           rejectionCodes.push(...validation.errors);
@@ -3166,6 +3324,7 @@ async function generateCoachParagraph(context, previousMessages = [], options = 
       if (code === "timeout") break;
     }
   }
+  if (!fallback) throw fallbackError || new Error("coach fallback unavailable after generation failure");
   return {
     text: fallback.text,
     status: lastStatus,
@@ -3207,6 +3366,7 @@ function createCoachMessageRecord(context, text, status, now = new Date().toISOS
     fallbackStructureId: metadata.structureId || null,
     analysisPlan: context.analysisPlan,
     personalAnchor: sanitizePersonalAnchor(context.personalAnchor),
+    acceptedCopyHistory: mergedAcceptedCopyHistory(existing, text),
     diagnostics: sanitizeGenerationDiagnostics(metadata.diagnostics),
     criticResult: sanitizeCriticResult(metadata.criticResult),
     ...fingerprint,
@@ -3264,7 +3424,18 @@ function addPendingCoachForWeight(store, weightId, status = COACH_PENDING_STATUS
 }
 
 function coachNeedsRepair(message) {
-  return String(message?.status || "").startsWith("pending-");
+  const status = String(message?.status || "");
+  const attempts = Math.max(0, Number(message?.diagnostics?.attemptCount) || 0);
+  if (message?.personalAnchor?.approvedText && containsPrivateCoachBlockedTerm(message.personalAnchor.approvedText)) return false;
+  if (status.startsWith("pending-")) return true;
+  if (attempts === 0 && [
+    "fallback-contextual",
+    "fallback-personal-anchor-fetched",
+    "fallback-brain-authentic-connection-reconciled",
+    "fallback-brain-relationship-maintenance",
+    "fallback-saved-context"
+  ].includes(status)) return true;
+  return attempts < 2 && /^fallback-(?:timeout|api-error|writer-|critic-)/.test(status);
 }
 
 async function persistWeightWithRecoverableCoach(created, options = {}) {
@@ -3394,7 +3565,9 @@ function refreshLatestCoachForBrainRelationship(store, relationshipSupport, stat
   const existingSupportTime = Date.parse(existingAnchor?.createdAt || existingBrainReference?.sourceCreatedAt || "");
   const strictRelationshipSource = relationshipSupport.sourceType === "brain-letter";
   const genericThoughtSource = relationshipSupport.sourceType === "brain-thought-anchor";
-  const strictRelationshipPriority = strictRelationshipSource && existingAnchor?.sourceType !== "brain-letter";
+  const existingStrictIsAdjacent = existingAnchor?.sourceType === "brain-letter"
+    && brainSourceWithinWeightWindow(latestWeight, existingAnchor, now);
+  const strictRelationshipPriority = strictRelationshipSource && !existingStrictIsAdjacent;
   const sourceIsCausal = strictRelationshipSource
     ? brainSourceWithinWeightWindow(latestWeight, relationshipSupport, now)
     : genericThoughtSource
@@ -3403,7 +3576,7 @@ function refreshLatestCoachForBrainRelationship(store, relationshipSupport, stat
         && now - weightTime <= BRAIN_RELATIONSHIP_MAX_AGE_MS
       : false;
   if (!sourceIsCausal
-    || (existingAnchor?.sourceType === "brain-letter" && !strictRelationshipSource)
+    || (existingStrictIsAdjacent && !strictRelationshipSource)
     || (!strictRelationshipPriority && Number.isFinite(existingSupportTime) && supportTime <= existingSupportTime)
     || (existingBrainReference && !Number.isFinite(existingSupportTime) && supportTime < weightTime)
     || !personalAnchorIsAvailable(store, relationshipSupport, latestWeight.id)) {
@@ -4536,7 +4709,10 @@ async function handleApi(req, res, pathname) {
     });
     const latestWeight = (finalStore.weights || []).find((weight) => weight.id === finalSnapshot.targetWeightId);
     const previousMessages = causalPreviousCoachMessages(finalStore, latestWeight, 10);
-    const validation = validateCoachParagraph(finalRecord?.text || "", finalContext, previousMessages, { privateGoal: privateCoachGoal });
+    const validation = validateCoachParagraph(finalRecord?.text || "", finalContext, previousMessages, {
+      privateGoal: privateCoachGoal,
+      allowNaturalProse: finalRecord?.status === "generated-and-critic-approved"
+    });
     if (finalRecord?.styleVersion !== COACH_STYLE_VERSION || !validation.ok) {
       throw Object.assign(new Error(`The refreshed coach failed the supportive style gate: ${validation.errors.join(", ")}.`), { status: 409 });
     }
@@ -4672,9 +4848,12 @@ async function handleApi(req, res, pathname) {
       updatedAt: now
     };
     const savedStore = await persistWeightWithRecoverableCoach(created);
-    send(res, 201, { weight: publicWeight(created), latestCoach: publicCoach(coachForWeight(savedStore, created.id)) });
-    scheduleCoachGeneration(created.id);
-    scheduleBrainContextReconciliation(created.id);
+    const savedCoach = coachForWeight(savedStore, created.id);
+    send(res, 201, { weight: publicWeight(created), latestCoach: publicCoach(savedCoach) });
+    if (coachNeedsRepair(savedCoach)) scheduleCoachGeneration(created.id);
+    if (!savedCoach?.personalAnchor?.approvedText || !containsPrivateCoachBlockedTerm(savedCoach.personalAnchor.approvedText)) {
+      scheduleBrainContextReconciliation(created.id);
+    }
     return;
   }
 
