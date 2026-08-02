@@ -72,11 +72,11 @@ function publicApiErrorMessage(error, status = Number(error?.status) || 500) {
   return status >= 500 ? "Something went wrong. Please try again." : (error?.message || "Request failed.");
 }
 
-const COACH_GENERATION_VERSION = "coach-pipeline-v19";
+const COACH_GENERATION_VERSION = "coach-pipeline-v20";
 const COACH_ANALYSIS_VERSION = "coach-analysis-v10";
-const COACH_WRITER_PROMPT_VERSION = "coach-writer-v15";
+const COACH_WRITER_PROMPT_VERSION = "coach-writer-v16";
 const COACH_CRITIC_PROMPT_VERSION = "coach-critic-v8";
-const COACH_VALIDATOR_VERSION = "coach-validator-v9";
+const COACH_VALIDATOR_VERSION = "coach-validator-v10";
 const COACH_FALLBACK_VERSION = "coach-fallback-v14";
 const COACH_ACTION_VERSION = "coach-action-v7";
 const COACH_PROMPT_VERSION = COACH_WRITER_PROMPT_VERSION;
@@ -3050,6 +3050,35 @@ const COACH_WRITER_ROLE_ORDERS = Object.freeze([
   ["current", "action", "outlook", "evidence"]
 ]);
 
+const WRITER_LEAD_COMMON_WORDS = Object.freeze([
+  "a", "an", "and", "but", "despite", "the", "this", "today"
+]);
+
+const WRITER_LEAD_VERDICT_WORDS = Object.freeze({
+  "not-good-enough": [
+    "away", "calm", "change", "correction", "course", "direction", "gentle", "line", "moved", "needs", "off", "reset",
+    "result", "setback", "signal", "simple", "took", "turn", "unhelpful"
+  ],
+  "good-progress": [
+    "amid", "encouraging", "forward", "genuine", "improvement", "meaningful", "notable", "progress", "real", "recent", "setback",
+    "setbacks", "step", "welcome", "win"
+  ],
+  verify: [
+    "confirmation", "confirming", "fair", "needs", "outlier", "point", "reading", "recheck", "result", "signal", "still", "swing",
+    "uncertain", "unconfirmed", "unsettled", "unusual"
+  ],
+  baseline: [
+    "baseline", "beginning", "first", "has", "here", "honest", "is", "now", "opening", "point", "set", "signal", "start", "starting"
+  ]
+});
+
+function writerLeadAllowedWords(context) {
+  const verdict = Object.prototype.hasOwnProperty.call(WRITER_LEAD_VERDICT_WORDS, context?.verdict)
+    ? context.verdict
+    : "baseline";
+  return Array.from(new Set([...WRITER_LEAD_COMMON_WORDS, ...WRITER_LEAD_VERDICT_WORDS[verdict]])).sort();
+}
+
 function writerLeadFacts(context) {
   const evidence = context?.analysisPlan?.strongestEvidence || null;
   return {
@@ -3064,6 +3093,7 @@ function writerLeadFacts(context) {
     outlookDirection: context?.includeOutlook ? context.outlookDirection : null,
     outlookRelationship: context?.includeOutlook ? context.outlookEvidenceRelation : null,
     personalContextLeads: sourceSpecificBrainContextLeads(context),
+    allowedWords: writerLeadAllowedWords(context),
     requestedOutput: "three distinct 2-to-7-word verdict leads only",
     communicationStyle: "warm, specific, hopeful, low-overwhelm, data-directed, and non-coercive"
   };
@@ -3078,6 +3108,10 @@ function writerLeadErrors(value, context = null) {
   if (!source || /[\r\n{}<>]|\d/.test(source)) errors.push("writer-lead-format");
   if (containsAdditionalBehaviorAction(source)) errors.push("writer-lead-action");
   if (context?.outlookEvidenceRelation === "contradicts" && /\b(?:steady|consistent|sustained|trend|momentum|turnaround|fixed)\b/i.test(source)) errors.push("writer-lead-overclaim");
+  if (context) {
+    const allowedWords = new Set(writerLeadAllowedWords(context));
+    if (tokenWords(source).some((word) => !allowedWords.has(word))) errors.push("writer-lead-unsupported-language");
+  }
   return { ok: errors.length === 0, errors: Array.from(new Set(errors)), text: source };
 }
 
@@ -3427,7 +3461,7 @@ async function generateCoachParagraph(context, previousMessages = [], options = 
     try {
       const system = [
         "Write three genuinely different short verdict leads for Lily and return only the required JSON. Each candidate.text must contain only one natural 2-to-7-word verdict phrase; the server, not you, will add all facts, context, actions, and closing language.",
-        "Use no numbers, units, measurements, foods, activities, actions, advice, punctuation-heavy slogans, personal details, placeholders, braces, JSON/meta labels, or instructions. Do not write a sentence or paragraph.",
+        "Use no numbers, units, measurements, foods, activities, actions, advice, punctuation-heavy slogans, personal details, placeholders, braces, JSON/meta labels, or instructions. Do not write a sentence or paragraph. Every word in every candidate must appear in BRIEF.allowedWords; do not inflect, conjugate, or add any other word.",
         "Make BRIEF.verdict unmistakable. When currentDirection is down and outlookDirection is worsened, the phrase must credit the real correction rather than condemn it; do not call it steady, consistent, sustained, a trend, momentum, a turnaround, or fixed.",
         "Make the three phrases genuinely different in wording and tone. Warm, concise, human language such as a real correction or encouraging progress is appropriate when supported; avoid all-caps, pressure, shame, or generic commands.",
         "Never mention a goal, target weight, private strategy, BMI, diagnosis, mental-health context, appearance, worth, fasting, skipped meals, restriction, compensation, punishment, JYP, or idol training. Never select alarmist, rejecting, coercive, all-caps, or exclamation-heavy copy."
@@ -3435,7 +3469,7 @@ async function generateCoachParagraph(context, previousMessages = [], options = 
       const writerText = await requestCoachResponse([
         { role: "system", content: system },
         { role: "user", content: `BRIEF: ${JSON.stringify(writerLeadFacts(context))}` }
-      ], { ...options, model: options.model || coachWriterModel, timeoutMs: remainingTimeoutMs(), schema: writerSchema, schemaName: "lily_coach_verdict_leads_v9", maxOutputTokens: 140 });
+      ], { ...options, model: options.model || coachWriterModel, timeoutMs: remainingTimeoutMs(), schema: writerSchema, schemaName: "lily_coach_verdict_leads_v10", maxOutputTokens: 140 });
       const leads = parseWriterCandidates(writerText);
       if (leads.length !== COACH_CANDIDATE_COUNT) {
         lastStatus = "fallback-writer-format";
@@ -5365,6 +5399,7 @@ if (process.env.NODE_ENV === "test" || process.env.LILY_COACH_CLI === "1") {
     publicCoachFacts,
     renderWriterLead,
     writerLeadErrors,
+    writerLeadAllowedWords,
     writerLeadFacts,
     publicCoach,
     publicApiErrorMessage,

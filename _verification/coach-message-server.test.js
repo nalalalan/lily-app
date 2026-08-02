@@ -1786,9 +1786,36 @@ async function run() {
   assert(coach.writerLeadErrors("Progress at 999 lb").errors.includes("writer-lead-format"), "the model cannot inject or alter a protected number");
   assert(coach.writerLeadErrors("Take a walk now").errors.includes("writer-lead-action"), "the model cannot add a second action");
   assert(coach.writerLeadErrors("Steady improvement today", aug2PersonalContext).errors.includes("writer-lead-overclaim"), "a one-day correction cannot be inflated into a steady trend when the broad outlook contradicts it");
+  assert(Array.isArray(writerBrief.allowedWords) && writerBrief.allowedWords.includes("correction") && !writerBrief.allowedWords.includes("outlook"), "the writer receives an explicit verdict-family vocabulary without fact-bearing language");
+  const unsupportedWriterLeads = [
+    "The outlook improved",
+    "Real progress makes Alan proud",
+    "Alan loves this real progress",
+    "Your boyfriend sees real progress",
+    "Be better after this setback",
+    "Fix this setback now",
+    "This setback means work harder"
+  ];
+  for (const lead of unsupportedWriterLeads) {
+    const targetContext = /progress/i.test(lead) ? aug2PersonalContext : july22;
+    assert(coach.writerLeadErrors(lead, targetContext).errors.includes("writer-lead-unsupported-language"), `unsupported fact, relationship, or command language is rejected: ${lead}`);
+  }
   const unsafeWriterLead = coach.renderWriterLead("Worthless failure today", july22, 0);
-  assert(unsafeWriterLead.ok, "lead composition itself remains independent from prose safety");
-  assert(coach.validateCoachParagraph(unsafeWriterLead.text, july22, [], { privateGoal: 117, allowNaturalProse: true }).errors.includes("unsafe-language"), "unsafe generated lead prose still fails the final validator");
+  assert(!unsafeWriterLead.ok && unsafeWriterLead.errors.includes("writer-lead-unsupported-language"), "unsafe generated lead prose fails before composition");
+
+  const contradictoryWriterPayload = JSON.stringify({ candidates: [
+    "The outlook improved",
+    "Real progress makes Alan proud",
+    "Fix this setback now"
+  ].map((text) => ({ text })) });
+  const contradictoryGeneration = await coach.generateCoachParagraph(aug2PersonalContext, [], {
+    apiKey: "test-key",
+    privateGoal: 117,
+    fetchImpl: queuedFetch([contradictoryWriterPayload, contradictoryWriterPayload, criticPayload(true, 0)]),
+    timeoutMs: 3000
+  });
+  assert.match(contradictoryGeneration.status, /^fallback-writer-/);
+  assert(!/outlook improved|alan proud|fix this setback/i.test(contradictoryGeneration.text), "an all-true critic cannot rescue an unsupported AI lead into persisted copy");
   const writerPayload = JSON.stringify({ candidates: writerLeads.map((text) => ({ text })) });
   const writerRequestBodies = [];
   const approvedQueue = [writerPayload, criticPayload(true, 0)];
