@@ -4468,9 +4468,11 @@ function refreshLatestCoachForBrainRelationship(store, relationshipSupport, stat
   const existing = coachForWeight(store, latestWeight.id);
   const existingAnchor = personalAnchorFromCoachRecord(existing);
   const existingBrainReference = existing?.evidenceReferences?.find((reference) => ["brain-letter", "brain-thought-anchor", "memory-personal-anchor"].includes(reference?.type)) || null;
-  const alreadyCurrent = existingAnchor?.id === relationshipSupport.id
+  const sameSource = existingAnchor?.id === relationshipSupport.id
     && existingAnchor?.sourceType === relationshipSupport.sourceType
     && (!existingAnchor?.sourceHash || !relationshipSupport.sourceHash || existingAnchor.sourceHash === relationshipSupport.sourceHash);
+  const sourceReductionChanged = sameSource && String(existingAnchor?.text || "") !== String(relationshipSupport.text || "");
+  const alreadyCurrent = sameSource && !sourceReductionChanged;
   if (alreadyCurrent) return { store, updated: false, alreadyCurrent: true, weightId: latestWeight.id, latestCoach: publicCoach(existing) };
   const weightTime = Date.parse(latestWeight.createdAt);
   const supportTime = Date.parse(relationshipSupport.createdAt);
@@ -4486,9 +4488,9 @@ function refreshLatestCoachForBrainRelationship(store, relationshipSupport, stat
         && now - weightTime <= BRAIN_RELATIONSHIP_MAX_AGE_MS
       : false;
   if (!sourceIsCausal
-    || (Number.isFinite(existingSupportTime) && supportTime <= existingSupportTime)
+    || (!sourceReductionChanged && Number.isFinite(existingSupportTime) && supportTime <= existingSupportTime)
     || (existingBrainReference && !Number.isFinite(existingSupportTime) && supportTime < weightTime)
-    || !personalAnchorIsAvailable(store, relationshipSupport, latestWeight.id)) {
+    || (!sourceReductionChanged && !personalAnchorIsAvailable(store, relationshipSupport, latestWeight.id))) {
     return { store, updated: false, alreadyCurrent: false, weightId: latestWeight.id, latestCoach: publicCoach(existing) };
   }
 

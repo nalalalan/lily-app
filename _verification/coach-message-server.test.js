@@ -2086,6 +2086,39 @@ async function run() {
   assert.equal(genericIdempotent.updated, false);
   assert.equal(genericIdempotent.status, "already-current", "generic reconciliation is idempotent once the newest source is attached");
 
+  const currentGenericRecord = coach.coachForWeight(genericReconciledStore, genericWeight.id);
+  const staleSameSourceStore = {
+    ...genericReconciledStore,
+    coachMessages: genericReconciledStore.coachMessages.map((message) => message.id === currentGenericRecord.id
+      ? {
+          ...message,
+          personalAnchor: {
+            ...message.personalAnchor,
+            approvedText: "oh, I got distracted thinking about a vague module again"
+          }
+        }
+      : message)
+  };
+  const sameSourceReductionRepair = coach.refreshLatestCoachForBrainRelationship(
+    staleSameSourceStore,
+    genericBrainAnchor,
+    "fallback-same-source-reduction-repair",
+    Date.parse("2026-07-26T20:00:20.000Z")
+  );
+  assert.equal(sameSourceReductionRepair.updated, true, "a better approved reduction refreshes the current memo even when the source id, timestamp, and hash are unchanged");
+  const repairedSameSourceCoach = coach.coachForWeight(sameSourceReductionRepair.store, genericWeight.id);
+  assert.equal(repairedSameSourceCoach.id, currentGenericRecord.id);
+  assert.equal(repairedSameSourceCoach.createdAt, currentGenericRecord.createdAt);
+  assert.equal(repairedSameSourceCoach.personalAnchor.approvedText, genericBrainAnchor.text);
+  const sameSourceReductionIdempotent = coach.refreshLatestCoachForBrainRelationship(
+    sameSourceReductionRepair.store,
+    genericBrainAnchor,
+    "fallback-same-source-reduction-repair",
+    Date.parse("2026-07-26T20:00:30.000Z")
+  );
+  assert.equal(sameSourceReductionIdempotent.updated, false);
+  assert.equal(sameSourceReductionIdempotent.alreadyCurrent, true, "the upgraded same-source reduction settles after one replacement");
+
   const lateThoughtWeight = recordWeight("late-thought-weight", "2026-07-30", 151, "T21:30:30.660Z");
   let lateThoughtStore = baseStore([lateThoughtWeight], { memories: substantialAnchorMemories("late-thought"), trackerEvents: [] });
   lateThoughtStore = coach.addFallbackCoachForWeight(lateThoughtStore, lateThoughtWeight.id, "fallback-before-late-thought");
