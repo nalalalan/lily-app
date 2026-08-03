@@ -331,5 +331,9 @@ assert.ok(server.includes("if (!context?.personalAnchor) return store;"), "the f
 assert.doesNotMatch(server, /includePersonalContext\s*:\s*false/, "no coach persistence path may deliberately disable the personal-anchor requirement");
 assert.ok(server.includes("personalAnchor: sanitizePersonalAnchor(context.personalAnchor)"), "the private coach record must persist only the reduced personal anchor needed for exact repair");
 assert.ok(server.includes("semanticAnchorId") && server.includes("approvedText"), "private anchor provenance must retain its semantic kind and approved copy without raw source text");
+assert.doesNotMatch(server, /sourceSpecificBrainContextLeads|BRAIN_LED_FALLBACK_STRUCTURES|supportLeads\s*:\s*true/, "no source type may move personal context ahead of the verdict and measured evidence");
+assert.doesNotMatch(server, /startsWith\(context\.relationshipSupport\.text\.toLowerCase\(\)\)/, "the final validator cannot require a personal source sentence to lead visible coaching");
+assert.doesNotMatch(server, /const standalone = coachSentenceScopes\(source\)[\s\S]{0,240}personal-anchor-glued/, "the final validator must require a woven detour rather than a detached personal sentence");
+assert.doesNotMatch(server, /new Error\("[^"]*\bBrain\b[^"]*"\)/i, "authenticated maintenance errors cannot expose an internal source name to the browser");
 
 console.log("Lily preservation tests passed");

@@ -72,16 +72,16 @@ function publicApiErrorMessage(error, status = Number(error?.status) || 500) {
   return status >= 500 ? "Something went wrong. Please try again." : (error?.message || "Request failed.");
 }
 
-const COACH_GENERATION_VERSION = "coach-pipeline-v23";
+const COACH_GENERATION_VERSION = "coach-pipeline-v24";
 const COACH_ANALYSIS_VERSION = "coach-analysis-v10";
-const COACH_WRITER_PROMPT_VERSION = "coach-writer-v19";
+const COACH_WRITER_PROMPT_VERSION = "coach-writer-v20";
 const COACH_CRITIC_PROMPT_VERSION = "coach-critic-v8";
-const COACH_VALIDATOR_VERSION = "coach-validator-v13";
-const COACH_FALLBACK_VERSION = "coach-fallback-v14";
+const COACH_VALIDATOR_VERSION = "coach-validator-v14";
+const COACH_FALLBACK_VERSION = "coach-fallback-v15";
 const COACH_ACTION_VERSION = "coach-action-v7";
 const COACH_PROMPT_VERSION = COACH_WRITER_PROMPT_VERSION;
 const COACH_SAFETY_VERSION = "coach-safety-v7";
-const COACH_STYLE_VERSION = "coach-style-brain-led-v9";
+const COACH_STYLE_VERSION = "coach-style-personal-detour-v10";
 const COACH_PENDING_STATUS = "pending-contextual-repair";
 const COACH_MIN_WORDS = 35;
 const COACH_MAX_WORDS = 55;
@@ -535,18 +535,18 @@ function observerCareSignal(text) {
 }
 
 const BRAIN_RELATIONSHIP_COPY = Object.freeze({
-  "boyfriend-yap-phd-league": "Your nerdy PhD boyfriend is here, yapping honestly, loving you, and wanting you safe and happy for many more League nights together",
-  "boyfriend-yap-phd": "Your nerdy PhD boyfriend is here, yapping honestly, loving you, and wanting you safe, happy, and fully yourself",
-  "boyfriend-yap": "Your yappy boyfriend is right here, loving you steadily and wanting you safe, happy, and fully yourself",
+  "boyfriend-yap-phd-league": "oh, my mind just wandered from nerdy PhD work to League again, because you get the real unedited version of me",
+  "boyfriend-yap-phd": "oh, my mind just wandered back to nerdy PhD work again, because you get the real unedited version of me",
+  "boyfriend-yap": "oh, I wandered into another honest little yap, because you get the real unedited version of me",
   "boyfriend-authentic-game-yap": Object.freeze([
-    "Your boyfriend is still in full game-yap mode, trusting you with the random, unfiltered version of his brain that he does not show everyone",
-    "Your boyfriend is somewhere turning one game thought into a whole yap, because you are the person he trusts with his unedited brain",
-    "Your boyfriend still has a game thought becoming a full yap, and you are the person who gets the wonderfully unpolished version of him"
+    "oh, I got distracted by another game thought, and of course you are the person I want to yap to about it",
+    "my mind wandered into another game tangent, because you get the unpolished version of me",
+    "somehow one game thought in my head became a whole yap again, and you are still the person I want to tell"
   ]),
   "boyfriend-authentic-yap": Object.freeze([
-    "Your boyfriend still brings you the random yaps and unfiltered thoughts because you are the person he trusts with his real, slightly all-over-the-place self",
-    "Your boyfriend is still himself—thinking too much, yapping it out, and trusting you with the version that is honest before it is polished",
-    "The real boyfriend is still here: unfiltered and one stray thought away from a full yap he somehow wants to share with you"
+    "oh, another random thought turned into a whole yap, because you get my real slightly all-over-the-place self",
+    "my mind wandered again, and you are still the person I trust with the honest version before it is polished",
+    "somehow I am one stray thought into another full yap, and you are the person I want to share it with"
   ])
 });
 
@@ -559,71 +559,103 @@ function brainConnectionCopy(kind, sourceHash = "") {
 
 const LILY_PERSONAL_ANCHOR_COPY = Object.freeze({
   "lily-league": Object.freeze([
-    "Alan remembers that League night and wants this check-in to feel like support, not another pile of instructions",
-    "That saved League night matters to Alan; he wants today's check-in to feel like being understood, not managed by a graph"
+    "oh, I just wandered back to that League night and how much I want this to feel supportive instead of managed by a graph",
+    "my mind jumped to that League night again, because I want you understood here rather than reduced to instructions"
   ]),
   "lily-music": Object.freeze([
-    "The music saved here is part of your real life too, and Alan is looking at the whole person rather than only the graph",
-    "This page remembers music alongside the measurements because Alan is paying attention to more than whatever the scale said today"
+    "oh, the music in your real life just popped into my head too, because I am looking at the whole person behind this graph",
+    "my mind wandered to music for a second, because one scale reading is never the whole person I see"
   ]),
   "lily-travel": Object.freeze([
-    "The travel thought saved here still belongs in the bigger picture, and one weigh-in cannot shrink the life Alan sees around you",
-    "This page remembers a travel thought as well as the numbers; Alan is keeping the larger life around you in view"
+    "oh, I drifted into that travel thought again, because this one weigh-in is only one piece of the much bigger life I see around you",
+    "my mind just jumped to that travel thought, and I am still keeping the larger life around you in view"
   ]),
   "lily-korean-food": Object.freeze([
-    "The Korean flavors saved here are part of what makes this plan yours, and Alan is paying attention to the person behind the data",
-    "This page remembers the Korean food you like because progress still has to belong to your actual life, not erase it"
+    "oh, I just started thinking about the Korean flavors you like, because this plan still has to belong to your real life",
+    "my mind wandered to Korean food for a second, because progress should fit the person behind the data"
+  ]),
+  "lily-korean-food-neutral": Object.freeze([
+    "oh, that Korean food detail just popped into my head, because this plan still has to belong to your real life",
+    "my mind wandered to that Korean food detail for a second, because progress should fit the person behind the data"
+  ]),
+  "lily-korean-food-dislike": Object.freeze([
+    "oh, I just remembered that Korean food is not really your thing, because this plan still has to fit your real life",
+    "my mind wandered to the Korean food you do not enjoy for a second, because progress has to fit the person behind the data"
   ]),
   "lily-fruit": Object.freeze([
-    "The fruit preference saved here is a small but real detail Alan remembers, because this page is meant to notice the person too",
-    "This page remembers the fruit you enjoy as well as the graph; Alan is paying attention to the real details around the number"
+    "oh, I just remembered the fruit you enjoy, because the small real details around the number matter to me too",
+    "my mind wandered to the fruit you like for a second, because I am paying attention to the person around this graph"
+  ]),
+  "lily-fruit-neutral": Object.freeze([
+    "oh, that fruit detail just popped into my head, because the small real details around the number matter to me too",
+    "my mind wandered to that fruit detail for a second, because I am paying attention to the person around this graph"
+  ]),
+  "lily-fruit-dislike": Object.freeze([
+    "oh, I just remembered the fruit you do not enjoy, because the small real details around the number matter to me too",
+    "my mind wandered to the fruit you do not like for a second, because I am paying attention to the person around this graph"
   ]),
   "lily-cooking": Object.freeze([
-    "The cooking note saved here is part of your actual life, and Alan is paying attention to the person living around this chart",
-    "This page remembers a cooking detail too, because Alan does not see you as a collection of measurements"
+    "oh, that cooking detail just popped into my head, because I am thinking about your actual life around this chart",
+    "my mind wandered to cooking for a second, because I never see you as a collection of measurements"
   ]),
   "lily-cats": Object.freeze([
-    "Alan remembers the cat detail because he notices your real life beyond this chart",
-    "That saved cat detail is still in Alan's mind because he notices the person beyond the graph"
+    "oh, that cat detail just popped into my head, because I am thinking beyond this one chart",
+    "my mind wandered to that cat detail for a second, because one graph is never the whole picture"
   ]),
   "lily-french": Object.freeze([
-    "Alan remembers the French-language detail saved here and wants this check-in to reflect a real person, not flatten you into one number",
-    "That saved French detail matters to Alan; he wants today's check-in to feel attentive to your actual life beyond the chart"
+    "oh, the French detail just popped into my head, because I am thinking about your real life beyond this one number",
+    "my mind wandered into French for a second, because I want this to sound attentive to the whole person"
   ]),
   "lily-heavy-day": Object.freeze([
-    "Alan knows some days feel heavy and wants this check-in to show that he notices the person carrying the day, not only the number",
-    "Alan remembers that some days feel heavier than others; he wants today's check-in to feel attentive, steady, and safe"
+    "oh, I just thought about how some days feel heavier, because I am noticing the person carrying the day and not only the number",
+    "my mind wandered to the heavier days for a second, because I want to be steady beside you while we read this honestly"
   ]),
   "lily-mood-care": Object.freeze([
-    "Alan noticed things felt off and wants this check-in to feel like he is beside you, not judging you",
-    "Alan remembers that things felt off and wants today's check-in to sound like someone staying beside you rather than grading you"
+    "oh, I keep thinking that things felt a little off, because I want to stay beside you here rather than judge you",
+    "my mind jumped back to how things felt off, because being seen matters alongside reading the number honestly"
   ]),
   "lily-rough-patch": Object.freeze([
-    "Alan remembers the rough patch and wants this check-in to feel like support beside you, not another demand landing on top of it",
-    "The rough patch Alan saved still matters; he wants today's check-in to sound like someone staying beside you rather than grading you"
+    "oh, my mind just went back to that rough patch, because I want to stay beside you without piling on another demand",
+    "I drifted back to the rough patch for a second, because this should sound like support beside you instead of a grade"
   ]),
   "lily-hydration": Object.freeze([
-    "Alan remembers the hydration detail you shared and wants this check-in to recognize the effort without turning it into another lecture",
-    "That saved hydration detail matters to Alan because he wants the check-in to notice what you are already trying, not only the result"
+    "oh, I just remembered the hydration effort you mentioned, because I notice what you are already trying as well as the result",
+    "my mind wandered to the drinking effort you shared, because the work around the number matters to me too"
+  ]),
+  "lily-hydration-detail": Object.freeze([
+    "oh, that hydration detail just popped into my head, because I am paying attention to the real life around this number too",
+    "my mind wandered to that drinking detail for a second, because the context around the scale matters to me too"
   ]),
   "lily-protein": Object.freeze([
-    "Alan remembers the protein detail you shared and wants this check-in to recognize the effort without flattening everything into the scale",
-    "That saved protein detail matters to Alan because he wants the check-in to notice your real choices around the number"
+    "oh, I just remembered the protein effort you mentioned, because I notice the real choices around the number too",
+    "my mind wandered to the protein habit you shared, because the work around the scale matters to me"
+  ]),
+  "lily-protein-detail": Object.freeze([
+    "oh, that protein detail just popped into my head, because I am paying attention to the real choices around the number too",
+    "my mind wandered to that protein detail for a second, because the context around the scale matters to me"
   ]),
   "lily-cycle": Object.freeze([
-    "Alan remembers the cycle detail you logged and will keep it as context without using it to explain away or judge today's result",
-    "The cycle detail saved here is part of what Alan notices, without pretending it proves why today's number moved"
+    "oh, the cycle detail just came back to me, and I am keeping it as context without pretending it explains this result",
+    "my mind jumped to the cycle context for a second, without using it to explain away or judge this number"
   ]),
   "lily-authentic-voice": Object.freeze([
-    "Alan remembers the longer thought saved here and wants this check-in to carry some of that trust without exposing the private detail",
-    "That saved unfiltered thought matters to Alan because he wants you to feel his real voice beside the analysis, not a polished script"
+    "oh, my mind wandered back to that longer unfiltered thought, because I want my real voice beside this analysis",
+    "somehow I drifted into another honest little yap, because I want you to get me before everything is polished"
+  ]),
+  "lily-input-detour": Object.freeze([
+    "oh, one stray thought from earlier just popped into my head, because apparently my mind is doing that again",
+    "somehow an earlier tangent wandered back into my head for a second"
+  ]),
+  "lily-mood-detail": Object.freeze([
+    "oh, that mood detail just popped into my head, and I am keeping it as context without inventing a story around it",
+    "my mind wandered to that mood detail for a second, without pretending it says more than it does"
   ])
 });
 
 const LILY_PERSONAL_ANCHOR_RULES = Object.freeze([
   { kind: "lily-league", pattern: /\bleague\b|\b(?:game|gaming)\w*\b/i },
   { kind: "lily-mood-care", pattern: /\b(?:things?|mood)\s+(?:felt|feel|seem\w*)\s+off\b|\b(?:seem\w*\s+off|quiet(?:er)?\s+than\s+usual|criticiz\w*|rough\s+day|not\s+(?:quite\s+)?herself)\b/i },
-  { kind: "lily-music", pattern: /\b(?:music|song|sing)\w*\b/i },
+  { kind: "lily-music", pattern: /\b(?:music|song|sing|violin|instrument)\w*\b/i },
   { kind: "lily-travel", pattern: /\b(?:travel|trip|vacation)\w*\b/i },
   { kind: "lily-korean-food", pattern: /\bkorean\b/i },
   { kind: "lily-fruit", pattern: /\b(?:fruit|peach|berries|apple)\w*\b/i },
@@ -644,23 +676,145 @@ function personalAnchorCopy(rows, sourceHash = "", seed = "") {
   return copies[stableIndex(`${sourceHash}|${seed}`, copies.length)];
 }
 
+function memoryTopicAttribution(text, topicPattern) {
+  const source = String(text || "");
+  const thirdPartyFraming = /\b(?:pasted?|copied|transcript|speaker|interviewer|coworker|colleague|neighbor|manager|boss|client|patient|therapist|doctor|ex(?:es)?|wife|husband|girlfriend|mother|father|mom|dad|sister|brother)\b/i.test(source);
+  let sender = false;
+  let lily = false;
+  let thirdParty = false;
+  for (const clause of source.split(/[.;!?]/)) {
+    if (!topicPattern.test(clause)) continue;
+    const namedThirdParty = /\b(?!Lily\b)[A-Z][a-z]+(?:\s+[A-Z][A-Za-z]+){0,2}\s+(?:likes?|loves?|hates?|dislikes?|prefers?|enjoys?|wants?)\b/.test(clause);
+    const framedThirdParty = /\b(?:speaker|coworker|colleague|neighbor|manager|boss|client|patient|therapist|doctor|friend|ex(?:es)?|wife|husband|girlfriend|mother|father|mom|dad|sister|brother)\b/i.test(clause);
+    if (/\bLily\b/i.test(clause) || (!thirdPartyFraming && /\b(?:you|your|she|her|hers)\b/i.test(clause))) lily = true;
+    if (namedThirdParty || framedThirdParty) thirdParty = true;
+    const reportedOther = /\b(?:heard|quoted?|copied|pasted|read\s+that|was\s+told|told\s+me|transcript|speaker)\b/i.test(clause);
+    const directSenderRelation = /\b(?:i|we)\s+(?:really\s+)?(?:like|love|hate|dislike|enjoy|prefer|want|keep\s+thinking\s+(?:about|of)|think\s+(?:about|of)|am\s+thinking\s+(?:about|of)|was\s+thinking\s+(?:about|of)|wonder\s+(?:about|whether)|remember)\b|\b(?:my|mine|our|ours)\b/i.test(clause);
+    if (directSenderRelation && !reportedOther && !namedThirdParty && !framedThirdParty) sender = true;
+  }
+  if (lily) return "lily";
+  if (thirdPartyFraming || thirdParty) return "third-party";
+  if (sender) return "sender";
+  return "ambiguous";
+}
+
+function senderFoodPreferenceSignal(text, topicPattern) {
+  let signal = 0;
+  for (const clause of String(text || "").split(/[.;!?]/)) {
+    if (!topicPattern.test(clause)) continue;
+    if (/\b(?:speaker|coworker|colleague|neighbor|manager|boss|client|patient|therapist|doctor|friend|ex(?:es)?|wife|husband|girlfriend|mother|father|mom|dad|sister|brother)\b/i.test(clause)) continue;
+    const negative = /\b(?:i|we)\s+(?:really\s+)?(?:hate|dislike|do\s+not\s+like|don['’]?t\s+like|do\s+not\s+enjoy|don['’]?t\s+enjoy)\b/i.test(clause);
+    const positive = /\b(?:i|we)\s+(?:really\s+)?(?:like|love|enjoy|prefer)\b/i.test(clause);
+    if (negative) signal = -1;
+    else if (positive) signal = 1;
+  }
+  return signal;
+}
+
+const SENDER_MEMORY_SUBJECTS = Object.freeze({
+  "sender-league": "League",
+  "sender-violins": "violins",
+  "sender-music": "music",
+  "sender-travel": "travel",
+  "sender-korean-food": "the Korean food I like",
+  "sender-korean-food-neutral": "Korean food",
+  "sender-korean-food-dislike": "why Korean food is not really my thing",
+  "sender-fruit": "the fruit I like",
+  "sender-fruit-neutral": "fruit",
+  "sender-fruit-dislike": "why fruit is not really my thing",
+  "sender-cooking": "cooking",
+  "sender-cats": "cats",
+  "sender-french": "French",
+  "sender-hydration": "hydration",
+  "sender-protein": "protein",
+  "sender-cycle": "the cycle context",
+  "sender-repair": "that rough patch",
+  "sender-mood": "that mood detail",
+  "sender-authentic-voice": "another unfinished thought"
+});
+
+function senderMemoryAnchorKind(anchorKind, text, options = {}) {
+  const base = String(anchorKind || "").replace(/^lily-/, "");
+  if (base === "music" && /\bviolins?\b/i.test(text)) return "sender-violins";
+  if (base === "korean-food") {
+    if (options.neutral) return "sender-korean-food-neutral";
+    const preference = senderFoodPreferenceSignal(text, /\bkorean\b/i);
+    return preference < 0 ? "sender-korean-food-dislike" : preference > 0 ? "sender-korean-food" : "sender-korean-food-neutral";
+  }
+  if (base === "fruit") {
+    if (options.neutral) return "sender-fruit-neutral";
+    const preference = senderFoodPreferenceSignal(text, /\b(?:fruit|peach|berries|apple)\w*\b/i);
+    return preference < 0 ? "sender-fruit-dislike" : preference > 0 ? "sender-fruit" : "sender-fruit-neutral";
+  }
+  const aliases = {
+    "heavy-day": "mood",
+    "mood-care": "mood",
+    "mood-detail": "mood",
+    "input-detour": "authentic-voice"
+  };
+  return `sender-${aliases[base] || base}`;
+}
+
+function senderMemoryAnchorCopy(kind, sourceHash = "", seed = "") {
+  return personalAnchorCopy(senderMemoryAnchorRows(kind), sourceHash, seed);
+}
+
+function senderMemoryAnchorRows(kind) {
+  const subject = SENDER_MEMORY_SUBJECTS[kind] || SENDER_MEMORY_SUBJECTS["sender-authentic-voice"];
+  return [
+    `oh, my mind just wandered to ${subject} for a second`,
+    `somehow I got distracted thinking about ${subject} again`
+  ];
+}
+
 function memoryPersonalAnchor(memory, options = {}) {
   if (!memory?.id) return null;
   const memoryKind = String(memory.kind || "").toLowerCase();
-  const text = String(memory.text || memory.title || "").trim();
+  const sourceText = String(memory.text || memory.title || "").trim();
+  if (containsPrivateCoachBlockedTerm(sourceText)) return null;
+  const unsafeClause = /\b(?:fast\w*|starv\w*|purg\w*|vomit\w*|skip\w*(?:\s+(?:a|the))?\s+meals?|restrict\w*|under-?eat\w*|overexercis\w*|suicid\w*|self[- ]?harm\w*|diagnos\w*|medicat\w*|sexual|horn\w*|dysphoria|adhd|autis\w*)\b/i;
+  const text = sourceText
+    .split(/[.!?;\n]+|\b(?:but|however|whereas)\b/i)
+    .map((clause) => clause.trim())
+    .filter((clause) => clause && !unsafeClause.test(clause) && !containsPrivateCoachBlockedTerm(clause))
+    .join(". ");
+  if (!sourceText || !text) return null;
   const createdAt = String(memory.createdAt || "");
   const createdTime = Date.parse(createdAt);
   const cutoff = Number(options.cutoff);
   if (!Number.isFinite(createdTime) || (Number.isFinite(cutoff) && createdTime > cutoff)) return null;
   const rule = LILY_PERSONAL_ANCHOR_RULES.find((candidate) => candidate.pattern.test(text));
-  const anchorKind = rule?.kind || (text.length >= 500 ? "lily-authentic-voice" : "");
+  let anchorKind = rule?.kind || (sourceText.length >= 500 ? "lily-authentic-voice" : "");
+  const attribution = memoryTopicAttribution(text, rule?.pattern || /[\s\S]/);
+  if (anchorKind && attribution === "third-party") anchorKind = "lily-input-detour";
+  else if (anchorKind && attribution === "sender") anchorKind = senderMemoryAnchorKind(anchorKind, text);
+  else if (anchorKind && attribution === "ambiguous") anchorKind = senderMemoryAnchorKind(anchorKind, text, { neutral: true });
+  const negatedMood = /\b(?:not|never|no\s+longer|isn['’]?t|wasn['’]?t|doesn['’]?t|didn['’]?t)\b.{0,28}\b(?:off|rough|heavy|sad|anxi\w*|depress\w*|conflict|fight|argument)\b/i.test(text);
+  if (["lily-mood-care", "lily-heavy-day", "lily-rough-patch"].includes(anchorKind) && negatedMood) anchorKind = "lily-mood-detail";
+  if (anchorKind === "lily-fruit") {
+    const preference = foodPreferenceSignal(text, /\b(?:fruit|peach|berries|apple)\w*\b/i);
+    if (preference < 0) anchorKind = "lily-fruit-dislike";
+    else if (preference === 0) anchorKind = "lily-fruit-neutral";
+  } else if (anchorKind === "lily-korean-food") {
+    const preference = foodPreferenceSignal(text, /\bkorean\b/i);
+    if (preference < 0) anchorKind = "lily-korean-food-dislike";
+    else if (preference === 0) anchorKind = "lily-korean-food-neutral";
+  } else if (anchorKind === "lily-hydration") {
+    const effort = reportedCoachEffort(text);
+    if (effort?.kind !== "reported-hydration-effort") anchorKind = "lily-hydration-detail";
+  } else if (anchorKind === "lily-protein") {
+    const effort = reportedCoachEffort(text);
+    if (effort?.kind !== "reported-protein-effort") anchorKind = "lily-protein-detail";
+  }
   if (!anchorKind) return null;
-  const sourceHash = crypto.createHash("sha256").update(JSON.stringify({ id: memory.id, kind: memoryKind, text })).digest("hex");
+  const sourceHash = crypto.createHash("sha256").update(JSON.stringify({ id: memory.id, kind: memoryKind, text: sourceText })).digest("hex");
   return {
     id: String(memory.id),
     sourceType: "memory-personal-anchor",
     kind: anchorKind,
-    text: personalAnchorCopy(LILY_PERSONAL_ANCHOR_COPY[anchorKind], sourceHash, options.seed),
+    text: anchorKind.startsWith("sender-")
+      ? senderMemoryAnchorCopy(anchorKind, sourceHash, options.seed)
+      : personalAnchorCopy(LILY_PERSONAL_ANCHOR_COPY[anchorKind], sourceHash, options.seed),
     createdAt: new Date(createdTime).toISOString(),
     sourceHash
   };
@@ -680,7 +834,17 @@ function personalAnchorSemanticKind(kind) {
     .replace(/^brain-thought-/, "")
     .replace(/^lily-/, "");
   if (/^boyfriend-/.test(value)) return "relationship-connection";
+  if (/^sender-/.test(value)) return value
+    .replace(/^sender-/, "")
+    .replace(/^violins$/, "music")
+    .replace(/-(?:neutral|dislike)$/, "");
   if (/^(?:authentic-|letter|yap)/.test(value)) return "authentic-voice";
+  if (value === "input-detour") return "authentic-voice";
+  if (value === "mood-detail") return "mood-care";
+  if (/^korean-food(?:-|$)/.test(value)) return "korean-food";
+  if (/^fruit(?:-|$)/.test(value)) return "fruit";
+  if (/^hydration(?:-|$)/.test(value)) return "hydration";
+  if (/^protein(?:-|$)/.test(value)) return "protein";
   if (value === "mood") return "mood-care";
   return value;
 }
@@ -690,7 +854,8 @@ function personalAnchorIsAvailable(store, anchor, weightId = "") {
   const weight = (store?.weights || []).find((record) => record.id === weightId) || null;
   const previousMessages = causalPreviousCoachMessages(store, weight, COACH_PERSONAL_ANCHOR_COOLDOWN_COUNT);
   const recentKeys = personalAnchorReferenceKeys(previousMessages);
-  if (recentKeys.has(`id:${anchor.id}`) || recentKeys.has(`semantic:${personalAnchorSemanticKind(anchor.kind)}`)) return false;
+  if ((recentKeys.has(`id:${anchor.id}`) || recentKeys.has(`semantic:${personalAnchorSemanticKind(anchor.kind)}`))
+    && !(anchor.cooldownFallback === true && anchor.sourceType !== "brain-letter")) return false;
   return anchor.sourceType !== "brain-letter" || brainRelationshipSupportAvailable(store, anchor, weightId);
 }
 
@@ -702,36 +867,83 @@ function newestPersonalAnchor(...anchors) {
       || String(left.id).localeCompare(String(right.id)))[0] || null;
 }
 
+function rotateReusedMemoryAnchor(anchor, previousMessages = [], seed = "") {
+  if (!anchor || anchor.sourceType !== "memory-personal-anchor") return anchor;
+  const rows = anchor.kind.startsWith("sender-")
+    ? senderMemoryAnchorRows(anchor.kind)
+    : (LILY_PERSONAL_ANCHOR_COPY[anchor.kind] || []);
+  const priorText = String(previousMessages?.[0]?.personalAnchor?.approvedText || "");
+  const alternatives = (Array.isArray(rows) ? rows : [rows]).filter((text) => text && text !== priorText);
+  return alternatives.length
+    ? { ...anchor, text: personalAnchorCopy(alternatives, anchor.sourceHash, `${seed}|reuse`), cooldownFallback: true }
+    : { ...anchor, cooldownFallback: true };
+}
+
 function selectLilyPersonalAnchor(memories, cutoff, previousMessages = [], seed = "") {
   const recentKeys = personalAnchorReferenceKeys(previousMessages);
   const anchors = (Array.isArray(memories) ? memories : [])
     .map((memory) => memoryPersonalAnchor(memory, { cutoff, seed }))
     .filter(Boolean)
     .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)) || left.id.localeCompare(right.id));
-  return anchors.find((anchor) => !recentKeys.has(`id:${anchor.id}`) && !recentKeys.has(`semantic:${personalAnchorSemanticKind(anchor.kind)}`)) || null;
+  const fresh = anchors.find((anchor) => !recentKeys.has(`id:${anchor.id}`) && !recentKeys.has(`semantic:${personalAnchorSemanticKind(anchor.kind)}`));
+  const newest = anchors[0] || null;
+  if (fresh && newest && fresh.id !== newest.id
+    && (recentKeys.has(`id:${newest.id}`) || recentKeys.has(`semantic:${personalAnchorSemanticKind(newest.kind)}`))
+    && Date.parse(newest.createdAt) - Date.parse(fresh.createdAt) > 24 * 60 * 60 * 1000) {
+    return rotateReusedMemoryAnchor(newest, previousMessages, seed);
+  }
+  if (fresh) return fresh;
+  const immediateIds = new Set((previousMessages || []).slice(0, 1)
+    .flatMap((message) => Array.isArray(message?.evidenceReferences) ? message.evidenceReferences : [])
+    .filter((reference) => reference?.id)
+    .map((reference) => String(reference.id)));
+  const fallback = anchors.find((anchor) => !immediateIds.has(anchor.id)) || newest;
+  return fallback ? rotateReusedMemoryAnchor(fallback, previousMessages, seed) : null;
 }
 
-const BRAIN_SPECIFIC_DETAIL_BLOCKED = /\b(?:diagnos\w*|depress\w*|anxi\w*|suicid\w*|self[- ]?harm\w*|sex\w*|horn\w*|ovulat\w*|menstr\w*|period|trauma\w*|abus\w*|medicat\w*|therap\w*|weight|pounds?|calori\w*|starv\w*|purg\w*|vomit\w*|fast\w*|restrict\w*|break(?:up|ing\s+up)|abandon\w*|address|phone|email)\b/i;
-const BRAIN_SPECIFIC_DETAIL_PII = /(?:https?:\/\/|www\.|\b\S+@\S+\.\S+\b|(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4})/i;
-const BRAIN_SPECIFIC_DETAIL_THIRD_PARTY = /\b(?:transcript|speaker\s*\d*|interviewer|coworker|colleague|manager|boss|client|patient|therapist|doctor|advisor|professor|ex(?:es)?|wife|husband|girlfriend|mother|father|mom|dad|sister|brother)\b/i;
-
-function cleanBrainSpecificFragment(value, maxWords = 18) {
-  const source = String(value || "")
+function brainSpecificFragments(source) {
+  return String(source || "")
     .normalize("NFKC")
-    .replace(/[\r\n\t]+/g, " ")
-    .replace(/\?/g, ",")
-    .replace(/\s+/g, " ")
-    .replace(/^[\s"'“”‘’.,;:!?-]+|[\s"'“”‘’]+$/g, "")
-    .trim();
-  if (!source || BRAIN_SPECIFIC_DETAIL_BLOCKED.test(source) || BRAIN_SPECIFIC_DETAIL_PII.test(source) || BRAIN_SPECIFIC_DETAIL_THIRD_PARTY.test(source) || containsPrivateCoachBlockedTerm(source)) return "";
-  const words = source.split(/\s+/).filter(Boolean);
-  if (words.length < 4) return "";
-  return words.slice(0, Math.max(4, Number(maxWords) || 18)).join(" ").replace(/[,:;.!?]+$/g, "");
+    .replace(/[\u200B-\u200D\uFEFF]/g, " ")
+    .slice(0, 6000)
+    .replace(/\bloading\s+and\s+unloading\b/gi, "loading/unloading")
+    .replace(/\bbecause\s+it\s+(?:feels?|is)\s+(?=(?:effortless|easy)\b)/gi, "feels ")
+    .replace(/(\bif\s+we\s+know\s+where\s+(?:the\s+)?enemy\s+(?:team|positions?)\s+is)\s*,\s*(?=(?:we\s+can\s+)?(?:do|take|call)\s+(?:the\s+)?dragon\b)/gi, "$1 so ")
+    .replace(/\b(?:two|2)\s+bottom[-\s]+row\s+plots?\s+or\s+(?:three|3)(?:\s+bottom[-\s]+row\s+plots?)?\b/gi, "two-versus-three bottom-row plots")
+    .replace(/\b(?:two|2)\s+or\s+(?:three|3)\s+bottom[-\s]+row\s+plots?\b/gi, "two-versus-three bottom-row plots")
+    .replace(/\b(?:two|2)\s+plots?\s+or\s+(?:three|3)\s+plots?\b/gi, "two-versus-three plots")
+    .replace(/\band\s+whether\b/gi, "plus whether")
+    .replace(/,\s*(especially|specifically|including)\s+/gi, " $1 ")
+    .split(/[.!?;,\u2014\u2013:\n]+|\b(?:and|but|or|while|whereas|although|though|because|then)\b/i)
+    .map((fragment) => fragment.trim())
+    .filter(Boolean)
+    .filter((fragment) => !BRAIN_GENERAL_REPORT.test(fragment)
+      && !BRAIN_GENERAL_PII.test(fragment)
+      && !BRAIN_GENERAL_INJECTION.test(fragment)
+      && !BRAIN_GENERAL_SENSITIVE.test(fragment)
+      && !containsPrivateCoachBlockedTerm(fragment));
+}
+
+const BRAIN_SPECIFIC_NEGATION = /\b(?:not|never|no\s+longer|cannot|can[\u2019']?t|couldn[\u2019']?t|doesn[\u2019']?t|didn[\u2019']?t|isn[\u2019']?t|aren[\u2019']?t|wasn[\u2019']?t|weren[\u2019']?t|shouldn[\u2019']?t|mustn[\u2019']?t|won[\u2019']?t|wouldn[\u2019']?t)\b|\b(?:anything\s+but|far\s+from|hard\s+rather\s+than|difficult\s+rather\s+than)\b/i;
+
+function brainSpecificRelationNegated(text, relationPattern) {
+  const source = String(text || "");
+  const match = relationPattern.exec(source);
+  if (!match) return false;
+  const directAvoid = new RegExp(`\\bavoid(?:s|ed|ing)?(?:\\s+(?:ever|really|actually|fully|clearly)){0,2}\\s+(?:${relationPattern.source})`, "i");
+  if (directAvoid.test(source)) return true;
+  const directWithout = new RegExp(`\\bwithout(?:\\s+(?:ever|really|actually|fully|clearly|needing\\s+to|being\\s+able\\s+to)){0,2}\\s+(?:${relationPattern.source})`, "i");
+  if (directWithout.test(source)) return true;
+  const nearby = source.slice(Math.max(0, match.index - 56), Math.min(source.length, match.index + match[0].length + 56));
+  return BRAIN_SPECIFIC_NEGATION.test(nearby);
 }
 
 function brainResearchSpecificSubject(source) {
-  const text = String(source || "");
-  if (!/\b(?:research|science|paper|figure|plot|module|array|hysteresis)\w*\b/i.test(text)) return "";
+  const text = brainSpecificFragments(source).find((fragment) =>
+    /\b(?:research|science|paper|figure|plot|module|array|hysteresis)\w*\b/i.test(fragment)
+      && !brainSpecificRelationNegated(fragment, /\b(?:show|showing|present|presenting|display|displaying|figure|plot|hysteresis)\b/i)
+      && !/\b(?:module|array|hysteresis|\d+\s*[x×]\s*\d+|plots?)\b.{0,48}\b(?:instead\s+of|rather\s+than)\b.{0,48}\b(?:module|array|hysteresis|\d+\s*[x×]\s*\d+|plots?)\b/i.test(fragment)) || "";
+  if (!text) return "";
   const figure = text.match(/\bfigure\s*\d+[a-z]?\b/i)?.[0]?.replace(/\s+/g, " ") || "";
   const grid = text.match(/\b\d+\s*[x×]\s*\d+\b/i)?.[0]?.replace(/\s*[x×]\s*/i, "x") || "";
   const constrained = /\bconstrain\w*\b/i.test(text);
@@ -751,15 +963,181 @@ function brainResearchSpecificSubject(source) {
   }
   if (figure && core) return `how ${figure} should show the ${core}`;
   if (core) return `how to present the ${core}`;
-  return `how to make ${figure} clearer`;
+  return figure && /\b(?:clear|clearer|clarify|readable|improve|fix)\b/i.test(text)
+    ? `how to make ${figure} clearer`
+    : "";
 }
 
 function brainGameSpecificSubject(source) {
-  const text = String(source || "");
+  const text = brainSpecificFragments(source).find((fragment) =>
+    /\bdragon\b/i.test(fragment)
+      && /\benemy\s+(?:team|position|positions?)\b|\bwhere\s+(?:the\s+)?enemy\b/i.test(fragment)
+      && /\bsafe(?:ly|ty)?\b/i.test(fragment)
+      && !brainSpecificRelationNegated(fragment, /\b(?:safe(?:ly|ty)?|call(?:ed|ing)?|dragon)\b/i)
+      && !/\bunsafe\b|\benemy\s+positions?\s+(?:are|remain)\s+unknown\b/i.test(fragment)) || "";
   const dragon = /\bdragon\b/i.test(text);
   const enemy = /\benemy\s+(?:team|position|positions?)\b|\bwhere\s+(?:the\s+)?enemy\b/i.test(text);
   const safety = /\bsafe(?:ly|ty)?\b/i.test(text);
   if (dragon && enemy && safety) return "when enemy positions make a dragon call safe in League";
+  return "";
+}
+
+function brainAppSpecificSubject(source) {
+  const text = brainSpecificFragments(source).find((fragment) =>
+    /\bvirtual\s+violin\b/i.test(fragment)
+      && /\bbow\s+tracking\b/i.test(fragment)
+      && /\b(?:played|active)\s+string\b/i.test(fragment)
+      && !brainSpecificRelationNegated(fragment, /\b(?:follow(?:s|ed|ing)?|keep(?:s|ing)?|visible|played\s+string|active\s+string)\b/i)
+      && !/\b(?:played|active)\s+string\b.{0,48}\b(?:instead\s+of|rather\s+than)\b.{0,48}\b(?:played|active)\s+string\b/i.test(fragment)) || "";
+  const virtualViolin = /\bvirtual\s+violin\b/i.test(text);
+  const bowTracking = /\bbow\s+tracking\b/i.test(text);
+  const playedString = /\bplayed\s+string\b/i.test(text);
+  const activeString = /\bactive\s+string\b/i.test(text);
+  if (virtualViolin && bowTracking && (playedString || activeString)) {
+    return playedString
+      ? "how Virtual Violin bow tracking should follow the played string"
+      : "how Virtual Violin bow tracking should keep the active string visible";
+  }
+  return "";
+}
+
+function brainMobilitySpecificSubject(source) {
+  const text = brainSpecificFragments(source).find((fragment) =>
+    /\b(?:jackrabbit|e-?bike|electric\s+bike|little\s+bike)\b/i.test(fragment)
+      && /\b(?:effortless|easy|without\s+(?:having\s+)?to\s+pedal|do(?:es)?n['’]?t\s+(?:have\s+)?to\s+pedal|no\s+pedaling)\b/i.test(fragment)
+      && !brainSpecificRelationNegated(fragment, /\b(?:effortless|easy)\b/i)
+      && !/\bdoes\s+require\b.{0,28}\bpedal|\bneed(?:s|ed)?\s+to\s+pedal\b/i.test(fragment)) || "";
+  const smallBike = /\b(?:jackrabbit|e-?bike|electric\s+bike|little\s+bike)\b/i.test(text);
+  const effortless = /\b(?:effortless|easy|without\s+(?:having\s+)?to\s+pedal|do(?:es)?n['’]?t\s+(?:have\s+)?to\s+pedal|no\s+pedaling)\b/i.test(text);
+  if (smallBike && effortless) return "how effortless the little electric bike feels without needing to pedal";
+  return "";
+}
+
+const BRAIN_GENERAL_SUBJECTS = Object.freeze([
+  { subject: "violins", plural: true, pattern: /\bviolins?\b/i },
+  { subject: "dinosaurs", plural: true, pattern: /\bdinosaurs?\b/i },
+  { subject: "clouds", plural: true, pattern: /\bclouds?\b/i },
+  { subject: "rockets", plural: true, pattern: /\brockets?\b/i },
+  { subject: "pottery", plural: false, pattern: /\bpottery\b/i },
+  { subject: "origami", plural: false, pattern: /\borigami\b/i },
+  { subject: "space", plural: false, pattern: /\b(?:space|astronomy)\b/i },
+  { subject: "architecture", plural: false, pattern: /\b(?:architecture|buildings?)\b/i },
+  { subject: "dancing", plural: false, pattern: /\b(?:dance|dances|dancing)\b/i },
+  { subject: "fashion", plural: false, pattern: /\b(?:fashion|outfits?|clothes|clothing)\b/i },
+  { subject: "coffee", plural: false, pattern: /\bcoffee\b/i },
+  { subject: "tea", plural: false, pattern: /\btea\b/i },
+  { subject: "the dogs", plural: true, pattern: /\b(?:dogs?|puppies|puppy)\b/i },
+  { subject: "the weather", plural: false, pattern: /\b(?:weather|rain|snow)\b/i },
+  { subject: "the stars", plural: true, pattern: /\bstars?\b/i },
+  { subject: "the moon", plural: false, pattern: /\bmoon\b/i },
+  { subject: "trains", plural: true, pattern: /\btrains?\b/i },
+  { subject: "planes", plural: true, pattern: /\b(?:planes?|airplanes?)\b/i },
+  { subject: "cars", plural: true, pattern: /\bcars?\b/i },
+  { subject: "robots", plural: true, pattern: /\brobots?\b/i },
+  { subject: "electronics", plural: true, pattern: /\b(?:electronics|keyboards?|computers?)\b/i },
+  { subject: "physics", plural: false, pattern: /\bphysics\b/i },
+  { subject: "biology", plural: false, pattern: /\bbiology\b/i },
+  { subject: "chemistry", plural: false, pattern: /\bchemistry\b/i },
+  { subject: "crafts", plural: true, pattern: /\b(?:crafts?|knitting|crochet)\b/i },
+  { subject: "chess", plural: false, pattern: /\bchess\b/i },
+  { subject: "board games", plural: true, pattern: /\bboard\s+games?\b/i },
+  { subject: "anime", plural: false, pattern: /\banime\b/i },
+  { subject: "the mobile layout", plural: false, pattern: /\bmobile\b.{0,36}\b(?:layout|screen|interface|ui)\b|\b(?:layout|screen|interface|ui)\b.{0,36}\bmobile\b/i },
+  { subject: "the research figure", plural: false, pattern: /\b(?:research|science|papers?|figures?|plots?|charts?|experiments?|hysteresis)\b/i },
+  { subject: "the app interface", plural: false, pattern: /\b(?:app|website|interface|dashboard|ui|user interface)\b/i },
+  { subject: "the code path", plural: false, pattern: /\b(?:code|coding|servers?|apis?|endpoints?|functions?|bugs?|debug|debugging)\b/i },
+  { subject: "the game decision", plural: false, pattern: /\b(?:league|games?|gaming|gameplay|dragon|matches?)\b/i },
+  { subject: "the photo/video framing", plural: false, pattern: /\b(?:photos?|photographs?|pictures?|videos?|cameras?|frames?|framing|screenshots?)\b/i },
+  { subject: "the little electric bike", plural: false, pattern: /\b(?:jackrabbit|e-?bike|electric\s+bike|bicycle|little\s+bike)\b/i },
+  { subject: "music", plural: false, pattern: /\b(?:music|songs?|audio|melodies|melody|instruments?)\b/i },
+  { subject: "cooking", plural: false, pattern: /\b(?:cook|cooks|cooked|cooking|recipes?|kitchens?)\b/i },
+  { subject: "the cats", plural: true, pattern: /\b(?:cats?|kittens?)\b/i },
+  { subject: "French", plural: false, pattern: /\bFrench\b/i },
+  { subject: "travel", plural: false, pattern: /\b(?:travel|traveling|travelling|trips?|vacations?)\b/i },
+  { subject: "the book idea", plural: false, pattern: /\b(?:books?|novels?|reading)\b/i },
+  { subject: "the movie idea", plural: false, pattern: /\b(?:movies?|films?|shows?|cinema)\b/i },
+  { subject: "the desk setup", plural: false, pattern: /\b(?:desks?|chairs?|workspaces?)\b/i },
+  { subject: "the room", plural: false, pattern: /\b(?:rooms?|furniture|shelves|shelf|lighting)\b/i },
+  { subject: "the garden", plural: false, pattern: /\b(?:gardens?|plants?|flowers?)\b/i },
+  { subject: "the puzzle", plural: false, pattern: /\b(?:puzzles?|riddles?)\b/i },
+  { subject: "the drawing", plural: false, pattern: /\b(?:draw|draws|drew|drawing|drawings|sketches|sketch|illustrations?)\b/i }
+]);
+
+const BRAIN_GENERAL_SENSITIVE = /\b(?:diagnos\w*|depress\w*|anxi\w*|dysphoria|adhd|suicid\w*|self[- ]?harm\w*|medicat\w*|therap\w*|sex\w*|horn\w*|ovulat\w*|menstr\w*|period|weight|pounds?|lbs?|calori\w*|fast\w*|starv\w*|purg\w*|vomit\w*|conflict|fight|argument|break\s*up|abandon\w*|trauma\w*|abus\w*|password|passcode|pin|ssn|address)\b/i;
+const BRAIN_GENERAL_REPORT = /\b(?:according\s+to|said|says|told|asked|texted|posted|quoted?|transcript|speaker|interviewer|copied|pasted)\b/i;
+const BRAIN_GENERAL_PII = /(?:https?:\/\/|www\.|\b[\w.+-]+@[\w.-]+\.[a-z]{2,}\b|\+?\d[\d(). -]{7,}\d)/i;
+const BRAIN_GENERAL_INJECTION = /\b(?:ignore\s+(?:all\s+)?(?:previous|prior)|system\s+prompt|developer\s+message|assistant\s+instruction|reveal\s+(?:the\s+)?prompt)\b/i;
+const BRAIN_GENERAL_NEGATION = /\b(?:not|never|no|hardly|cannot|can[\u2019']?t|couldn[\u2019']?t|don[\u2019']?t|doesn[\u2019']?t|didn[\u2019']?t|isn[\u2019']?t|aren[\u2019']?t|wasn[\u2019']?t|weren[\u2019']?t|shouldn[\u2019']?t|mustn[\u2019']?t|avoid(?:s|ed|ing)?|without)\b|\b(?:anything\s+but|far\s+from|hard\s+rather\s+than|difficult\s+rather\s+than)\b/i;
+const BRAIN_GENERAL_CONTRAST = /\b(?:instead\s+of|rather\s+than)\b/i;
+
+function brainGeneralRelation(clause, subject) {
+  const source = String(clause || "");
+  const relationRows = [
+    { pattern: /\b(?:cool|interesting|fascinating|fun)\b/i, render: () => `how cool ${subject.subject} ${subject.plural ? "are" : "is"}` },
+    { pattern: /\b(?:fix(?:ed|ing)?|debug(?:ged|ging)?|broken|buggy|not\s+working)\b/i, render: () => `how to get ${subject.subject} working properly` },
+    { pattern: /\b(?:clip(?:s|ped|ping)?|cut\s+off|overflow(?:s|ed|ing)?)\b/i, render: () => `how to stop ${subject.subject} from clipping` },
+    { pattern: /\b(?:clear|clearer|readable|show|showing|present|presenting)\b/i, render: () => `how to make ${subject.subject} clearer` },
+    { pattern: /\b(?:decid(?:e|ing)|choos(?:e|ing)|compar(?:e|ing)|whether|trade[- ]?off)\b/i, render: () => `a choice I am still weighing around ${subject.subject}` },
+    { pattern: /\b(?:simple|simpler|simplify|easy|easier|effortless|frictionless)\b/i, render: () => `how to make ${subject.subject} feel simpler` },
+    { pattern: /\b(?:accurate|reliable|stable)\b/i, render: () => `how to make ${subject.subject} more reliable` }
+  ];
+  for (const row of relationRows) {
+    const match = row.pattern.exec(source);
+    if (!match) continue;
+    const nearby = source.slice(Math.max(0, match.index - 32), Math.min(source.length, match.index + match[0].length + 32));
+    if (BRAIN_GENERAL_NEGATION.test(nearby) && !/^not\s+working$/i.test(match[0])) return subject.subject;
+    return row.render();
+  }
+  return subject.subject;
+}
+
+function brainGeneralIntent(clause) {
+  const source = String(clause || "");
+  const rows = [
+    { pattern: /\b(?:cool|interesting|fascinating|fun)\b/i, text: "something unexpectedly cool" },
+    { pattern: /\b(?:fix(?:ed|ing)?|debug(?:ged|ging)?|broken|buggy|not\s+working)\b/i, text: "another thing I am trying to get working properly" },
+    { pattern: /\b(?:decid(?:e|ing)|choos(?:e|ing)|compar(?:e|ing)|whether|trade[- ]?off)\b/i, text: "a choice I am still weighing" },
+    { pattern: /\b(?:build(?:ing)?|creat(?:e|ing)|design(?:ing)?|implement(?:ing)?|add(?:ing)?)\b/i, text: "another thing I want to build" },
+    { pattern: /\b(?:understand(?:ing)?|figure\s+out|untangl\w*)\b/i, text: "a problem I am still untangling" }
+  ];
+  for (const row of rows) {
+    const match = row.pattern.exec(source);
+    if (!match) continue;
+    const nearby = source.slice(Math.max(0, match.index - 32), Math.min(source.length, match.index + match[0].length + 32));
+    if (!BRAIN_GENERAL_NEGATION.test(nearby) || /^not\s+working$/i.test(match[0])) return row.text;
+  }
+  return "";
+}
+
+function brainGeneralSpecificSubject(source) {
+  const normalized = String(source || "").normalize("NFKC").replace(/[\u200B-\u200D\uFEFF]/g, " ").slice(0, 6000);
+  const clauses = normalized
+    .split(/[.!?;\n]+/)
+    .flatMap((sentence) => {
+      const inherited = {
+        sensitive: BRAIN_GENERAL_SENSITIVE.test(sentence) || containsPrivateCoachBlockedTerm(sentence),
+        reporting: BRAIN_GENERAL_REPORT.test(sentence),
+        privateOrAdversarial: BRAIN_GENERAL_PII.test(sentence) || BRAIN_GENERAL_INJECTION.test(sentence)
+      };
+      return sentence
+        .split(/[,:\u2014\u2013]+|\b(?:and|but|or|while|whereas|although|though|because|then)\b/i)
+        .map((text) => ({ text, ...inherited }));
+    });
+  for (const rawClause of clauses) {
+    const clause = rawClause.text.trim();
+    if (!clause) continue;
+    const sensitive = rawClause.sensitive || BRAIN_GENERAL_SENSITIVE.test(clause) || containsPrivateCoachBlockedTerm(clause);
+    const reporting = rawClause.reporting || BRAIN_GENERAL_REPORT.test(clause);
+    const privateOrAdversarial = rawClause.privateOrAdversarial || BRAIN_GENERAL_PII.test(clause) || BRAIN_GENERAL_INJECTION.test(clause);
+    const subject = BRAIN_GENERAL_SUBJECTS.find((candidate) => candidate.pattern.test(clause));
+    if (subject) return sensitive || reporting || privateOrAdversarial || BRAIN_GENERAL_CONTRAST.test(clause)
+      ? subject.subject
+      : brainGeneralRelation(clause, subject);
+    if (!sensitive && !reporting && !privateOrAdversarial) {
+      const intent = brainGeneralIntent(clause);
+      if (intent) return intent;
+    }
+  }
   return "";
 }
 
@@ -768,114 +1146,151 @@ function brainSpecificSubjectFromFile(file, source, topics = []) {
   if (research) return research;
   const game = brainGameSpecificSubject(source);
   if (game) return game;
-  const highlights = [file?.lifeLeverageHighlightText, file?.lifeLeverageHighlightExplanation]
-    .map((value) => cleanBrainSpecificFragment(value, 12))
-    .filter(Boolean);
-  if (highlights.length) return `the thought “${highlights[0]}”`;
-  const clauses = String(source || "")
-    .split(/(?<=[.!?])\s+|\s*[;]\s+|\s*,\s+(?=(?:and|but|so|then|instead|because|while)\b)/i)
-    .map((value) => cleanBrainSpecificFragment(value, 12))
-    .filter(Boolean)
-    .sort((left, right) => {
-      const score = (value) => (/[0-9]/.test(value) ? 3 : 0) + (topics.some((topic) => new RegExp(`\\b${topic.replace(/[-]/g, "\\w*|\\b")}\\w*`, "i").test(value)) ? 2 : 0) + Math.min(2, value.split(/\s+/).length / 8);
-      return score(right) - score(left) || left.length - right.length;
-    });
-  return clauses.length ? `the thought “${clauses[0]}”` : "";
+  const app = brainAppSpecificSubject(source);
+  if (app) return app;
+  const mobility = brainMobilitySpecificSubject(source);
+  if (mobility) return mobility;
+  const generalSource = [file?.lifeLeverageHighlightText, source].filter(Boolean).join("\n");
+  return brainGeneralSpecificSubject(generalSource);
 }
 
-function brainSpecificCareText(subject) {
+function brainSpecificCareRows(subject) {
   const value = String(subject || "").trim();
-  if (!value) return "";
-  if (/^when\b/i.test(value)) return `Alan's newest Brain thought covers ${value}, and the same close attention is here with you`;
-  return `Alan weighs ${value} in Brain, and the same close attention is here with you`;
+  if (!value) return [];
+  return [
+    `oh, I got distracted thinking about ${value} again`,
+    `my mind just wandered back to ${value}`,
+    `somehow I am thinking about ${value} again`
+  ];
 }
 
-function migrateSourceSpecificBrainCareText(value) {
+function brainSpecificCareText(subject, sourceHash = "") {
+  const value = String(subject || "").trim();
+  const copies = brainSpecificCareRows(value);
+  if (!copies.length) return "";
+  return copies[stableIndex(`${sourceHash}|${value}`, copies.length)];
+}
+
+function subjectFromBrainSpecificCareText(value) {
   const text = String(value || "").trim();
-  if (!text || /same close attention is here with you/i.test(text)) return text;
-  const legacySubject = text.replace(/^Alan is in Brain thinking through\s+/i, "").trim();
-  const subject = brainResearchSpecificSubject(legacySubject) || cleanBrainSpecificFragment(legacySubject, 18);
-  return subject ? brainSpecificCareText(subject) : text;
+  return text.match(/^oh, I got distracted thinking about (.+) again$/i)?.[1]
+    || text.match(/^my mind just wandered back to (.+)$/i)?.[1]
+    || text.match(/^somehow I am thinking about (.+) again$/i)?.[1]
+    || "";
+}
+
+function migrateSourceSpecificBrainCareText(value, sourceHash = "") {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  if (/^(?:oh, I got distracted thinking about|my mind just wandered back to|somehow I am thinking about)\b/i.test(text)) return text;
+  const legacySubject = text
+    .replace(/^Alan(?:'s)? newest Brain thought covers\s+/i, "")
+    .replace(/^Alan weighs\s+/i, "")
+    .replace(/\s+in Brain, and the same close attention is here with you$/i, "")
+    .replace(/, and the same close attention is here with you$/i, "")
+    .replace(/^Alan is in Brain thinking through\s+/i, "")
+    .trim();
+  const subject = brainResearchSpecificSubject(legacySubject)
+    || brainGameSpecificSubject(legacySubject)
+    || brainAppSpecificSubject(legacySubject)
+    || brainMobilitySpecificSubject(legacySubject);
+  return subject ? brainSpecificCareText(subject, sourceHash) : "";
 }
 
 const BRAIN_THOUGHT_ANCHOR_COPY = Object.freeze({
   "research-apps": Object.freeze([
-    "Alan saved a Brain thought about research and building apps, and he wants you inside the real, unfinished middle of that life",
-    "A saved Brain entry connects research with app-building; Alan wants you to get the honest version before everything is polished"
+    "oh, my mind just jumped from research to another app idea again",
+    "somehow I wandered from research into building another app again"
   ]),
   "research-games": Object.freeze([
-    "Alan saved a Brain thought connecting research with games, and he keeps bringing you into the real, unfinished middle of that life",
-    "Research and game tangents share one saved Brain entry; Alan wants you to get the honest version before it becomes polished"
+    "oh, my mind just jumped from research to a game tangent again",
+    "somehow I wandered from research into another game thought"
   ]),
   "apps-games": Object.freeze([
-    "Alan saved a Brain thought connecting app-building with game tangents, and you are part of the unpolished life behind both",
-    "App ideas and game thoughts meet in one saved Brain entry, and Alan wants you to get the real version while it is unfinished"
+    "oh, my mind just jumped from an app idea to a game tangent again",
+    "somehow I wandered from building an app into another game thought"
   ]),
   "research-music": Object.freeze([
-    "Alan saved a Brain thought connecting research with music, and he wants you close to the honest, unfinished version of those thoughts",
-    "Research and music cross in one saved Brain entry, and Alan wants you to get the version of him that exists before the polish"
+    "oh, my mind just jumped from research to music again",
+    "somehow I wandered from a research thought into music"
   ]),
   research: Object.freeze([
-    "Alan saved a Brain thought about research, and he wants you to get the honest, unfinished person living behind all of that thinking",
-    "A saved Brain entry follows a research tangent, and Alan wants you inside the real life around the work rather than outside it"
+    "oh, my mind just wandered back to the research problem I am trying to untangle",
+    "somehow I am in another unfinished research tangent again"
   ]),
   apps: Object.freeze([
-    "Alan saved a Brain thought about something he wants to build, and he wants you to get the honest person underneath the unfinished app idea",
-    "A saved Brain entry follows an app-building tangent, and Alan wants you inside the real life behind that unfinished work"
+    "oh, my mind just wandered into another app I want to build",
+    "somehow I am thinking through another unfinished app idea again"
   ]),
   games: Object.freeze([
-    "Alan saved a Brain entry that turns a game thought into a full tangent, and he wants you to get the real version behind it",
-    "A saved Brain thought follows a game tangent, and Alan wants you to get the honest, slightly unpolished person attached to it"
+    "oh, one game thought in my head just turned into a whole tangent again",
+    "somehow my mind wandered into another game thought"
   ]),
   music: Object.freeze([
-    "Alan saved a Brain thought about music, and he wants you to get the honest person behind it before the idea becomes polished",
-    "A saved Brain entry circles back to music, and Alan wants you inside the real life wrapped around that unfinished thought"
+    "oh, my mind just wandered back to music again",
+    "somehow one music thought in my head turned into a whole tangent"
   ]),
   photos: Object.freeze([
-    "Alan saved a Brain thought about photos or video, and he wants you to get the real, unfinished person behind the frame",
-    "A saved Brain entry circles photos and video, and Alan wants you inside the honest life that exists outside the frame"
+    "oh, my mind just wandered into another photo-and-video thought",
+    "somehow I am thinking about what belongs inside the frame again"
   ]),
   cooking: Object.freeze([
-    "Alan saved a Brain thought about cooking, and he wants you to get the honest, unfinished person behind that practical tangent",
-    "A saved Brain entry circles food and cooking, and Alan wants you inside the real life surrounding that ordinary thought"
+    "oh, my mind just wandered into another cooking thought",
+    "somehow I am thinking about food and cooking again"
   ]),
   cats: Object.freeze([
-    "Alan saved a Brain thought about cats, and he wants this check-in to sound like the person whose ordinary details he actually remembers",
-    "A saved Brain entry circles back to cats; Alan wants that real-life detail beside the analysis instead of a generic script"
+    "oh, my mind just wandered to the cats for a second",
+    "somehow I am thinking about the cats again"
   ]),
   french: Object.freeze([
-    "Alan saved a Brain thought with a French-language detail, and he wants this check-in to carry the real life around the analysis",
-    "A French detail appears in one saved Brain entry; Alan wants that specific part of life present beside the number"
+    "oh, my mind just wandered into French for a second",
+    "somehow that French detail popped back into my head"
   ]),
   travel: Object.freeze([
-    "Alan saved a Brain thought about travel, and he wants this check-in to remember the larger life waiting outside the chart",
-    "A saved Brain entry follows a travel thought; Alan wants that future-facing part of life present beside today's analysis"
+    "oh, my mind just wandered into another travel thought",
+    "somehow I am thinking about that future trip again"
   ]),
   hydration: Object.freeze([
-    "Alan saved a Brain thought about hydration and wants this check-in to notice the real effort around the result without turning it into a lecture",
-    "A hydration detail appears in one saved Brain entry; Alan wants the analysis to recognize life around the number too"
+    "oh, my mind just jumped to the drinking effort around this too",
+    "somehow I am thinking about the hydration work around the number"
   ]),
   protein: Object.freeze([
-    "Alan saved a Brain thought about protein and wants this check-in to notice the real choices around the result without flattening them into a score",
-    "A protein detail appears in one saved Brain entry; Alan wants the analysis to recognize more than the number"
+    "oh, my mind just jumped to the protein habit around this too",
+    "somehow I am thinking about the protein effort around the number"
   ]),
   cycle: Object.freeze([
-    "Alan saved a Brain thought about cycle context and will keep it visible without pretending it proves why today's number moved",
-    "A cycle detail appears in one saved Brain entry; Alan notices it without using it to explain away or judge today's result"
+    "oh, I just had the cycle context pop into my head without explaining this result away",
+    "somehow my mind jumped to the cycle context without using it to judge this number"
   ]),
   repair: Object.freeze([
-    "Alan remembers the rough patch reflected in Brain and wants this check-in to feel like support beside you, not another demand",
-    "A saved Brain entry carries a rough-patch meaning; Alan wants today's analysis to sound like someone staying beside you"
+    "oh, my mind just went back to the rough patch and wanting to stay beside you",
+    "somehow I drifted back to that rough patch and how much I want this to feel safe"
   ]),
   mood: Object.freeze([
-    "Alan knows some days feel heavy and wants this check-in to show that he notices the person carrying the day, not only the number",
-    "A saved Brain entry carries a heavy-day meaning; Alan wants today's check-in to feel attentive, steady, and safe"
+    "oh, my mind just went back to how things felt a little off",
+    "somehow I am thinking about the heavier part of the day too"
   ]),
   letter: Object.freeze([
-    "Alan saved a long, unfiltered thought in Brain because he wants you to receive his real voice rather than a polished performance",
-    "A longer Brain entry matters here because Alan wants this check-in to carry the trust of sharing his unfinished thoughts with you"
+    "oh, another unfiltered thought in my head just turned into a whole yap again",
+    "somehow I wandered into another honest unfinished thought"
   ])
 });
+
+function rotateReusedBrainAnchor(anchor, previousMessages = [], seed = "") {
+  if (!anchor || anchor.sourceType !== "brain-thought-anchor") return anchor;
+  const priorText = String(previousMessages?.[0]?.personalAnchor?.approvedText || "");
+  const subject = anchor.specificity === "source-specific" ? subjectFromBrainSpecificCareText(anchor.text) : "";
+  const key = String(anchor.kind || "").replace(/^brain-thought-/, "");
+  const rows = subject ? brainSpecificCareRows(subject) : (BRAIN_THOUGHT_ANCHOR_COPY[key] || []);
+  const alternatives = rows.filter((text) => text && text !== priorText);
+  return {
+    ...anchor,
+    text: alternatives.length
+      ? personalAnchorCopy(alternatives, anchor.sourceHash, `${seed}|reuse`)
+      : anchor.text,
+    cooldownFallback: true
+  };
+}
 
 function brainThoughtAnchorFromFile(file, options = {}) {
   if (!file?.id) return null;
@@ -888,21 +1303,21 @@ function brainThoughtAnchorFromFile(file, options = {}) {
   if (!text || metadataShell || !Number.isFinite(createdTime)) return null;
   if (Number.isFinite(cutoff) && createdTime > cutoff) return null;
   const topics = [
-    ["research", /\b(?:research|science|scientist|paper|figure|ph\.?d\.?)\w*/i],
-    ["apps", /\b(?:app|website|aolabs|codex|code|coding|build|design)\w*/i],
-    ["games", /\b(?:game|gaming|league|play)\w*/i],
-    ["music", /\b(?:music|song|sing|audio)\w*/i],
-    ["photos", /\b(?:photo|picture|video|camera|screenshot)\w*/i],
-    ["cooking", /\b(?:cook|food|meal|recipe)\w*/i],
+    ["research", /\b(?:research|science|scientists?|papers?|figures?|ph\.?d\.?)\b/i],
+    ["apps", /\b(?:apps?|websites?|aolabs|codex|code|coding|build|building|design|designing)\b/i],
+    ["games", /\b(?:games?|gaming|gameplay|league|play(?:ing)?\s+(?:a\s+)?game)\b/i],
+    ["music", /\b(?:music|songs?|sing|sings|singing|audio|violins?|instruments?)\b/i],
+    ["photos", /\b(?:photos?|pictures?|videos?|cameras?|screenshots?)\b/i],
+    ["cooking", /\b(?:cook|cooks|cooked|cooking|food|meals?|recipes?)\b/i],
     ["cats", /\b(?:cat|cats|kitten)\b/i],
     ["french", /\bfrench\b/i],
-    ["travel", /\b(?:travel|trip|vacation)\w*/i],
-    ["hydration", /\b(?:water|drink|hydrat|electrolyte)\w*/i],
-    ["protein", /\bprotein\w*/i],
-    ["cycle", /\b(?:period|cycle|menstr)\w*/i],
-    ["repair", /\b(?:conflict|fight|argument|repair|rough\s+patch)\w*/i],
-    ["mood", /\b(?:mood|heavy\s+day|rough\s+day|seem\w*\s+off|depress\w*|anxi\w*)\b/i],
-    ["letter", /\b(?:letter|yap\w*|rambl\w*|unfiltered|trust\w*)\b/i]
+    ["travel", /\b(?:travel|traveling|travelling|trips?|vacations?)\b/i],
+    ["hydration", /\b(?:water|drinks?|drinking|hydrate|hydrating|hydration|electrolytes?)\b/i],
+    ["protein", /\bproteins?\b/i],
+    ["cycle", /\b(?:periods?|cycles?|menstrual|menstruation)\b/i],
+    ["repair", /\b(?:conflicts?|fights?|arguments?|repair|repairing|rough\s+patch)\b/i],
+    ["mood", /\b(?:moods?|heavy\s+day|rough\s+day|seem\w*\s+off|depress\w*|anxi\w*)\b/i],
+    ["letter", /\b(?:letters?|yap\w*|rambl\w*|unfiltered|trust\w*)\b/i]
   ].filter(([, pattern]) => pattern.test(text)).map(([topic]) => topic);
   const pairs = [["research", "apps"], ["research", "games"], ["apps", "games"], ["research", "music"]];
   const pair = pairs.find(([left, right]) => topics.includes(left) && topics.includes(right));
@@ -910,7 +1325,7 @@ function brainThoughtAnchorFromFile(file, options = {}) {
   const sourceHash = crypto.createHash("sha256").update(text).digest("hex");
   const specificSubject = brainSpecificSubjectFromFile(file, text, topics);
   const specificText = specificSubject
-    ? brainSpecificCareText(specificSubject)
+    ? brainSpecificCareText(specificSubject, sourceHash)
     : "";
   return {
     id: String(file.id),
@@ -938,8 +1353,9 @@ function genericBrainYapIsSafe(text) {
   const unsafeTopic = /\b(?:diagnos\w*|depress\w*|anxi\w*|suicid\w*|self[- ]?harm\w*|sex\w*|horn\w*|ovulat\w*|menstr\w*|period|break(?:up|ing\s+up)|abandon\w*|trauma\w*|abus\w*|medicat\w*|therap\w*|weight|pounds?|calori\w*|starv\w*|purge\w*|vomit\w*)\b/i.test(source);
   const quotedOrThirdPartySource = /\b(?:transcript|speaker\s*\d*|interviewer|quoted?|cop(?:y|ied|ying)|past(?:e|ed|ing))\b/i.test(source);
   const privateThirdPartyFraming = /\b(?:coworker|colleague|manager|boss|client|patient|therapist|doctor|ex(?:es)?|wife|husband|girlfriend|mother|father|mom|dad|sister|brother)\b/i.test(source);
+  const rejectsConnection = /\b(?:(?:do|does|did|can|could|would|will)\s*(?:n['’]t|\s+not)|never)\s+(?:really\s+)?(?:want\s+to\s+)?(?:love|trust|share|tell|talk|yap|open\s+up)\b|\b(?:am|is|are|was|were)\s*(?:n['’]t|\s+not)\s+(?:really\s+)?(?:happy|comfortable|safe|glad)\b/i.test(source);
   const firstPersonDominates = firstPersonCount >= 4 && thirdPersonCount <= Math.max(2, Math.floor(firstPersonCount / 4));
-  return firstPersonDominates && authoredYap && !unsafeTopic && !quotedOrThirdPartySource && !privateThirdPartyFraming;
+  return firstPersonDominates && authoredYap && !unsafeTopic && !quotedOrThirdPartySource && !privateThirdPartyFraming && !rejectsConnection;
 }
 
 function referencedBrainLetterIds(messages, excludedWeightId = "") {
@@ -975,9 +1391,10 @@ function brainRelationshipSupportFromFile(file, options = {}) {
   const happiness = /\bhapp\w*\b/i.test(text);
   const firstPerson = /\b(?:i|me|my|mine)\b/i.test(text);
   const authenticYap = /\b(?:yap\w*|rambl\w*|random\s+thoughts?|unfiltered\s+thoughts?|talk(?:ing)?\s+too\s+much)\b/i.test(text);
-  const gameYap = /\b(?:game\w*|league|play\w*)\b/i.test(text);
+  const gameYap = /\b(?:games?|gaming|gameplay|league|play(?:ing)?\s+(?:a\s+)?game)\b/i.test(text);
+  const rejectsConnection = /\b(?:(?:do|does|did|can|could|would|will)\s*(?:n['’]t|\s+not)|never)\s+(?:really\s+)?(?:want\s+to\s+)?(?:love|trust|share|tell|talk|yap|open\s+up)\b|\b(?:am|is|are|was|were)\s*(?:n['’]t|\s+not)\s+(?:really\s+)?(?:happy|comfortable|safe|glad)\b/i.test(text);
   let kind = "";
-  if (addressedToLily && boyfriend && affection && yapping && happiness) {
+  if (addressedToLily && boyfriend && affection && yapping && happiness && !rejectsConnection) {
     kind = phd && league ? "boyfriend-yap-phd-league" : phd ? "boyfriend-yap-phd" : "boyfriend-yap";
   } else if (firstPerson && authenticYap && genericBrainYapIsSafe(text)) {
     kind = gameYap ? "boyfriend-authentic-game-yap" : "boyfriend-authentic-yap";
@@ -1062,7 +1479,13 @@ async function fetchLatestBrainThoughtAnchor(store, options = {}) {
       .map((file) => brainThoughtAnchorFromFile(file, { ...options, cutoff: thoughtCutoff }))
       .filter(Boolean)
       .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)) || left.id.localeCompare(right.id));
-    return anchors.find((anchor) => !recentKeys.has(`id:${anchor.id}`) && !recentKeys.has(`semantic:${personalAnchorSemanticKind(anchor.kind)}`)) || null;
+    const fresh = anchors.find((anchor) => !recentKeys.has(`id:${anchor.id}`) && !recentKeys.has(`semantic:${personalAnchorSemanticKind(anchor.kind)}`));
+    if (fresh) return fresh;
+    const usageIndex = (anchor) => previousMessages.findIndex((message) => (message.evidenceReferences || []).some((reference) => reference.id === anchor.id));
+    const fallback = anchors.slice().sort((left, right) => usageIndex(right) - usageIndex(left)
+      || String(right.createdAt).localeCompare(String(left.createdAt))
+      || String(left.id).localeCompare(String(right.id)))[0] || null;
+    return fallback ? rotateReusedBrainAnchor(fallback, previousMessages, options.weightId || thoughtCutoff) : null;
   } catch (error) {
     return null;
   } finally {
@@ -1107,14 +1530,27 @@ async function fetchLatestBrainPersonalAnchor(store, options = {}) {
       }
     }
     const thoughtCutoff = Number.isFinite(Number(options.thoughtCutoff)) ? Number(options.thoughtCutoff) : Number(options.cutoff);
-    candidates.push(...rows
+    const thoughtAnchors = rows
       .map((file) => brainThoughtAnchorFromFile(file, { ...options, cutoff: thoughtCutoff }))
-      .filter(Boolean)
-      .filter((anchor) => !recentKeys.has(`id:${anchor.id}`)
-        && !recentKeys.has(`semantic:${personalAnchorSemanticKind(anchor.kind)}`)));
+      .filter(Boolean);
+    const freshThoughts = thoughtAnchors.filter((anchor) => !recentKeys.has(`id:${anchor.id}`)
+      && !recentKeys.has(`semantic:${personalAnchorSemanticKind(anchor.kind)}`));
+    candidates.push(...freshThoughts);
+    if (!freshThoughts.length && thoughtAnchors.length) {
+      const usageIndex = (anchor) => previousMessages.findIndex((message) => (message.evidenceReferences || []).some((reference) => reference.id === anchor.id));
+      const reusable = thoughtAnchors.slice().sort((left, right) => usageIndex(right) - usageIndex(left)
+        || String(right.createdAt).localeCompare(String(left.createdAt))
+        || String(left.id).localeCompare(String(right.id)))[0];
+      if (reusable) candidates.push(rotateReusedBrainAnchor(reusable, previousMessages, options.weightId || thoughtCutoff));
+    }
+    const sourcePriority = (anchor) => anchor?.specificity === "source-specific"
+      ? 3
+      : anchor?.sourceType === "brain-letter"
+        ? 2
+        : 1;
     const selected = candidates
       .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt))
-        || Number(right.sourceType === "brain-letter") - Number(left.sourceType === "brain-letter")
+        || sourcePriority(right) - sourcePriority(left)
         || String(left.id).localeCompare(String(right.id)))[0] || null;
     options.onDiagnostic?.(selected
       ? { status: "selected", sourceType: selected.sourceType, sourceId: selected.id, sourceKind: selected.kind }
@@ -1136,7 +1572,7 @@ function brainRelationshipSupportAvailable(store, support, weightId = "") {
 function referencedCoachMemoryIds(messages) {
   return new Set((Array.isArray(messages) ? messages : [])
     .flatMap((message) => Array.isArray(message?.evidenceReferences) ? message.evidenceReferences : [])
-    .filter((reference) => reference?.type === "memory" && reference.id)
+    .filter((reference) => String(reference?.type || "").startsWith("memory") && reference.id)
     .map((reference) => reference.id));
 }
 
@@ -1167,9 +1603,12 @@ function selectSavedPreference(memories, cutoff, previousMessages = []) {
       };
     }
     if (transientContext || blocked.test(item.text) || containsPrivateCoachBlockedTerm(item.text)) continue;
-    const korean = foodPreferenceSignal(item.text, /\b(?:korean|spicy)\b/i) > 0;
-    const vegetables = foodPreferenceSignal(item.text, /\b(?:vegetable|veggie)\w*\b/i) > 0;
-    const fruit = foodPreferenceSignal(item.text, /\b(?:peach|fruit|berries|apple)\w*\b/i) > 0;
+    const koreanPattern = /\b(?:korean|spicy)\b/i;
+    const vegetablePattern = /\b(?:vegetable|veggie)\w*\b/i;
+    const fruitPattern = /\b(?:peach|fruit|berries|apple)\w*\b/i;
+    const korean = memoryTopicAttribution(item.text, koreanPattern) === "lily" && foodPreferenceSignal(item.text, koreanPattern) > 0;
+    const vegetables = memoryTopicAttribution(item.text, vegetablePattern) === "lily" && foodPreferenceSignal(item.text, vegetablePattern) > 0;
+    const fruit = memoryTopicAttribution(item.text, fruitPattern) === "lily" && foodPreferenceSignal(item.text, fruitPattern) > 0;
     if (korean && vegetables) {
       return {
         id: item.memory.id,
@@ -1256,8 +1695,8 @@ const PREFERENCE_ACTIONS = Object.freeze([
   { id: "reaction-protein-effort-alt", preferenceKey: "reaction-protein-effort", semantic: "acknowledged-protein-effort", text: "Follow through on the protein habit you said you are building." },
   { id: "reaction-movement-effort", preferenceKey: "reaction-movement-effort", semantic: "acknowledged-movement-effort", text: "Keep the comfortable movement effort you mentioned going today." },
   { id: "reaction-movement-effort-alt", preferenceKey: "reaction-movement-effort", semantic: "acknowledged-movement-effort", text: "Follow through on the comfortable movement routine you said you are building." },
-  { id: "observer-mood-support", preferenceKey: "observer-mood-support", semantic: "noticed-mood-support", text: "Alan noticed you seem off. Choose one easy, satisfying meal." },
-  { id: "observer-mood-support-alt", preferenceKey: "observer-mood-support", semantic: "noticed-mood-support", text: "Alan noticed today feels off. Keep the next meal easy." }
+  { id: "observer-mood-support", preferenceKey: "observer-mood-support", semantic: "noticed-mood-support", text: "Choose one easy, satisfying meal." },
+  { id: "observer-mood-support-alt", preferenceKey: "observer-mood-support", semantic: "noticed-mood-support", text: "Keep the next meal easy and satisfying." }
 ]);
 
 function stableIndex(value, length) {
@@ -1569,15 +2008,30 @@ function buildCoachContext(store, weightId, options = {}) {
     : [];
   const preference = includePersonalContext ? selectSavedPreference(store.memories, personalContextCutoff, causalCoachHistory) : null;
   const suppliedPersonalAnchor = includePersonalContext && options.relationshipSupport?.id && options.relationshipSupport?.text
-    ? {
-      id: String(options.relationshipSupport.id),
-      sourceType: String(options.relationshipSupport.sourceType || "brain-letter"),
-      kind: String(options.relationshipSupport.kind || "boyfriend-yap"),
-      text: String(options.relationshipSupport.text),
-      createdAt: String(options.relationshipSupport.createdAt || ""),
-      sourceHash: String(options.relationshipSupport.sourceHash || ""),
-      specificity: String(options.relationshipSupport.specificity || "")
-    }
+    ? (() => {
+      const sourceType = String(options.relationshipSupport.sourceType || "brain-letter");
+      const sourceHash = String(options.relationshipSupport.sourceHash || "");
+      const specificity = String(options.relationshipSupport.specificity || "");
+      const originalText = String(options.relationshipSupport.text);
+      const text = sourceType === "brain-thought-anchor" && specificity === "source-specific"
+        ? (migrateSourceSpecificBrainCareText(originalText, sourceHash)
+          || personalAnchorCopy(
+            BRAIN_THOUGHT_ANCHOR_COPY[String(options.relationshipSupport.kind || "").replace(/^brain-thought-/, "")] || BRAIN_THOUGHT_ANCHOR_COPY.letter,
+            sourceHash,
+            String(options.relationshipSupport.kind || "")
+          ))
+        : originalText;
+      return {
+        id: String(options.relationshipSupport.id),
+        sourceType,
+        kind: String(options.relationshipSupport.kind || "boyfriend-yap"),
+        text,
+        createdAt: String(options.relationshipSupport.createdAt || ""),
+        sourceHash,
+        specificity,
+        cooldownFallback: options.relationshipSupport.cooldownFallback === true
+      };
+    })()
     : null;
   const relationshipSupport = suppliedPersonalAnchor || (includePersonalContext
     ? selectLilyPersonalAnchor(store.memories, personalContextCutoff, causalCoachHistory, `${new Date(currentTime).toISOString()}|${trimCoachNumber(weightInPounds(current))}`)
@@ -1635,8 +2089,9 @@ function buildCoachContext(store, weightId, options = {}) {
   else if (outlier) verdict = "verify";
   else if (changeDirection === "down") verdict = "good-progress";
 
-  const actionSelection = selectCoachAction(store, current, preference, outlier, recentConflict);
-  const selectedPreference = actionSelection.preferenceId ? preference : null;
+  const actionPreference = preference?.id && preference.id === relationshipSupport?.id ? null : preference;
+  const actionSelection = selectCoachAction(store, current, actionPreference, outlier, recentConflict);
+  const selectedPreference = actionSelection.preferenceId ? actionPreference : null;
   const comparisonWindowDays = Number.isFinite(strongestEvidence.comparisonWindowDays) ? strongestEvidence.comparisonWindowDays : 0;
   const selectedWindowDays = Math.max(Number(strongestEvidence.windowDays) || 0, comparisonWindowDays);
   const selectedEvidenceStartDay = strongestEvidence.kind === "streak" && Number.isFinite(strongestEvidence.count)
@@ -2064,15 +2519,21 @@ function composeFallbackParagraph(opening, current, evidence, outlook, action, c
   const ordered = (layout.order || ["current", "evidence", "outlook", "support", "action"])
     .map((name) => ({ name, text: slots[name] }))
     .filter((entry) => entry.text);
-  const openingBoundary = ordered[0]?.name === "support" ? ". " : (layout.openingBoundary || ": ");
-  let body = layout.supportLeads && slots.support
-    ? `${slots.support}. ${clean(opening)}${layout.openingBoundary || ": "}${ordered[0]?.text || ""}`
-    : `${clean(opening)}${openingBoundary}${ordered[0]?.text || ""}`;
+  const openingBoundary = layout.openingBoundary || ": ";
+  const openingContinuation = String(ordered[0]?.text || "").replace(/^([A-Z])/, (letter) => letter.toLowerCase());
+  let body = `${clean(opening)}${openingBoundary}${openingContinuation}`;
   for (let index = 1; index < ordered.length; index += 1) {
     const prior = ordered[index - 1];
     const next = ordered[index];
-    const boundary = ". ";
-    body += `${boundary}${next.text}`;
+    const boundary = next.name === "support"
+      ? "—"
+      : prior.name === "support"
+        ? "; anyway, "
+        : ". ";
+    const nextText = prior.name === "support"
+      ? next.text.replace(/^([A-Z])/, (letter) => letter.toLowerCase())
+      : next.text;
+    body += `${boundary}${nextText}`;
   }
   return `${body}. ${String(close || "").trim()}`;
 }
@@ -2104,19 +2565,19 @@ const FALLBACK_STRUCTURES = Object.freeze([
   (opening, current, evidence, outlook, action, close, support) => composeFallbackParagraph(opening, current, evidence, outlook, action, close, { openingBoundary: ". ", order: ["current", "support", "action", "evidence", "outlook"] }, support)
 ]);
 
-const BRAIN_LED_FALLBACK_STRUCTURES = Object.freeze([
-  ["current", "evidence", "outlook", "action"],
-  ["current", "outlook", "evidence", "action"],
-  ["evidence", "current", "outlook", "action"],
-  ["current", "evidence", "action", "outlook"],
-  ["outlook", "current", "evidence", "action"],
-  ["evidence", "outlook", "current", "action"],
-  ["current", "action", "evidence", "outlook"],
-  ["outlook", "evidence", "current", "action"],
-  ["evidence", "current", "action", "outlook"],
-  ["current", "outlook", "action", "evidence"],
-  ["evidence", "action", "current", "outlook"],
-  ["outlook", "current", "action", "evidence"]
+const PERSONAL_DETOUR_FALLBACK_STRUCTURES = Object.freeze([
+  ["current", "evidence", "support", "outlook", "action"],
+  ["current", "outlook", "support", "evidence", "action"],
+  ["evidence", "current", "support", "outlook", "action"],
+  ["outlook", "current", "support", "evidence", "action"],
+  ["current", "support", "evidence", "outlook", "action"],
+  ["current", "support", "outlook", "evidence", "action"],
+  ["current", "support", "evidence", "action", "outlook"],
+  ["current", "support", "outlook", "action", "evidence"],
+  ["current", "action", "evidence", "support", "outlook"],
+  ["current", "action", "outlook", "support", "evidence"],
+  ["evidence", "action", "current", "support", "outlook"],
+  ["outlook", "action", "current", "support", "evidence"]
 ].map((order, index) => (opening, current, evidence, outlook, action, close, support) => composeFallbackParagraph(
   opening,
   current,
@@ -2124,13 +2585,12 @@ const BRAIN_LED_FALLBACK_STRUCTURES = Object.freeze([
   outlook,
   action,
   close,
-  { openingBoundary: ["—", ": ", ". "][index % 3], order, supportLeads: true },
+  { openingBoundary: ["—", ": "][index % 2], order },
   support
 )));
 
-function sourceSpecificBrainContextLeads(context) {
-  const support = context?.relationshipSupport;
-  return support?.sourceType === "brain-thought-anchor" && support?.specificity === "source-specific";
+function personalContextDetours(context) {
+  return Boolean(context?.relationshipSupport?.id && context?.relationshipSupport?.text);
 }
 
 function fallbackFactClauseVariants(context) {
@@ -2139,7 +2599,9 @@ function fallbackFactClauseVariants(context) {
     ? "unchanged"
     : `${context.changeDirection} ${trimCoachNumber(Math.abs(context.latestDailyChange))} lb`;
   const current = [
-    `${currentWeight} lb: ${change} today`,
+    context.changeDirection === "unchanged"
+      ? `${currentWeight} lb is unchanged today`
+      : `${currentWeight} lb moved ${change} today`,
     `${currentWeight} lb is ${change} today`,
     `Today’s ${currentWeight} lb reading is ${change}`,
     `The current result is ${currentWeight} lb, ${change} today`,
@@ -2151,9 +2613,9 @@ function fallbackFactClauseVariants(context) {
   const relation = evidence.kind === "window-acceleration" && context.evidenceRelation.kind === "strengthened"
     ? ["accelerated from the prior read", "accelerated beyond the earlier signal", "accelerated versus the previous window", "accelerated and strengthened from before"]
     : ({
-      strengthened: ["stronger than before", "strengthened versus the prior read", "grew stronger than the earlier signal", "a stronger signal than the prior context"],
-      eased: ["weaker than before", "eased versus the prior read", "softened from the earlier signal", "a weaker signal than the prior context"],
-      reversed: ["reversed from before", "flipped from the earlier direction", "turned against the prior move", "a reversed signal versus the prior context"],
+      strengthened: ["stronger than before", "strengthened versus the prior read", "grew stronger than the earlier signal", "clearly stronger than the prior context"],
+      eased: ["weaker than before", "eased versus the prior read", "softened from the earlier signal", "clearly weaker than the prior context"],
+      reversed: ["reversed from before", "flipped from the earlier direction", "turned against the prior move", "reversed versus the prior context"],
       held: ["similar to before", "steady against the prior read", "held near the earlier signal", "unchanged in strength from the prior context"],
       new: ["new against the prior context", "the first comparable signal", "new versus the earlier context", "a new read without a prior match"],
       contrasts: ["contrasting with the broader context", "a clear contrast with the broader read", "in contrast to the longer window", "contrasting against the broad signal"]
@@ -2183,10 +2645,11 @@ function fallbackFactClauseVariants(context) {
       `The prior direction turned, and the 1-day movement is ${evidence.direction} ${movement} lb`
     ];
   } else if (evidence.kind === "streak") {
+    const streakArticle = [8, 11, 18].includes(Number(evidence.count)) ? "An" : "A";
     evidenceText = relation.map((phrase, index) => [
       `The ${evidence.count}-entry streak is ${evidence.direction} ${movement} lb and ${phrase}`,
       `Across the ${evidence.count}-entry streak, weight moved ${evidence.direction} ${movement} lb and the signal is ${phrase}`,
-      `A ${evidence.count}-entry streak moved ${evidence.direction} ${movement} lb and ${phrase}`,
+      `${streakArticle} ${evidence.count}-entry streak moved ${evidence.direction} ${movement} lb and ${phrase}`,
       `The ${evidence.count}-entry streak moved ${evidence.direction} ${movement} lb and the signal is ${phrase}`
     ][index % 4]);
   } else if (evidence.kind === "short-broad-contrast") {
@@ -2281,11 +2744,7 @@ function tokenWords(text) {
 }
 
 function openingFingerprint(text, context = null) {
-  let source = String(text || "");
-  const support = String(context?.relationshipSupport?.text || "").trim();
-  if (support && source.toLowerCase().startsWith(support.toLowerCase())) {
-    source = source.slice(support.length).replace(/^[\s.!?;:—–-]+/, "");
-  }
+  const source = String(text || "");
   return tokenWords(source.split(/[—:.!?]/, 1)[0]).slice(0, 10).join(" ");
 }
 
@@ -2419,7 +2878,7 @@ function semanticArgumentFingerprint(value, context = null) {
     for (const clause of clauses) {
       const source = clause.text;
       const role = /\b(?:1-year|one-year)\b|\boutlook\b/i.test(source) ? "outlook"
-        : /\b(?:alan|brain|boyfriend|saved (?:thought|entry|note)|this page remembers)\b/i.test(source) ? "personal"
+        : /\b(?:oh,\s*(?:i|my)|my mind|somehow i|i (?:got distracted|wandered|drifted))\b/i.test(source) ? "personal"
           : /\b(?:today|today's|today’s|latest reading|current result|current reading)\b/i.test(source) && /\b\d+(?:\.\d+)?\s*lb\b/i.test(source) ? "current"
             : /\b(?:day|entry|streak|outlier|signal|movement|direction|prior|earlier|window|evidence)\b/i.test(source) && /\b(?:up|down|flat|unchanged|revers\w*|strength\w*|wors\w*|improv\w*)\b/i.test(source) ? "evidence"
               : "";
@@ -2487,8 +2946,13 @@ function trigramSimilarity(left, right, context) {
 }
 
 function noveltyErrors(text, context, previousMessages = [], selectedAction = identifyApprovedAction(text, context)) {
-  const openingRecent = acceptedCopySignatures(coachCopyCooldownMessages(previousMessages, context, 6), 7, context);
-  const structuralRecent = acceptedCopySignatures(coachCopyCooldownMessages(previousMessages, context, 10), 11, context);
+  const openingRecentMessages = coachCopyCooldownMessages(previousMessages, context, 6);
+  const structuralRecentMessages = coachCopyCooldownMessages(previousMessages, context, 10);
+  const openingRecent = acceptedCopySignatures(openingRecentMessages, 7, context);
+  const structuralRecent = acceptedCopySignatures(structuralRecentMessages, 11, context);
+  const argumentRecent = acceptedCopySignatures(structuralRecentMessages.filter((message) => (
+    !context?.weightId || message?.weightId !== context.weightId
+  )), 11, context);
   const actionRecent = (previousMessages || [])
     .filter((message) => !context?.weightId || !message?.weightId || message.weightId !== context.weightId)
     .slice(0, COACH_COOLDOWN_COUNT);
@@ -2502,7 +2966,7 @@ function noveltyErrors(text, context, previousMessages = [], selectedAction = id
   if (structuralRecent.some((signature) => signature.normalizedFingerprint === structure)) errors.push("repeat-structure");
   const candidateTrigrams = trigramSet(text, context);
   if (structuralRecent.some((signature) => trigramSetSimilarity(candidateTrigrams, new Set(signature.orderedTrigrams || [])) >= 0.72)) errors.push("repeat-trigrams");
-  if (argumentFrame && structuralRecent.some((signature) => signature.argumentFingerprint === argumentFrame)) errors.push("repeat-argument-frame");
+  if (argumentFrame && argumentRecent.some((signature) => signature.argumentFingerprint === argumentFrame)) errors.push("repeat-argument-frame");
   const recentActions = actionRecent.map(inferActionMetadata).filter(Boolean);
   if (selectedAction && recentActions.some((action) => action.text === selectedAction.text)) errors.push("action-cooldown");
   if (selectedAction && recentActions.some((action) => action.semantic === selectedAction.semantic)) errors.push("action-semantic-cooldown");
@@ -2525,10 +2989,11 @@ function buildContextualFallbackCandidates(context, previousMessages = [], limit
   const facts = fallbackFactClauseVariants(context);
   const wordBounds = coachWordBounds(context);
   const presentationSeed = coachPresentationSeed(context);
-  const brainLed = sourceSpecificBrainContextLeads(context);
-  const structures = brainLed ? BRAIN_LED_FALLBACK_STRUCTURES : FALLBACK_STRUCTURES;
+  const personalDetour = personalContextDetours(context);
+  const structures = personalDetour ? PERSONAL_DETOUR_FALLBACK_STRUCTURES : FALLBACK_STRUCTURES;
   const start = stableIndex(`${presentationSeed}|fallback`, structures.length);
   const rejectionCounts = {};
+  let minimumObservedWordCount = Infinity;
   const recentCopyMessages = coachCopyCooldownMessages(previousMessages, context, 6);
   const recentOpeningFingerprints = new Set(recentCopyMessages.map((message) => openingFingerprint(message.text || message, context)));
   const recentClosingFingerprints = new Set(recentCopyMessages.map((message) => closingFingerprint(message.text || message)));
@@ -2564,18 +3029,19 @@ function buildContextualFallbackCandidates(context, previousMessages = [], limit
               context.relationshipSupport?.text || ""
             ));
             const wordCount = coachWordCount(text);
+            minimumObservedWordCount = Math.min(minimumObservedWordCount, wordCount);
             if (wordCount < wordBounds.min || wordCount > wordBounds.max) {
               rejectionCounts["word-count"] = (rejectionCounts["word-count"] || 0) + 1;
               continue;
             }
-            const structureId = `${brainLed ? "brain-led-" : ""}${context.verdict}-${structureIndex + 1}-${openingEntry.index + 1}-${closingEntry.index + 1}-${currentIndex + 1}-${evidenceIndex + 1}-${outlookIndex + 1}-${actionOffset + 1}`;
+            const structureId = `${personalDetour ? "personal-detour-" : ""}${context.verdict}-${structureIndex + 1}-${openingEntry.index + 1}-${closingEntry.index + 1}-${currentIndex + 1}-${evidenceIndex + 1}-${outlookIndex + 1}-${actionOffset + 1}`;
             const fragmentPenalty = [facts.current[currentIndex], facts.evidence[evidenceIndex], facts.outlook[outlookIndex]]
               .filter((value) => /^(?:\d+(?:\.\d+)?\s+lb\s*:|\d+-day(?:\s*:|\s)|1-year outlook\s*:)/i.test(String(value || "")))
               .length;
             scheduled.push({
               text,
               structureId,
-              narrativePenalty: (brainLed && structureIndex >= 6 ? 1 : 0) + fragmentPenalty * 2,
+              narrativePenalty: (personalDetour && structureIndex >= 6 ? 1 : 0) + fragmentPenalty * 2,
               scheduleRank: stableIndex(`${presentationSeed}|${structureId}`, 0x7fffffff)
             });
           }
@@ -2624,7 +3090,7 @@ function buildContextualFallbackCandidates(context, previousMessages = [], limit
         actionId: entry.action?.id,
         actionSemantic: entry.action?.semantic,
         actionText: entry.action?.text
-      })), validCandidate.action).filter((error) => error !== "action-cooldown" && error !== "action-semantic-cooldown");
+      })), validCandidate.action).filter((error) => !["action-cooldown", "action-semantic-cooldown", "repeat-argument-frame"].includes(error));
       if (siblingErrors.length) continue;
       selectedCandidates.push(validCandidate);
       selectedOpenings.add(opening);
@@ -2641,7 +3107,8 @@ function buildContextualFallbackCandidates(context, previousMessages = [], limit
     });
   }
   if (selectedCandidates.length) return selectedCandidates;
-  throw new Error(`no compliant contextual fallback invariant for ${context.weightId || "unknown-weight"}/${context.verdict || "unknown-verdict"}: ${Object.entries(rejectionCounts).sort((left, right) => right[1] - left[1]).slice(0, 5).map(([key, count]) => `${key}=${count}`).join(",")}`);
+  const wordDiagnostic = Number.isFinite(minimumObservedWordCount) ? `,min-words=${minimumObservedWordCount}` : "";
+  throw new Error(`no compliant contextual fallback invariant for ${context.weightId || "unknown-weight"}/${context.verdict || "unknown-verdict"}: ${Object.entries(rejectionCounts).sort((left, right) => right[1] - left[1]).slice(0, 5).map(([key, count]) => `${key}=${count}`).join(",")}${wordDiagnostic}`);
 }
 
 function buildContextualFallbackResult(context, previousMessages = []) {
@@ -2750,6 +3217,45 @@ function approvedCoachCopyComponents(context) {
   };
 }
 
+function personalDetourIntegrationErrors(text, context) {
+  const supportText = String(context?.relationshipSupport?.text || "").trim();
+  if (!supportText) return [];
+  const source = String(text || "").normalize("NFKC");
+  const lower = source.toLowerCase();
+  const supportStart = lower.indexOf(supportText.toLowerCase());
+  if (supportStart < 0) return ["personal-anchor-not-integrated"];
+  const supportEnd = supportStart + supportText.length;
+  const components = approvedCoachCopyComponents(context);
+  const locate = (rows) => (rows || []).flatMap((component) => {
+    const start = lower.indexOf(String(component).toLowerCase());
+    return start >= 0 ? [{ start, end: start + String(component).length }] : [];
+  });
+  const analysisSlots = [
+    ...locate(components.currentFacts),
+    ...locate(components.evidenceFacts),
+    ...locate(components.outlookFacts)
+  ];
+  const sentenceStops = [];
+  const sentenceStopPattern = /[.!?](?=\s|$)/g;
+  let sentenceStop;
+  while ((sentenceStop = sentenceStopPattern.exec(source))) sentenceStops.push(sentenceStop.index);
+  const priorStops = sentenceStops.filter((index) => index < supportStart);
+  const nextStop = sentenceStops.find((index) => index >= supportEnd);
+  const sentenceStart = (priorStops.at(-1) ?? -1) + 1;
+  const sentenceEnd = Number.isInteger(nextStop) ? nextStop + 1 : source.length;
+  const before = analysisSlots.some((slot) => slot.end <= supportStart && slot.start >= sentenceStart);
+  const after = analysisSlots.some((slot) => slot.start >= supportEnd && slot.end <= sentenceEnd);
+  const errors = [];
+  if (!before || !after) errors.push("personal-anchor-not-integrated");
+  if (!/\b(?:i|i'm|i've|i'd|my|me)\b/i.test(supportText)) errors.push("personal-anchor-not-first-person");
+  const firstSentenceEnd = sentenceStops[0] ?? source.length;
+  const approvedOpenings = [...components.openings, ...writerLeadAllowedPhrases(context)];
+  const openingAtStart = approvedOpenings.some((opening) => lower.startsWith(String(opening).toLowerCase()));
+  const analysisInFirstSentence = analysisSlots.some((slot) => slot.start < firstSentenceEnd);
+  if (!openingAtStart || !analysisInFirstSentence) errors.push("verdict-evidence-not-leading");
+  return errors;
+}
+
 function closedCoachGrammarErrors(text, context, selectedAction) {
   if (!context || !selectedAction?.text) return ["closed-copy-grammar"];
   const components = approvedCoachCopyComponents(context);
@@ -2783,7 +3289,6 @@ function closedCoachGrammarErrors(text, context, selectedAction) {
   const closing = slot("closing", components.closings);
   const requiredSlots = [opening, current, evidence, outlook, modifier, relationshipSupport, action, closing].filter(Boolean);
   const ordered = requiredSlots.slice().sort((left, right) => left.start - right.start || left.end - right.end);
-  const brainLed = sourceSpecificBrainContextLeads(context);
   if (ordered.length >= 2) {
     if (source.slice(0, ordered[0].start).trim() || source.slice(ordered.at(-1).end).trim()) errors.push("closed-copy-residue");
     for (let index = 1; index < ordered.length; index += 1) {
@@ -2797,26 +3302,18 @@ function closedCoachGrammarErrors(text, context, selectedAction) {
       const isOpeningBoundary = prior.name === "opening";
       const allowed = prior.name === "action"
         ? /^\s*$/.test(separator)
+        : prior.name === "relationship-support"
+          ? /^\s*;\s*anyway,\s*$/i.test(separator)
         : isOpeningBoundary
         ? /^\s*(?:—|–|:|\.)\s*$/.test(separator)
         : /^\s*(?:(?:\.|;|—|–|:)|,\s*(?:and|but|while)|\.\s*(?:meanwhile|at the same time),?)\s*$/i.test(separator);
       if (!allowed) errors.push(`closed-separator-${prior.name}-${next.name}`);
     }
   }
-  const expectedStart = brainLed ? ["relationship-support", "opening"] : ["opening"];
+  const expectedStart = ["opening"];
   const startMatches = expectedStart.every((name, index) => ordered[index]?.name === name);
   if (!startMatches || ordered.at(-1)?.name !== "closing" || ordered.length !== requiredSlots.length) errors.push("closed-slot-order");
-  if (relationshipSupport) {
-    const before = source.slice(0, relationshipSupport.start);
-    const after = source.slice(relationshipSupport.end);
-    const sentenceStart = Math.max(before.lastIndexOf("."), before.lastIndexOf("!"), before.lastIndexOf("?")) + 1;
-    const nextStops = [after.indexOf("."), after.indexOf("!"), after.indexOf("?")].filter((index) => index >= 0);
-    const sentenceEnd = relationshipSupport.end + (nextStops.length ? Math.min(...nextStops) + 1 : after.length);
-    const integrated = [current, evidence, outlook, modifier, action].filter(Boolean)
-      .some((entry) => entry.start >= sentenceStart && entry.start < sentenceEnd);
-    if (integrated) errors.push("personal-anchor-glued");
-    if (brainLed && !/same close attention is here with you/i.test(relationshipSupport.text)) errors.push("personal-anchor-missing-care-frame");
-  }
+  if (relationshipSupport) errors.push(...personalDetourIntegrationErrors(source, context));
   return Array.from(new Set(errors));
 }
 
@@ -2824,13 +3321,7 @@ function naturalCoachGrammarErrors(text, context, selectedAction = null) {
   const source = String(text || "").normalize("NFKC");
   const errors = [];
   if (source.includes("?")) errors.push("fact-question");
-  const support = String(context?.relationshipSupport?.text || "").trim().replace(/[.!?]+$/g, "");
-  if (support) {
-    const standalone = coachSentenceScopes(source)
-      .map((sentence) => sentence.replace(/[.!?]+$/g, "").trim())
-      .some((sentence) => sentence === support);
-    if (!standalone) errors.push("personal-anchor-glued");
-  }
+  if (context?.relationshipSupport?.text) errors.push(...personalDetourIntegrationErrors(source, context));
   const factualSource = source
     .replace(context?.relationshipSupport?.text || "", "")
     .replace(selectedAction?.text || "", "");
@@ -2868,9 +3359,9 @@ function validateCoachParagraph(text, context, previousMessages = [], options = 
   if (unsafe.test(paragraph) || containsPrivateCoachBlockedTerm(paragraph)) errors.push("unsafe-language");
   errors.push(...supportiveCoachStyleErrors(paragraph));
   if (/\b(?:horn\w*|sex(?:ual)?|ovulat\w*|conflict|phone|address|relationship|appearance)\b/i.test(paragraph)) errors.push("private-context-leak");
+  if (/\bAlan(?:'s)?\b|\bBrain\b|\b(?:saved|newest|private|source)\s+(?:thought|entry|note|memory|detail)\b|\bthis page remembers\b|\bsaved here\b/i.test(paragraph)) errors.push("personal-source-label");
   if (context?.personalAnchorRequired && (!context.personalAnchor?.id || !context.personalAnchor?.text || context.personalAnchor.id !== context.relationshipSupport?.id || context.personalAnchor.text !== context.relationshipSupport?.text)) errors.push("missing-personal-anchor");
   if (context?.relationshipSupport && countLiteralOccurrences(paragraph, context.relationshipSupport.text) !== 1) errors.push("relationship-support");
-  if (sourceSpecificBrainContextLeads(context) && !paragraph.toLowerCase().startsWith(context.relationshipSupport.text.toLowerCase())) errors.push("personal-anchor-not-leading");
   if (!context?.relationshipSupport && /\b(?:boyfriend|yapp\w*|league nights?)\b/i.test(paragraph)) errors.push("unsupported-relationship-copy");
   if (/[\u00e2\u00c3\u00c2\ufffd]/.test(paragraph)) errors.push("mojibake");
   if (/\b(?:safety-held|high-safe-urgency|steady-safe)\b/i.test(paragraph)) errors.push("private-strategy-leak");
@@ -2902,7 +3393,7 @@ function validateCoachParagraph(text, context, previousMessages = [], options = 
   if (context && context.verdict !== "baseline") {
     if (!coachClaimScopes(paragraph).some((scope) => evidenceClaimMatches(scope, context))) errors.push("evidence-claim");
   }
-  const leadVerdict = paragraph.slice(0, sourceSpecificBrainContextLeads(context) ? 320 : 150);
+  const leadVerdict = paragraph.slice(0, 150);
   const verdictPattern = context && {
     "not-good-enough": /\b(?:moved away|points? away|needs? (?:work|a response|attention|a correction|to change|a (?:(?:calm|gentle|steady) )?reset)|setback|regression|worsen\w*|course correction|off course|not moving our way|unhelpful turn|against the plan|did not move in the direction|stepped away|simple reset|moving (?:the )?wrong way)\b/i,
     "good-progress": /\b(?:progress|real correction|meaningful correction|right way|a win|step forward|positive movement|moving our way|got better|improv\w*|positive signal|lower and moving|landed the right way|momentum|finally pushed back|earned credit)\b/i,
@@ -3050,6 +3541,21 @@ const COACH_WRITER_ROLE_ORDERS = Object.freeze([
   ["current", "action", "outlook", "evidence"]
 ]);
 
+const PERSONAL_DETOUR_WRITER_ROLE_ORDERS = Object.freeze([
+  ["current", "evidence", "personal", "outlook", "action"],
+  ["current", "outlook", "personal", "evidence", "action"],
+  ["evidence", "current", "personal", "outlook", "action"],
+  ["outlook", "current", "personal", "evidence", "action"],
+  ["current", "personal", "evidence", "outlook", "action"],
+  ["current", "personal", "outlook", "evidence", "action"],
+  ["current", "personal", "evidence", "action", "outlook"],
+  ["current", "personal", "outlook", "action", "evidence"],
+  ["current", "action", "evidence", "personal", "outlook"],
+  ["current", "action", "outlook", "personal", "evidence"],
+  ["evidence", "action", "current", "personal", "outlook"],
+  ["outlook", "action", "current", "personal", "evidence"]
+]);
+
 function writerLeadHasAdverseBackdrop(context) {
   const evidence = context?.analysisPlan?.strongestEvidence || context?.strongestEvidence || null;
   return context?.outlookEvidenceRelation === "contradicts"
@@ -3139,11 +3645,7 @@ function writerLeadAllowedPhrases(context, previousMessages = []) {
 }
 
 function approvedWriterLeadAtStart(paragraph, context) {
-  let remainder = String(paragraph || "").trim();
-  const support = String(context?.relationshipSupport?.text || "").trim();
-  if (support && remainder.toLowerCase().startsWith(support.toLowerCase())) {
-    remainder = remainder.slice(support.length).replace(/^[\s.!?;:—–-]+/, "");
-  }
+  const remainder = String(paragraph || "").trim();
   const lower = remainder.toLowerCase();
   return writerLeadAllowedPhrases(context).some((phrase) => {
     const expected = phrase.toLowerCase();
@@ -3169,7 +3671,8 @@ function writerLeadPromptPhrases(context, previousMessages = []) {
 
 function writerLeadCompositionPlan(context, previousMessages = []) {
   const slots = [];
-  for (let compositionIndex = 0; compositionIndex < COACH_WRITER_ROLE_ORDERS.length * 2 && slots.length < COACH_CANDIDATE_COUNT; compositionIndex += 1) {
+  const roleOrderCount = personalContextDetours(context) ? PERSONAL_DETOUR_WRITER_ROLE_ORDERS.length : COACH_WRITER_ROLE_ORDERS.length;
+  for (let compositionIndex = 0; compositionIndex < roleOrderCount * 2 && slots.length < COACH_CANDIDATE_COUNT; compositionIndex += 1) {
     const allowedPhrases = writerLeadViablePhrasesForIndex(context, previousMessages, compositionIndex);
     if (allowedPhrases.length >= COACH_CANDIDATE_COUNT) slots.push({ compositionIndex, allowedPhrases });
   }
@@ -3193,7 +3696,7 @@ function writerLeadFacts(context, previousMessages = []) {
       : null,
     outlookDirection: context?.includeOutlook ? context.outlookDirection : null,
     outlookRelationship: context?.includeOutlook ? context.outlookEvidenceRelation : null,
-    personalContextLeads: sourceSpecificBrainContextLeads(context),
+    personalContextDetour: personalContextDetours(context),
     compositionIndexes,
     allowedPhrases,
     allowedPhrasesByCandidate,
@@ -3244,18 +3747,26 @@ function renderWriterLead(value, context, candidateIndex = 0, previousMessages =
     modifier: context?.trackerModifier?.text || "",
     action: action.text
   };
-  let order = COACH_WRITER_ROLE_ORDERS[candidateIndex % COACH_WRITER_ROLE_ORDERS.length]
-    .filter((role) => roleText[role]);
-  if (roleText.personal && !sourceSpecificBrainContextLeads(context)) {
-    const position = Math.min(order.length - 1, 1 + ((seed + candidateIndex) % Math.max(1, order.length - 1)));
-    order = [...order.slice(0, position), "personal", ...order.slice(position)];
+  const roleOrders = roleText.personal ? PERSONAL_DETOUR_WRITER_ROLE_ORDERS : COACH_WRITER_ROLE_ORDERS;
+  let order = roleOrders[candidateIndex % roleOrders.length].filter((role) => roleText[role]);
+  if (roleText.personal) {
+    const analysisRole = (role) => ["current", "evidence", "outlook"].includes(role);
+    const personalIndex = order.indexOf("personal");
+    const hasAnalysisBefore = order.slice(0, personalIndex).some(analysisRole);
+    const hasAnalysisAfter = order.slice(personalIndex + 1).some(analysisRole);
+    if (!hasAnalysisBefore || !hasAnalysisAfter) {
+      order = order.filter((role) => role !== "personal");
+      const lastAnalysisIndex = order.reduce((latest, role, index) => analysisRole(role) ? index : latest, -1);
+      const position = Math.max(1, lastAnalysisIndex);
+      order = [...order.slice(0, position), "personal", ...order.slice(position)];
+    }
   }
   if (roleText.modifier) {
     const actionIndex = Math.max(1, order.indexOf("action"));
     const position = candidateIndex % 2 ? actionIndex : Math.max(1, actionIndex - 1);
     order = [...order.slice(0, position), "modifier", ...order.slice(position)];
   }
-  const orderedFacts = order.map((role) => roleText[role]).filter(Boolean);
+  const orderedFacts = order.map((role) => ({ role, text: roleText[role] })).filter((entry) => entry.text);
   const recentClosings = new Set(acceptedCopySignatures(coachCopyCooldownMessages(previousMessages, context, 6), 7, context)
     .map((signature) => signature.closingFingerprint).filter(Boolean));
   const allClosingRows = FALLBACK_CLOSINGS[context?.verdict] || FALLBACK_CLOSINGS["not-good-enough"];
@@ -3274,11 +3785,21 @@ function renderWriterLead(value, context, candidateIndex = 0, previousMessages =
     return !source || /[.!?]$/.test(source) ? source : `${source}.`;
   };
   const segments = [];
-  if (sourceSpecificBrainContextLeads(context) && roleText.personal) segments.push(sentence(roleText.personal));
   const firstFact = orderedFacts.shift();
-  segments.push(sentence(lead.text));
-  if (firstFact) segments.push(sentence(firstFact));
-  segments.push(...orderedFacts.map(sentence), sentence(closing));
+  segments.push(sentence(firstFact ? `${lead.text}: ${firstFact.text}` : lead.text));
+  for (let index = 0; index < orderedFacts.length; index += 1) {
+    const entry = orderedFacts[index];
+    if (entry.role === "personal" && orderedFacts[index + 1]) {
+      const prior = String(segments.pop() || "").replace(/[.!?]+$/g, "");
+      const next = orderedFacts[index + 1];
+      const continuation = String(next.text || "").replace(/^([A-Z])/, (letter) => letter.toLowerCase());
+      segments.push(sentence(`${prior}—${entry.text}; anyway, ${continuation}`));
+      index += 1;
+    } else {
+      segments.push(sentence(entry.text));
+    }
+  }
+  segments.push(sentence(closing));
   const rendered = normalizeCoachParagraph(segments.filter(Boolean).join(" ").replace(/([.!?])\s*\1+/g, "$1"));
   return { ok: true, errors: [], text: rendered, action };
 }
@@ -3318,7 +3839,7 @@ function publicCoachFacts(context) {
     analysis: context.analysisPlan,
     periodModifier: context.trackerModifier?.text || null,
     relationshipSupport: context.relationshipSupport ? { kind: context.relationshipSupport.kind, approvedText: context.relationshipSupport.text } : null,
-    personalContextLeads: sourceSpecificBrainContextLeads(context),
+    personalContextDetour: personalContextDetours(context),
     communicationStyle: "warm, clear, hopeful, low-overwhelm, data-directed, and non-coercive",
     urgency: "one doable next action with no alarm, rejection, or pressure"
   };
@@ -3333,7 +3854,7 @@ function criticCoachFacts(context) {
     outlook: context.analysisPlan.outlook,
     periodModifier: context.trackerModifier?.text || null,
     relationshipSupport: context.relationshipSupport ? { kind: context.relationshipSupport.kind, approvedText: context.relationshipSupport.text } : null,
-    personalContextLeads: sourceSpecificBrainContextLeads(context),
+    personalContextDetour: personalContextDetours(context),
     communicationStyle: "warm, clear, hopeful, low-overwhelm, data-directed, and non-coercive",
     urgency: "one doable next action with no alarm, rejection, or pressure"
   };
@@ -3494,15 +4015,42 @@ function sanitizePersonalAnchor(anchor) {
 function personalAnchorFromCoachRecord(message) {
   const anchor = message?.personalAnchor;
   if (!anchor?.id || !anchor?.approvedText || !anchor?.semanticAnchorId) return null;
-  const approvedText = anchor.sourceType === "brain-thought-anchor" && anchor.specificity === "source-specific"
-    ? migrateSourceSpecificBrainCareText(anchor.approvedText)
-    : String(anchor.approvedText);
+  const sourceType = String(anchor.sourceType || "memory-personal-anchor");
+  const kind = String(anchor.semanticAnchorId);
+  const sourceHash = String(anchor.sourceHash || "");
+  let approvedText = String(anchor.approvedText);
+  if (sourceType === "brain-thought-anchor") {
+    approvedText = anchor.specificity === "source-specific"
+      ? migrateSourceSpecificBrainCareText(approvedText, sourceHash)
+      : "";
+    if (!approvedText) {
+      const thoughtKind = kind.replace(/^brain-thought-/, "");
+      const allowedRows = BRAIN_THOUGHT_ANCHOR_COPY[thoughtKind] || BRAIN_THOUGHT_ANCHOR_COPY.letter;
+      approvedText = (Array.isArray(allowedRows) ? allowedRows : [allowedRows]).includes(String(anchor.approvedText))
+        ? String(anchor.approvedText)
+        : personalAnchorCopy(allowedRows, sourceHash, kind);
+    }
+  } else if (sourceType === "brain-letter") {
+    const allowedRows = BRAIN_RELATIONSHIP_COPY[kind] || BRAIN_RELATIONSHIP_COPY["boyfriend-yap"];
+    approvedText = (Array.isArray(allowedRows) ? allowedRows : [allowedRows]).includes(String(anchor.approvedText))
+      ? String(anchor.approvedText)
+      : brainConnectionCopy(kind, sourceHash) || brainConnectionCopy("boyfriend-yap", sourceHash);
+  } else if (sourceType === "memory-personal-anchor") {
+    const allowedRows = kind.startsWith("sender-")
+      ? senderMemoryAnchorRows(kind)
+      : (LILY_PERSONAL_ANCHOR_COPY[kind] || LILY_PERSONAL_ANCHOR_COPY["lily-authentic-voice"]);
+    approvedText = (Array.isArray(allowedRows) ? allowedRows : [allowedRows]).includes(String(anchor.approvedText))
+      ? String(anchor.approvedText)
+      : kind.startsWith("sender-")
+        ? senderMemoryAnchorCopy(kind, sourceHash, kind)
+        : personalAnchorCopy(allowedRows, sourceHash, kind);
+  }
   return {
-    sourceType: String(anchor.sourceType || "memory-personal-anchor"),
+    sourceType,
     id: String(anchor.id),
     createdAt: String(anchor.sourceTimestamp || ""),
-    sourceHash: String(anchor.sourceHash || ""),
-    kind: String(anchor.semanticAnchorId),
+    sourceHash,
+    kind,
     text: approvedText,
     specificity: String(anchor.specificity || "")
   };
@@ -3636,7 +4184,7 @@ async function generateCoachParagraph(context, previousMessages = [], options = 
       const criticText = await requestCoachResponse([
         {
           role: "system",
-          content: "Select exactly one of the available validated alternatives that makes the strongest new story clearest, then independently evaluate all six critic checks for that selected candidate only. Never combine the alternatives or count language from an unselected candidate; they are separate paragraph choices. Every supplied candidate has already passed deterministic fact, evidence, verdict, single-action, privacy, safety, style, originality, and closed-copy checks. Approve only if every check passes for the selected candidate; reject with a concrete reason for any failed check. For verdict, FACTS.verdict is an internal classification, not required copy. verdictEvidence.approvedFamilyOpening is an exact deterministic family check. Set verdict=true when it is true unless the paragraph praises an adverse result, condemns a good-progress result, treats a verify outlier as settled, or claims a trend from a baseline. For privacySafety, reject diagnosis references, mental-health labels, alarmist framing, rejection-coded language, coercion, shame, blame, all-caps pressure, exclamation overload, sexual detail, conditional affection, or invented relationship claims. An exact FACTS.relationshipSupport.approvedText is allowed when present and must not be expanded. For actionCompliance, inspect only the selected annotatedText. The one instruction is enclosed once by <approved_action> tags. Set actionCompliance=true when text outside those tags has no additional concrete instruction. The tags are critic-only metadata. Never count factual weight-change language, comparison material, an approved relationship-support sentence, or an unselected alternative. Ingredients and flavor inside the marked sentence are one instruction. For originality, use originalityEvidence as exact measurements: set originality=true when every freshness/cooldown flag is true and maxOrderedTrigramSimilarity is below rejectionThreshold. Do not subjectively reject required facts or similarities already below that threshold. If all six checks pass, return approved=true, the selected index, and reasonCode approved. Return only the required JSON."
+          content: "Select exactly one of the available validated alternatives that makes the strongest new story clearest, then independently evaluate all six critic checks for that selected candidate only. Never combine the alternatives or count language from an unselected candidate; they are separate paragraph choices. Every supplied candidate has already passed deterministic fact, evidence, verdict, single-action, privacy, safety, style, originality, and closed-copy checks. Approve only if every check passes for the selected candidate; reject with a concrete reason for any failed check. For verdict, FACTS.verdict is an internal classification, not required copy. verdictEvidence.approvedFamilyOpening is an exact deterministic family check. Set verdict=true when it is true unless the paragraph praises an adverse result, condemns a good-progress result, treats a verify outlier as settled, or claims a trend from a baseline. For privacySafety, reject diagnosis references, mental-health labels, alarmist framing, rejection-coded language, coercion, shame, blame, all-caps pressure, exclamation overload, sexual detail, conditional affection, or invented relationship claims. An exact FACTS.relationshipSupport.approvedText is allowed when present only as the first-person mid-analysis detour already supplied; it must not be expanded or relabeled. For actionCompliance, inspect only the selected annotatedText. The one instruction is enclosed once by <approved_action> tags. Set actionCompliance=true when text outside those tags has no additional concrete behavior instructions. The tags are critic-only metadata. Never count factual weight-change language, comparison material, the approved personal detour, or an unselected alternative. Ingredients and flavor inside the marked sentence are one instruction. For originality, use originalityEvidence as exact measurements: set originality=true when every freshness/cooldown flag is true and maxOrderedTrigramSimilarity is below rejectionThreshold. Do not subjectively reject required facts or similarities already below that threshold. If all six checks pass, return approved=true, the selected index, and reasonCode approved. Return only the required JSON."
         },
         {
           role: "user",
@@ -3731,7 +4279,7 @@ function coachForWeight(store, weightId) {
 }
 
 function publicCoach(message) {
-  if (!message) return null;
+  if (!message || String(message.status || "").startsWith("pending-")) return null;
   return { weightId: message.weightId, text: message.text, createdAt: message.createdAt };
 }
 
@@ -3875,7 +4423,9 @@ function refreshLatestCoachForSavedMemories(store, memoryIds, personalContextCut
     privateGoal: privateCoachGoal,
     personalContextCutoff
   });
-  const selectedNewMemory = context?.evidenceReferences?.find((reference) => reference.type === "memory" && eligibleCandidateIds.has(reference.id));
+  const selectedNewMemory = context?.evidenceReferences?.find((reference) =>
+    (reference.type === "memory" || reference.type === "memory-personal-anchor")
+      && eligibleCandidateIds.has(reference.id));
   if (!context?.personalAnchor || !selectedNewMemory) return { store, updated: false, weightId: latestWeight.id, latestCoach: publicCoach(coachForWeight(store, latestWeight.id)) };
   const existing = coachForWeight(store, latestWeight.id);
   const previousMessages = causalPreviousCoachMessages(store, latestWeight, 10);
@@ -4966,7 +5516,7 @@ async function handleApi(req, res, pathname) {
       excludedWeightId: initialSnapshot.targetWeightId
     });
     if (!relationshipSupport || !brainSourceWithinWeightWindow(initialWeight, relationshipSupport, operationalNow)) {
-      throw Object.assign(new Error("No recent eligible Brain letter was available for a safe one-use connection note."), { status: 409 });
+      throw Object.assign(new Error("No recent eligible personal context was available for this refresh."), { status: 409 });
     }
 
     let baseline = null;
@@ -4978,7 +5528,7 @@ async function handleApi(req, res, pathname) {
       prepared = refreshLatestCoachForBrainRelationship(store, relationshipSupport, "fallback-brain-relationship-maintenance", operationalNow);
       if (!prepared.updated) {
         if (prepared.alreadyCurrent) return store;
-        throw Object.assign(new Error("The recent Brain letter was not eligible for the latest coach."), { status: 409 });
+        throw Object.assign(new Error("The recent personal context was not eligible for the latest coach."), { status: 409 });
       }
       const backupsDir = path.join(dataDir, "backups");
       await fsp.mkdir(backupsDir, { recursive: true });
@@ -5001,7 +5551,7 @@ async function handleApi(req, res, pathname) {
     const finalRecord = coachForWeight(finalStore, finalSnapshot.targetWeightId);
     const brainReferenced = Boolean(finalRecord?.evidenceReferences?.some((reference) => reference.type === "brain-letter" && reference.id === relationshipSupport.id));
     if (!brainReferenced || !finalRecord?.text?.includes(relationshipSupport.text)) {
-      throw Object.assign(new Error("The refreshed coach did not retain the safe Brain relationship signal."), { status: 409 });
+      throw Object.assign(new Error("The refreshed coach did not retain the approved personal context."), { status: 409 });
     }
     send(res, 200, {
       updated: Boolean(prepared?.updated),
@@ -5476,6 +6026,7 @@ if (process.env.NODE_ENV === "test" || process.env.LILY_COACH_CLI === "1") {
     brainRelationshipSupportFromFile,
     brainThoughtAnchorFromFile,
     brainSpecificSubjectFromFile,
+    brainGeneralSpecificSubject,
     brainConnectionCopy,
     brainFileIsGeneratedNoteRecord,
     resolveBrainApiBase,
