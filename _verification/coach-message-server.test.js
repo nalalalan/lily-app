@@ -1007,6 +1007,14 @@ async function run() {
   assert.match(specificAppThought.text, /Virtual Violin bow tracking/i, "a second same-family note retains its own concrete subject");
   assert.notEqual(specificFigureThought.text, specificAppThought.text);
   assert(!Object.values(coach.BRAIN_THOUGHT_ANCHOR_COPY).flat().includes(specificFigureThought.text), "source-specific Brain context is not one of the fixed topic sentences");
+  const currentResearchThought = coach.brainThoughtAnchorFromFile({
+    id: "brain-current-research-framing",
+    sourceText: "BF01 F needs the same framing between 0 psi, 60 psi, and 120 psi. Move the panels lower so the metal plates align. For the C and S curve angle measurement, measure between the green lines local to the cell at the absolute endpoints of the proximal and distal segments.",
+    sourceCreatedAt: "2026-08-03T19:26:39.893Z"
+  }, { cutoff: Date.parse("2026-08-03T20:00:00.000Z") });
+  assert.equal(currentResearchThought.specificity, "source-specific", "the current research note retains its actual figure work");
+  assert.match(currentResearchThought.text, /lining up the research-figure panels and measuring the endpoint angles/i, "framing and endpoint-angle work replace a vague module summary");
+  assert.doesNotMatch(currentResearchThought.text, /present the module|Brain|Alan|saved thought/i);
   const jackRabbitThought = coach.brainThoughtAnchorFromFile({
     id: "brain-specific-jackrabbit",
     sourceText: "I love the little JackRabbit e-bike because it feels effortless and does not require any pedaling.",

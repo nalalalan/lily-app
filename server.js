@@ -72,16 +72,16 @@ function publicApiErrorMessage(error, status = Number(error?.status) || 500) {
   return status >= 500 ? "Something went wrong. Please try again." : (error?.message || "Request failed.");
 }
 
-const COACH_GENERATION_VERSION = "coach-pipeline-v24";
-const COACH_ANALYSIS_VERSION = "coach-analysis-v10";
+const COACH_GENERATION_VERSION = "coach-pipeline-v25";
+const COACH_ANALYSIS_VERSION = "coach-analysis-v11";
 const COACH_WRITER_PROMPT_VERSION = "coach-writer-v20";
 const COACH_CRITIC_PROMPT_VERSION = "coach-critic-v8";
 const COACH_VALIDATOR_VERSION = "coach-validator-v14";
-const COACH_FALLBACK_VERSION = "coach-fallback-v15";
+const COACH_FALLBACK_VERSION = "coach-fallback-v16";
 const COACH_ACTION_VERSION = "coach-action-v7";
 const COACH_PROMPT_VERSION = COACH_WRITER_PROMPT_VERSION;
 const COACH_SAFETY_VERSION = "coach-safety-v7";
-const COACH_STYLE_VERSION = "coach-style-personal-detour-v10";
+const COACH_STYLE_VERSION = "coach-style-personal-detour-v11";
 const COACH_PENDING_STATUS = "pending-contextual-repair";
 const COACH_MIN_WORDS = 35;
 const COACH_MAX_WORDS = 55;
@@ -939,6 +939,21 @@ function brainSpecificRelationNegated(text, relationPattern) {
 }
 
 function brainResearchSpecificSubject(source) {
+  const normalized = String(source || "")
+    .normalize("NFKC")
+    .replace(/[\u200B-\u200D\uFEFF]/g, " ")
+    .slice(0, 6000);
+  const researchFigureContext = /\b(?:bf0[1-9]|figures?|plots?|panels?|research|paper)\b/i.test(normalized);
+  const panelFraming = researchFigureContext
+    && /\b(?:fram(?:e|ed|ing)|align(?:ed|ment)?|panels?)\b/i.test(normalized)
+    && /\b(?:same\s+framing|framing\s+is\s+off|framed\s+(?:way\s+)?too\s+(?:high|low)|align(?:ed|ment)?|move\s+(?:the\s+)?panels?)\b/i.test(normalized);
+  const endpointAngles = researchFigureContext
+    && /\b(?:angles?|tangent|perpendicular|proximal|distal|segments?)\b/i.test(normalized)
+    && /\b(?:endpoints?|absolute\s+ends?|green\s+lines?|local\s+to\s+the\s+cell)\b/i.test(normalized);
+  if (panelFraming && endpointAngles) return "lining up the research-figure panels and measuring the endpoint angles";
+  if (panelFraming) return "how to line up the research-figure panels";
+  if (endpointAngles) return "how to measure the endpoint angles on the research figure";
+
   const text = brainSpecificFragments(source).find((fragment) =>
     /\b(?:research|science|paper|figure|plot|module|array|hysteresis)\w*\b/i.test(fragment)
       && !brainSpecificRelationNegated(fragment, /\b(?:show|showing|present|presenting|display|displaying|figure|plot|hysteresis)\b/i)
