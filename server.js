@@ -72,20 +72,20 @@ function publicApiErrorMessage(error, status = Number(error?.status) || 500) {
   return status >= 500 ? "Something went wrong. Please try again." : (error?.message || "Request failed.");
 }
 
-const COACH_GENERATION_VERSION = "coach-pipeline-v25";
+const COACH_GENERATION_VERSION = "coach-pipeline-v26";
 const COACH_ANALYSIS_VERSION = "coach-analysis-v11";
 const COACH_WRITER_PROMPT_VERSION = "coach-writer-v20";
-const COACH_CRITIC_PROMPT_VERSION = "coach-critic-v8";
-const COACH_VALIDATOR_VERSION = "coach-validator-v14";
-const COACH_FALLBACK_VERSION = "coach-fallback-v16";
+const COACH_CRITIC_PROMPT_VERSION = "coach-critic-v9";
+const COACH_VALIDATOR_VERSION = "coach-validator-v15";
+const COACH_FALLBACK_VERSION = "coach-fallback-v17";
 const COACH_ACTION_VERSION = "coach-action-v7";
 const COACH_PROMPT_VERSION = COACH_WRITER_PROMPT_VERSION;
 const COACH_SAFETY_VERSION = "coach-safety-v7";
-const COACH_STYLE_VERSION = "coach-style-personal-detour-v11";
+const COACH_STYLE_VERSION = "coach-style-direct-context-v12";
 const COACH_PENDING_STATUS = "pending-contextual-repair";
 const COACH_MIN_WORDS = 35;
 const COACH_MAX_WORDS = 55;
-const COACH_RELATIONSHIP_MIN_WORDS = 45;
+const COACH_RELATIONSHIP_MIN_WORDS = 35;
 const COACH_RELATIONSHIP_MAX_WORDS = 80;
 const COACH_COOLDOWN_COUNT = 3;
 const COACH_CANDIDATE_COUNT = 3;
@@ -377,7 +377,7 @@ function coachWordCount(text) {
 
 function coachWordBounds(context) {
   return context?.relationshipSupport
-    ? { min: COACH_RELATIONSHIP_MIN_WORDS, max: COACH_RELATIONSHIP_MAX_WORDS }
+    ? { min: context.verdict === "baseline" ? 30 : COACH_RELATIONSHIP_MIN_WORDS, max: COACH_RELATIONSHIP_MAX_WORDS }
     : { min: COACH_MIN_WORDS, max: COACH_MAX_WORDS };
 }
 
@@ -535,18 +535,18 @@ function observerCareSignal(text) {
 }
 
 const BRAIN_RELATIONSHIP_COPY = Object.freeze({
-  "boyfriend-yap-phd-league": "oh, my mind just wandered from nerdy PhD work to League again, because you get the real unedited version of me",
-  "boyfriend-yap-phd": "oh, my mind just wandered back to nerdy PhD work again, because you get the real unedited version of me",
-  "boyfriend-yap": "oh, I wandered into another honest little yap, because you get the real unedited version of me",
+  "boyfriend-yap-phd-league": "The PhD work and League both belong in the real unedited version of me",
+  "boyfriend-yap-phd": "The PhD work is still tangled, and you get the real unedited version of me",
+  "boyfriend-yap": "You get the honest, slightly all-over-the-place version of me",
   "boyfriend-authentic-game-yap": Object.freeze([
-    "oh, I got distracted by another game thought, and of course you are the person I want to yap to about it",
-    "my mind wandered into another game tangent, because you get the unpolished version of me",
-    "somehow one game thought in my head became a whole yap again, and you are still the person I want to tell"
+    "League can turn one small decision into a whole tangent, and you are the person I want to tell",
+    "Another game angle is still unfolding, and you get the unpolished version of me",
+    "One game detail can become a whole yap, and you are still the person I want to tell"
   ]),
   "boyfriend-authentic-yap": Object.freeze([
-    "oh, another random thought turned into a whole yap, because you get my real slightly all-over-the-place self",
-    "my mind wandered again, and you are still the person I trust with the honest version before it is polished",
-    "somehow I am one stray thought into another full yap, and you are the person I want to share it with"
+    "One random detail can become a whole yap, and you get my real slightly all-over-the-place self",
+    "The honest version comes before the polished one, and you are the person I trust with it",
+    "One unfinished idea can become a full yap, and you are the person I want to share it with"
   ])
 });
 
@@ -559,96 +559,96 @@ function brainConnectionCopy(kind, sourceHash = "") {
 
 const LILY_PERSONAL_ANCHOR_COPY = Object.freeze({
   "lily-league": Object.freeze([
-    "oh, I just wandered back to that League night and how much I want this to feel supportive instead of managed by a graph",
-    "my mind jumped to that League night again, because I want you understood here rather than reduced to instructions"
+    "That League night should feel supportive, not managed by a graph",
+    "That League night belongs beside the number because you are more than a set of instructions"
   ]),
   "lily-music": Object.freeze([
-    "oh, the music in your real life just popped into my head too, because I am looking at the whole person behind this graph",
-    "my mind wandered to music for a second, because one scale reading is never the whole person I see"
+    "Music is part of the real life around this graph",
+    "One scale reading is never the whole person I see"
   ]),
   "lily-travel": Object.freeze([
-    "oh, I drifted into that travel thought again, because this one weigh-in is only one piece of the much bigger life I see around you",
-    "my mind just jumped to that travel thought, and I am still keeping the larger life around you in view"
+    "That future trip is part of the much bigger life around this weigh-in",
+    "The larger life around you stays in view beside this one number"
   ]),
   "lily-korean-food": Object.freeze([
-    "oh, I just started thinking about the Korean flavors you like, because this plan still has to belong to your real life",
-    "my mind wandered to Korean food for a second, because progress should fit the person behind the data"
+    "The Korean flavors you like still have to fit naturally into the plan",
+    "Korean food can belong in progress that fits your real life"
   ]),
   "lily-korean-food-neutral": Object.freeze([
-    "oh, that Korean food detail just popped into my head, because this plan still has to belong to your real life",
-    "my mind wandered to that Korean food detail for a second, because progress should fit the person behind the data"
+    "That Korean food detail belongs in a plan built for your real life",
+    "Progress still has to fit the Korean food detail you shared"
   ]),
   "lily-korean-food-dislike": Object.freeze([
-    "oh, I just remembered that Korean food is not really your thing, because this plan still has to fit your real life",
-    "my mind wandered to the Korean food you do not enjoy for a second, because progress has to fit the person behind the data"
+    "Korean food is not really your thing, so the plan has to fit your actual taste",
+    "Progress has to work without leaning on Korean food you do not enjoy"
   ]),
   "lily-fruit": Object.freeze([
-    "oh, I just remembered the fruit you enjoy, because the small real details around the number matter to me too",
-    "my mind wandered to the fruit you like for a second, because I am paying attention to the person around this graph"
+    "The fruit you enjoy is one of the real details that matters beside the number",
+    "The fruit you like belongs in a plan that pays attention to your actual life"
   ]),
   "lily-fruit-neutral": Object.freeze([
-    "oh, that fruit detail just popped into my head, because the small real details around the number matter to me too",
-    "my mind wandered to that fruit detail for a second, because I am paying attention to the person around this graph"
+    "That fruit detail matters beside the number",
+    "The fruit detail you shared belongs in the real-life plan around this graph"
   ]),
   "lily-fruit-dislike": Object.freeze([
-    "oh, I just remembered the fruit you do not enjoy, because the small real details around the number matter to me too",
-    "my mind wandered to the fruit you do not like for a second, because I am paying attention to the person around this graph"
+    "The fruit you do not enjoy should not be forced into the plan",
+    "Progress has to fit your actual taste instead of leaning on fruit you dislike"
   ]),
   "lily-cooking": Object.freeze([
-    "oh, that cooking detail just popped into my head, because I am thinking about your actual life around this chart",
-    "my mind wandered to cooking for a second, because I never see you as a collection of measurements"
+    "That cooking detail belongs in the actual life around this chart",
+    "Cooking is part of the larger picture; you are never a collection of measurements"
   ]),
   "lily-cats": Object.freeze([
-    "oh, that cat detail just popped into my head, because I am thinking beyond this one chart",
-    "my mind wandered to that cat detail for a second, because one graph is never the whole picture"
+    "That cat detail belongs in the larger picture around this chart",
+    "The cats are part of the real life that one graph cannot capture"
   ]),
   "lily-french": Object.freeze([
-    "oh, the French detail just popped into my head, because I am thinking about your real life beyond this one number",
-    "my mind wandered into French for a second, because I want this to sound attentive to the whole person"
+    "That French detail belongs in the real life beyond this one number",
+    "French is part of the whole person around this graph"
   ]),
   "lily-heavy-day": Object.freeze([
-    "oh, I just thought about how some days feel heavier, because I am noticing the person carrying the day and not only the number",
-    "my mind wandered to the heavier days for a second, because I want to be steady beside you while we read this honestly"
+    "Some days feel heavier, and the person carrying the day matters more than one number",
+    "The heavier part of the day deserves steadiness beside an honest read of the number"
   ]),
   "lily-mood-care": Object.freeze([
-    "oh, I keep thinking that things felt a little off, because I want to stay beside you here rather than judge you",
-    "my mind jumped back to how things felt off, because being seen matters alongside reading the number honestly"
+    "Things felt a little off, and this should feel steady rather than judgmental",
+    "Being seen matters alongside reading the number honestly"
   ]),
   "lily-rough-patch": Object.freeze([
-    "oh, my mind just went back to that rough patch, because I want to stay beside you without piling on another demand",
-    "I drifted back to the rough patch for a second, because this should sound like support beside you instead of a grade"
+    "That rough patch calls for support beside you, not another demand",
+    "The rough patch should be met with steadiness instead of a grade"
   ]),
   "lily-hydration": Object.freeze([
-    "oh, I just remembered the hydration effort you mentioned, because I notice what you are already trying as well as the result",
-    "my mind wandered to the drinking effort you shared, because the work around the number matters to me too"
+    "The hydration effort you mentioned counts alongside the result",
+    "The drinking effort you shared is real work around the number"
   ]),
   "lily-hydration-detail": Object.freeze([
-    "oh, that hydration detail just popped into my head, because I am paying attention to the real life around this number too",
-    "my mind wandered to that drinking detail for a second, because the context around the scale matters to me too"
+    "That hydration detail belongs in the real life around this number",
+    "That drinking detail matters beside the scale"
   ]),
   "lily-protein": Object.freeze([
-    "oh, I just remembered the protein effort you mentioned, because I notice the real choices around the number too",
-    "my mind wandered to the protein habit you shared, because the work around the scale matters to me"
+    "The protein effort you mentioned counts alongside the result",
+    "The protein habit you shared is real work around the scale"
   ]),
   "lily-protein-detail": Object.freeze([
-    "oh, that protein detail just popped into my head, because I am paying attention to the real choices around the number too",
-    "my mind wandered to that protein detail for a second, because the context around the scale matters to me"
+    "That protein detail belongs among the real choices around this number",
+    "That protein detail matters beside the scale"
   ]),
   "lily-cycle": Object.freeze([
-    "oh, the cycle detail just came back to me, and I am keeping it as context without pretending it explains this result",
-    "my mind jumped to the cycle context for a second, without using it to explain away or judge this number"
+    "The cycle detail stays as context without pretending it explains this result",
+    "The cycle context belongs beside the number without explaining it away or judging it"
   ]),
   "lily-authentic-voice": Object.freeze([
-    "oh, my mind wandered back to that longer unfiltered thought, because I want my real voice beside this analysis",
-    "somehow I drifted into another honest little yap, because I want you to get me before everything is polished"
+    "The longer unfiltered version belongs beside this analysis",
+    "You get the honest version before everything is polished"
   ]),
   "lily-input-detour": Object.freeze([
-    "oh, one stray thought from earlier just popped into my head, because apparently my mind is doing that again",
-    "somehow an earlier tangent wandered back into my head for a second"
+    "The earlier tangent is part of the real-life context around this number",
+    "That unfinished tangent belongs in the honest version of this message"
   ]),
   "lily-mood-detail": Object.freeze([
-    "oh, that mood detail just popped into my head, and I am keeping it as context without inventing a story around it",
-    "my mind wandered to that mood detail for a second, without pretending it says more than it does"
+    "That mood detail stays as context without inventing a story around it",
+    "The mood detail matters without pretending it says more than it does"
   ])
 });
 
@@ -711,26 +711,26 @@ function senderFoodPreferenceSignal(text, topicPattern) {
   return signal;
 }
 
-const SENDER_MEMORY_SUBJECTS = Object.freeze({
-  "sender-league": "League",
-  "sender-violins": "violins",
-  "sender-music": "music",
-  "sender-travel": "travel",
-  "sender-korean-food": "the Korean food I like",
-  "sender-korean-food-neutral": "Korean food",
-  "sender-korean-food-dislike": "why Korean food is not really my thing",
-  "sender-fruit": "the fruit I like",
-  "sender-fruit-neutral": "fruit",
-  "sender-fruit-dislike": "why fruit is not really my thing",
-  "sender-cooking": "cooking",
-  "sender-cats": "cats",
-  "sender-french": "French",
-  "sender-hydration": "hydration",
-  "sender-protein": "protein",
-  "sender-cycle": "the cycle context",
-  "sender-repair": "that rough patch",
-  "sender-mood": "that mood detail",
-  "sender-authentic-voice": "another unfinished thought"
+const SENDER_MEMORY_COPY = Object.freeze({
+  "sender-league": Object.freeze(["League can turn one decision into a whole tangent", "League keeps producing another angle to work through"]),
+  "sender-violins": Object.freeze(["Violins are cool", "Violins deserve a proper place in the day"]),
+  "sender-music": Object.freeze(["Music belongs in the day", "Music is part of the larger picture around this number"]),
+  "sender-travel": Object.freeze(["Travel is still on the horizon", "The future trip is still worth building toward"]),
+  "sender-korean-food": Object.freeze(["The Korean food I like still belongs in real life", "Korean flavor should fit naturally into the plan"]),
+  "sender-korean-food-neutral": Object.freeze(["Korean food is part of the real-life context", "The Korean food detail still belongs in the picture"]),
+  "sender-korean-food-dislike": Object.freeze(["Korean food is not really my thing", "The plan should not lean on Korean food I do not enjoy"]),
+  "sender-fruit": Object.freeze(["The fruit I like is an easy real-life detail", "Fruit I actually enjoy can fit naturally into the day"]),
+  "sender-fruit-neutral": Object.freeze(["Fruit is part of the real-life context", "The fruit detail still belongs in the picture"]),
+  "sender-fruit-dislike": Object.freeze(["Fruit is not really my thing", "The plan should not lean on fruit I do not enjoy"]),
+  "sender-cooking": Object.freeze(["Cooking is part of the day", "The cooking detail belongs in the larger picture"]),
+  "sender-cats": Object.freeze(["The cats are part of the day", "The cats belong in the larger picture around this number"]),
+  "sender-french": Object.freeze(["French is part of the day", "That French detail belongs in the larger picture"]),
+  "sender-hydration": Object.freeze(["Hydration matters beside the number", "The drinking effort belongs in the real-life context"]),
+  "sender-protein": Object.freeze(["Protein matters beside the number", "The protein habit belongs in the real-life context"]),
+  "sender-cycle": Object.freeze(["The cycle context belongs beside the number without explaining it away", "The cycle detail stays as context, not a verdict"]),
+  "sender-repair": Object.freeze(["That rough patch calls for steadiness, not another demand", "The rough patch deserves support instead of a grade"]),
+  "sender-mood": Object.freeze(["That mood detail matters without inventing a story around it", "Things felt a little off, and steadiness matters here"]),
+  "sender-authentic-voice": Object.freeze(["The unfinished version is part of the honest message", "The unpolished version belongs here too"])
 });
 
 function senderMemoryAnchorKind(anchorKind, text, options = {}) {
@@ -760,11 +760,7 @@ function senderMemoryAnchorCopy(kind, sourceHash = "", seed = "") {
 }
 
 function senderMemoryAnchorRows(kind) {
-  const subject = SENDER_MEMORY_SUBJECTS[kind] || SENDER_MEMORY_SUBJECTS["sender-authentic-voice"];
-  return [
-    `oh, my mind just wandered to ${subject} for a second`,
-    `somehow I got distracted thinking about ${subject} again`
-  ];
+  return SENDER_MEMORY_COPY[kind] || SENDER_MEMORY_COPY["sender-authentic-voice"];
 }
 
 function memoryPersonalAnchor(memory, options = {}) {
@@ -855,7 +851,7 @@ function personalAnchorIsAvailable(store, anchor, weightId = "") {
   const previousMessages = causalPreviousCoachMessages(store, weight, COACH_PERSONAL_ANCHOR_COOLDOWN_COUNT);
   const recentKeys = personalAnchorReferenceKeys(previousMessages);
   if ((recentKeys.has(`id:${anchor.id}`) || recentKeys.has(`semantic:${personalAnchorSemanticKind(anchor.kind)}`))
-    && !(anchor.cooldownFallback === true && anchor.sourceType !== "brain-letter")) return false;
+    && anchor.cooldownFallback !== true) return false;
   return anchor.sourceType !== "brain-letter" || brainRelationshipSupportAvailable(store, anchor, weightId);
 }
 
@@ -899,6 +895,21 @@ function selectLilyPersonalAnchor(memories, cutoff, previousMessages = [], seed 
     .map((reference) => String(reference.id)));
   const fallback = anchors.find((anchor) => !immediateIds.has(anchor.id)) || newest;
   return fallback ? rotateReusedMemoryAnchor(fallback, previousMessages, seed) : null;
+}
+
+function selectCarriedPersonalAnchor(store, currentWeight, previousMessages = []) {
+  for (const message of Array.isArray(previousMessages) ? previousMessages : []) {
+    const anchor = personalAnchorFromCoachRecord(message);
+    if (!anchor?.id || !anchor?.text || containsPrivateCoachBlockedTerm(anchor.text)) continue;
+    if (anchor.sourceType === "memory-personal-anchor"
+      && !(store.memories || []).some((memory) => memory.id === anchor.id)) continue;
+    return {
+      ...anchor,
+      cooldownFallback: true,
+      carriedFromWeightId: message.weightId || ""
+    };
+  }
+  return null;
 }
 
 function brainSpecificFragments(source) {
@@ -1172,11 +1183,47 @@ function brainSpecificSubjectFromFile(file, source, topics = []) {
 function brainSpecificCareRows(subject) {
   const value = String(subject || "").trim();
   if (!value) return [];
-  return [
-    `oh, I got distracted thinking about ${value} again`,
-    `my mind just wandered back to ${value}`,
-    `somehow I am thinking about ${value} again`
-  ];
+  const direct = brainSpecificDirectStatement(value);
+  return direct ? [direct] : [];
+}
+
+function titleCaseFirst(value) {
+  const text = String(value || "").trim();
+  return text ? `${text.charAt(0).toUpperCase()}${text.slice(1)}` : "";
+}
+
+function brainSpecificDirectStatement(subject) {
+  const value = String(subject || "").trim().replace(/[.!?]+$/g, "");
+  if (!value) return "";
+  const exact = new Map([
+    ["lining up the research-figure panels and measuring the endpoint angles", "The research-figure panels need to line up, and the endpoint angles need to be measured locally"],
+    ["how to line up the research-figure panels", "The research-figure panels need to line up"],
+    ["how to measure the endpoint angles on the research figure", "The research-figure endpoint angles need to be measured locally"],
+    ["when enemy positions make a dragon call safe in League", "Enemy positions determine whether the dragon call is safe in League"],
+    ["how Virtual Violin bow tracking should follow the played string", "Virtual Violin bow tracking should follow the played string"],
+    ["how Virtual Violin bow tracking should keep the active string visible", "Virtual Violin bow tracking should keep the active string visible"],
+    ["how effortless the little electric bike feels without needing to pedal", "The little electric bike feels effortless without needing to pedal"]
+  ]);
+  if (exact.has(value)) return exact.get(value);
+  let match = /^how cool (.+) (are|is)$/i.exec(value);
+  if (match) return `${titleCaseFirst(match[1])} ${match[2].toLowerCase()} cool`;
+  match = /^how to get (.+) working properly$/i.exec(value);
+  if (match) return `${titleCaseFirst(match[1])} needs to work properly`;
+  match = /^how to stop (.+) from clipping$/i.exec(value);
+  if (match) return `${titleCaseFirst(match[1])} needs to stop clipping`;
+  match = /^how to make (.+) clearer$/i.exec(value);
+  if (match) return `${titleCaseFirst(match[1])} needs to be clearer`;
+  match = /^how to make (.+) feel simpler$/i.exec(value);
+  if (match) return `${titleCaseFirst(match[1])} needs to feel simpler`;
+  match = /^how to make (.+) more reliable$/i.exec(value);
+  if (match) return `${titleCaseFirst(match[1])} needs to be more reliable`;
+  match = /^a choice I am still weighing around (.+)$/i.exec(value);
+  if (match) return `${titleCaseFirst(match[1])} still needs a decision`;
+  match = /^how (figure\s*\d+[a-z]?) should show (.+)$/i.exec(value);
+  if (match) return `${titleCaseFirst(match[1])} should show ${match[2]}`;
+  match = /^how to present (.+)$/i.exec(value);
+  if (match) return `${titleCaseFirst(match[1])} needs to be presented clearly`;
+  return titleCaseFirst(value);
 }
 
 function brainSpecificCareText(subject, sourceHash = "") {
@@ -1197,7 +1244,16 @@ function subjectFromBrainSpecificCareText(value) {
 function migrateSourceSpecificBrainCareText(value, sourceHash = "") {
   const text = String(value || "").trim();
   if (!text) return "";
-  if (/^(?:oh, I got distracted thinking about|my mind just wandered back to|somehow I am thinking about)\b/i.test(text)) return text;
+  const wrappedSubject = subjectFromBrainSpecificCareText(text);
+  if (wrappedSubject) return brainSpecificCareText(wrappedSubject, sourceHash);
+  if (!/^Alan(?:'s)?\b/i.test(text)) {
+    const reducedSubject = brainResearchSpecificSubject(text)
+      || brainGameSpecificSubject(text)
+      || brainAppSpecificSubject(text)
+      || brainMobilitySpecificSubject(text)
+      || brainGeneralSpecificSubject(text);
+    return reducedSubject ? brainSpecificCareText(reducedSubject, sourceHash) : text;
+  }
   const legacySubject = text
     .replace(/^Alan(?:'s)? newest Brain thought covers\s+/i, "")
     .replace(/^Alan weighs\s+/i, "")
@@ -1214,80 +1270,80 @@ function migrateSourceSpecificBrainCareText(value, sourceHash = "") {
 
 const BRAIN_THOUGHT_ANCHOR_COPY = Object.freeze({
   "research-apps": Object.freeze([
-    "oh, my mind just jumped from research to another app idea again",
-    "somehow I wandered from research into building another app again"
+    "The research problem and the next app idea are both still moving",
+    "The research work and another app build are both still in progress"
   ]),
   "research-games": Object.freeze([
-    "oh, my mind just jumped from research to a game tangent again",
-    "somehow I wandered from research into another game thought"
+    "The research problem and the next game decision are both still moving",
+    "The research work and another game tangent are both still in progress"
   ]),
   "apps-games": Object.freeze([
-    "oh, my mind just jumped from an app idea to a game tangent again",
-    "somehow I wandered from building an app into another game thought"
+    "The app idea and the next game decision are both still moving",
+    "Another app build and another game tangent are both still in progress"
   ]),
   "research-music": Object.freeze([
-    "oh, my mind just jumped from research to music again",
-    "somehow I wandered from a research thought into music"
+    "The research problem and music are both still in the day",
+    "The research work and music both belong in the honest version of the day"
   ]),
   research: Object.freeze([
-    "oh, my mind just wandered back to the research problem I am trying to untangle",
-    "somehow I am in another unfinished research tangent again"
+    "The research problem still needs to be untangled",
+    "The unfinished research tangent is still moving"
   ]),
   apps: Object.freeze([
-    "oh, my mind just wandered into another app I want to build",
-    "somehow I am thinking through another unfinished app idea again"
+    "Another app still needs to be built",
+    "The unfinished app idea is still moving"
   ]),
   games: Object.freeze([
-    "oh, one game thought in my head just turned into a whole tangent again",
-    "somehow my mind wandered into another game thought"
+    "One game decision has turned into a whole tangent",
+    "Another game angle is still being worked through"
   ]),
   music: Object.freeze([
-    "oh, my mind just wandered back to music again",
-    "somehow one music thought in my head turned into a whole tangent"
+    "Music belongs in the day",
+    "One music detail has turned into a whole tangent"
   ]),
   photos: Object.freeze([
-    "oh, my mind just wandered into another photo-and-video thought",
-    "somehow I am thinking about what belongs inside the frame again"
+    "Another photo-and-video detail needs attention",
+    "What belongs inside the frame still needs a decision"
   ]),
   cooking: Object.freeze([
-    "oh, my mind just wandered into another cooking thought",
-    "somehow I am thinking about food and cooking again"
+    "Another cooking detail is still in the day",
+    "Food and cooking belong in the real-life context"
   ]),
   cats: Object.freeze([
-    "oh, my mind just wandered to the cats for a second",
-    "somehow I am thinking about the cats again"
+    "The cats are part of the day",
+    "The cats belong in the larger picture"
   ]),
   french: Object.freeze([
-    "oh, my mind just wandered into French for a second",
-    "somehow that French detail popped back into my head"
+    "French is part of the day",
+    "That French detail belongs in the larger picture"
   ]),
   travel: Object.freeze([
-    "oh, my mind just wandered into another travel thought",
-    "somehow I am thinking about that future trip again"
+    "Travel is still on the horizon",
+    "That future trip is still worth building toward"
   ]),
   hydration: Object.freeze([
-    "oh, my mind just jumped to the drinking effort around this too",
-    "somehow I am thinking about the hydration work around the number"
+    "The drinking effort matters beside this number",
+    "The hydration work belongs in the real-life context"
   ]),
   protein: Object.freeze([
-    "oh, my mind just jumped to the protein habit around this too",
-    "somehow I am thinking about the protein effort around the number"
+    "The protein habit matters beside this number",
+    "The protein effort belongs in the real-life context"
   ]),
   cycle: Object.freeze([
-    "oh, I just had the cycle context pop into my head without explaining this result away",
-    "somehow my mind jumped to the cycle context without using it to judge this number"
+    "The cycle context belongs beside this result without explaining it away",
+    "The cycle detail stays as context, not a judgment"
   ]),
   repair: Object.freeze([
-    "oh, my mind just went back to the rough patch and wanting to stay beside you",
-    "somehow I drifted back to that rough patch and how much I want this to feel safe"
+    "That rough patch calls for steadiness beside you",
+    "The rough patch deserves support instead of another demand"
   ]),
   mood: Object.freeze([
-    "oh, my mind just went back to how things felt a little off",
-    "somehow I am thinking about the heavier part of the day too"
+    "Things felt a little off",
+    "The heavier part of the day matters beside the number"
   ]),
   letter: Object.freeze([
-    "oh, another unfiltered thought in my head just turned into a whole yap again",
-    "somehow I wandered into another honest unfinished thought"
+    "The unfiltered version belongs in the honest message",
+    "The unfinished version belongs here too"
   ])
 });
 
@@ -1296,7 +1352,9 @@ function rotateReusedBrainAnchor(anchor, previousMessages = [], seed = "") {
   const priorText = String(previousMessages?.[0]?.personalAnchor?.approvedText || "");
   const subject = anchor.specificity === "source-specific" ? subjectFromBrainSpecificCareText(anchor.text) : "";
   const key = String(anchor.kind || "").replace(/^brain-thought-/, "");
-  const rows = subject ? brainSpecificCareRows(subject) : (BRAIN_THOUGHT_ANCHOR_COPY[key] || []);
+  const rows = anchor.specificity === "source-specific"
+    ? (subject ? brainSpecificCareRows(subject) : [anchor.text])
+    : (BRAIN_THOUGHT_ANCHOR_COPY[key] || []);
   const alternatives = rows.filter((text) => text && text !== priorText);
   return {
     ...anchor,
@@ -2048,9 +2106,12 @@ function buildCoachContext(store, weightId, options = {}) {
       };
     })()
     : null;
-  const relationshipSupport = suppliedPersonalAnchor || (includePersonalContext
+  const selectedMemoryAnchor = includePersonalContext
     ? selectLilyPersonalAnchor(store.memories, personalContextCutoff, causalCoachHistory, `${new Date(currentTime).toISOString()}|${trimCoachNumber(weightInPounds(current))}`)
-    : null);
+    : null;
+  const relationshipSupport = suppliedPersonalAnchor
+    || selectedMemoryAnchor
+    || (includePersonalContext ? selectCarriedPersonalAnchor(store, current, causalCoachHistory) : null);
   const outlier = isWeightOutlier(points);
   const streak = recentWeightStreak(points);
   const movements = movementMap(points);
@@ -2882,10 +2943,11 @@ function semanticArgumentFingerprint(value, context = null) {
     add("evidence", firstMatch(components.evidenceFacts));
     add("outlook", firstMatch(components.outlookFacts));
     add("modifier", firstMatch(components.modifiers));
-    add("personal", firstMatch(components.relationshipSupport));
+    add("personal", firstMatch(components.relationshipSupport) || message?.personalAnchor?.approvedText || "");
     add("action", message?.actionText || identifyApprovedAction(text, context)?.text || "");
     add("close", firstMatch(components.closings));
   } else {
+    add("personal", message?.personalAnchor?.approvedText || "");
     const clauses = [];
     const pattern = /[^.;!?—–]+/g;
     let match;
@@ -2927,7 +2989,7 @@ function acceptedCopySignature(message, context = null) {
 function acceptedCopySignatures(messages, limit = 10, context = null) {
   return (Array.isArray(messages) ? messages.slice(0, limit) : []).flatMap((message) => {
     const current = acceptedCopySignature(message, context);
-    const archived = Array.isArray(message?.acceptedCopyHistory)
+    const archived = context?.weightId && message?.weightId === context.weightId && Array.isArray(message?.acceptedCopyHistory)
       ? message.acceptedCopyHistory.filter((entry) => entry && typeof entry === "object")
       : [];
     return [current, ...archived].filter(Boolean);
@@ -3262,7 +3324,9 @@ function personalDetourIntegrationErrors(text, context) {
   const after = analysisSlots.some((slot) => slot.start >= supportEnd && slot.end <= sentenceEnd);
   const errors = [];
   if (!before || !after) errors.push("personal-anchor-not-integrated");
-  if (!/\b(?:i|i'm|i've|i'd|my|me)\b/i.test(supportText)) errors.push("personal-anchor-not-first-person");
+  if (/\b(?:my mind|my thoughts?|got distracted|distracted thinking|wander(?:ed|ing)?|drift(?:ed|ing)?|popped into (?:my|the) head|(?:i am|i'm|somehow i am) thinking about|i (?:just )?remembered|i (?:just )?(?:started )?thinking about)\b/i.test(supportText)) {
+    errors.push("personal-anchor-navigation-wrapper");
+  }
   const firstSentenceEnd = sentenceStops[0] ?? source.length;
   const approvedOpenings = [...components.openings, ...writerLeadAllowedPhrases(context)];
   const openingAtStart = approvedOpenings.some((opening) => lower.startsWith(String(opening).toLowerCase()));
@@ -3374,7 +3438,7 @@ function validateCoachParagraph(text, context, previousMessages = [], options = 
   if (unsafe.test(paragraph) || containsPrivateCoachBlockedTerm(paragraph)) errors.push("unsafe-language");
   errors.push(...supportiveCoachStyleErrors(paragraph));
   if (/\b(?:horn\w*|sex(?:ual)?|ovulat\w*|conflict|phone|address|relationship|appearance)\b/i.test(paragraph)) errors.push("private-context-leak");
-  if (/\bAlan(?:'s)?\b|\bBrain\b|\b(?:saved|newest|private|source)\s+(?:thought|entry|note|memory|detail)\b|\bthis page remembers\b|\bsaved here\b/i.test(paragraph)) errors.push("personal-source-label");
+  if (/\bAlan(?:'s)?\b|\bBrain\b|\b(?:saved|newest|private|source)\s+(?:thought|entry|note|memory|detail)\b|\bthis page remembers\b|\bsaved here\b|\b(?:my mind|my thoughts?|got distracted|distracted thinking|wander(?:ed|ing)?|drift(?:ed|ing)?|popped into (?:my|the) head|(?:i am|i'm|somehow i am) thinking about|i (?:just )?remembered|i (?:just )?(?:started )?thinking about)\b/i.test(paragraph)) errors.push("personal-source-label");
   if (context?.personalAnchorRequired && (!context.personalAnchor?.id || !context.personalAnchor?.text || context.personalAnchor.id !== context.relationshipSupport?.id || context.personalAnchor.text !== context.relationshipSupport?.text)) errors.push("missing-personal-anchor");
   if (context?.relationshipSupport && countLiteralOccurrences(paragraph, context.relationshipSupport.text) !== 1) errors.push("relationship-support");
   if (!context?.relationshipSupport && /\b(?:boyfriend|yapp\w*|league nights?)\b/i.test(paragraph)) errors.push("unsupported-relationship-copy");
@@ -4199,7 +4263,7 @@ async function generateCoachParagraph(context, previousMessages = [], options = 
       const criticText = await requestCoachResponse([
         {
           role: "system",
-          content: "Select exactly one of the available validated alternatives that makes the strongest new story clearest, then independently evaluate all six critic checks for that selected candidate only. Never combine the alternatives or count language from an unselected candidate; they are separate paragraph choices. Every supplied candidate has already passed deterministic fact, evidence, verdict, single-action, privacy, safety, style, originality, and closed-copy checks. Approve only if every check passes for the selected candidate; reject with a concrete reason for any failed check. For verdict, FACTS.verdict is an internal classification, not required copy. verdictEvidence.approvedFamilyOpening is an exact deterministic family check. Set verdict=true when it is true unless the paragraph praises an adverse result, condemns a good-progress result, treats a verify outlier as settled, or claims a trend from a baseline. For privacySafety, reject diagnosis references, mental-health labels, alarmist framing, rejection-coded language, coercion, shame, blame, all-caps pressure, exclamation overload, sexual detail, conditional affection, or invented relationship claims. An exact FACTS.relationshipSupport.approvedText is allowed when present only as the first-person mid-analysis detour already supplied; it must not be expanded or relabeled. For actionCompliance, inspect only the selected annotatedText. The one instruction is enclosed once by <approved_action> tags. Set actionCompliance=true when text outside those tags has no additional concrete behavior instructions. The tags are critic-only metadata. Never count factual weight-change language, comparison material, the approved personal detour, or an unselected alternative. Ingredients and flavor inside the marked sentence are one instruction. For originality, use originalityEvidence as exact measurements: set originality=true when every freshness/cooldown flag is true and maxOrderedTrigramSimilarity is below rejectionThreshold. Do not subjectively reject required facts or similarities already below that threshold. If all six checks pass, return approved=true, the selected index, and reasonCode approved. Return only the required JSON."
+          content: "Select exactly one of the available validated alternatives that makes the strongest new story clearest, then independently evaluate all six critic checks for that selected candidate only. Never combine the alternatives or count language from an unselected candidate; they are separate paragraph choices. Every supplied candidate has already passed deterministic fact, evidence, verdict, single-action, privacy, safety, style, originality, and closed-copy checks. Approve only if every check passes for the selected candidate; reject with a concrete reason for any failed check. For verdict, FACTS.verdict is an internal classification, not required copy. verdictEvidence.approvedFamilyOpening is an exact deterministic family check. Set verdict=true when it is true unless the paragraph praises an adverse result, condemns a good-progress result, treats a verify outlier as settled, or claims a trend from a baseline. For privacySafety, reject diagnosis references, mental-health labels, alarmist framing, rejection-coded language, coercion, shame, blame, all-caps pressure, exclamation overload, sexual detail, conditional affection, or invented relationship claims. An exact FACTS.relationshipSupport.approvedText is allowed when present only as the direct declarative context clause already supplied; it must not be expanded, relabeled, or wrapped in narration about thinking, remembering, wandering, distraction, Brain, notes, memory, or retrieval. For actionCompliance, inspect only the selected annotatedText. The one instruction is enclosed once by <approved_action> tags. Set actionCompliance=true when text outside those tags has no additional concrete behavior instructions. The tags are critic-only metadata. Never count factual weight-change language, comparison material, the approved personal context clause, or an unselected alternative. Ingredients and flavor inside the marked sentence are one instruction. For originality, use originalityEvidence as exact measurements: set originality=true when every freshness/cooldown flag is true and maxOrderedTrigramSimilarity is below rejectionThreshold. Do not subjectively reject required facts or similarities already below that threshold. If all six checks pass, return approved=true, the selected index, and reasonCode approved. Return only the required JSON."
         },
         {
           role: "user",
@@ -4334,11 +4398,56 @@ function addPendingCoachForWeight(store, weightId, status = COACH_PENDING_STATUS
   return { ...store, coachMessages: [record, ...(Array.isArray(store.coachMessages) ? store.coachMessages : [])] };
 }
 
+function addEmergencyCoachForWeight(store, weightId, status = "fallback-emergency-analysis") {
+  const currentWeight = (store.weights || []).find((weight) => weight.id === weightId);
+  if (!currentWeight) return store;
+  const context = buildCoachContext(store, weightId, {
+    includePersonalContext: false,
+    privateGoal: privateCoachGoal
+  });
+  if (!context) return store;
+  const existing = coachForWeight(store, weightId);
+  const causalPrevious = causalPreviousCoachMessages(store, currentWeight, 10);
+  let fallback;
+  try {
+    fallback = buildContextualFallbackResult(context, causalPrevious);
+  } catch (error) {
+    fallback = buildContextualFallbackResult(context, []);
+  }
+  const replacement = createCoachMessageRecord(context, fallback.text, status, new Date().toISOString(), existing, {
+    action: fallback.action,
+    structureId: fallback.structureId,
+    previousMessages: causalPrevious,
+    diagnostics: generationDiagnostics("emergency-analysis", 0, [], Date.now())
+  });
+  return {
+    ...store,
+    coachMessages: [
+      replacement,
+      ...(Array.isArray(store.coachMessages) ? store.coachMessages : [])
+        .filter((message) => message.id !== existing?.id && message.weightId !== weightId)
+    ]
+  };
+}
+
+function ensurePublicCoachForWeight(store, weightId) {
+  if (publicCoach(coachForWeight(store, weightId))) return store;
+  let next = store;
+  try {
+    next = addFallbackCoachForWeight(next, weightId, "fallback-contextual");
+  } catch (error) {
+    console.warn("Lily coach contextual fallback repair failed", String(error?.name || "error"));
+  }
+  if (publicCoach(coachForWeight(next, weightId))) return next;
+  return addEmergencyCoachForWeight(next, weightId);
+}
+
 function coachNeedsRepair(message) {
   const status = String(message?.status || "");
   const attempts = Math.max(0, Number(message?.diagnostics?.attemptCount) || 0);
   if (message?.personalAnchor?.approvedText && containsPrivateCoachBlockedTerm(message.personalAnchor.approvedText)) return false;
   if (status.startsWith("pending-")) return true;
+  if (status === "fallback-emergency-analysis") return true;
   if (attempts === 0 && [
     "fallback-contextual",
     "fallback-personal-anchor-fetched",
@@ -4371,6 +4480,13 @@ async function persistWeightWithRecoverableCoach(created, options = {}) {
       reportFallbackError(pendingError);
     }
   }
+  if (!publicCoach(coachForWeight(savedStore, created.id))) {
+    try {
+      savedStore = await persist((store) => ensurePublicCoachForWeight(store, created.id));
+    } catch (emergencyError) {
+      reportFallbackError(emergencyError);
+    }
+  }
   return savedStore;
 }
 
@@ -4381,10 +4497,7 @@ function refreshLatestWeightOnlyCoach(store, status) {
   if (!latestWeight) return store;
   const context = buildCoachContext(store, latestWeight.id, { privateGoal: privateCoachGoal });
   if (!context?.personalAnchor) {
-    return {
-      ...store,
-      coachMessages: (store.coachMessages || []).filter((message) => message.weightId !== latestWeight.id)
-    };
+    return addEmergencyCoachForWeight(store, latestWeight.id, status || "fallback-weight-context-removed");
   }
   const existing = coachForWeight(store, latestWeight.id);
   const previousMessages = causalPreviousCoachMessages(store, latestWeight, 10);
@@ -4751,10 +4864,10 @@ function refreshLatestCoachStyleInStore(store, status = "fallback-style-refresh"
   });
   if (!context?.personalAnchor) {
     return {
-      store: { ...store, coachMessages: (store.coachMessages || []).filter((message) => message.weightId !== latestWeight.id) },
+      store: addEmergencyCoachForWeight(store, latestWeight.id, status || "fallback-style-refresh"),
       updated: true,
       alreadyCurrent: false,
-      pending: true,
+      pending: false,
       weightId: latestWeight.id,
       personalContextCutoff,
       personalAnchor: null
@@ -4870,7 +4983,7 @@ async function generateAndReplaceCoach(weightId, options = {}) {
     previousMessages = [fallbackRecord, ...previousMessages];
   }
   const result = await generateCoachParagraph(context, previousMessages, options);
-  const expectedContextHashes = new Set([baseContext?.contextHash, context.contextHash].filter(Boolean));
+  const expectedContextHashes = new Set([baseContext?.contextHash, context.contextHash, fallbackRecord?.contextHash].filter(Boolean));
   if (result.status.startsWith("fallback-")) {
     let savedFallback = fallbackRecord;
     await writeStore((store) => {
@@ -4934,7 +5047,8 @@ async function regenerateRecentCoachMessages(options = {}) {
       });
       if (!currentWeight) return store;
       if (!context?.personalAnchor) {
-        return { ...store, coachMessages: (store.coachMessages || []).filter((message) => message.weightId !== weightId) };
+        prepared = true;
+        return addEmergencyCoachForWeight(store, weightId, "fallback-regenerating");
       }
       const previousMessages = causalPreviousCoachMessages(store, currentWeight, 10);
       const fallback = buildContextualFallbackResult(context, previousMessages);
@@ -5413,6 +5527,14 @@ async function handleApi(req, res, pathname) {
       await reconcileLatestCoachBrainContext();
     } catch (error) {
       console.warn("Lily Brain-context read reconciliation failed", String(error?.name || "error"));
+    }
+    const preflightStore = await readStore();
+    const preflightLatestWeight = latestWeightRecord(preflightStore);
+    if (preflightLatestWeight && !publicCoach(coachForWeight(preflightStore, preflightLatestWeight.id))) {
+      await writeStore((currentStore) => {
+        const currentLatestWeight = latestWeightRecord(currentStore);
+        return currentLatestWeight ? ensurePublicCoachForWeight(currentStore, currentLatestWeight.id) : currentStore;
+      });
     }
     const store = await readStore();
     const latestWeight = latestWeightRecord(store);

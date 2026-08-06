@@ -137,7 +137,8 @@ assert.doesNotMatch(
   "the browser must not synthesize emergency coaching when persisted copy is missing"
 );
 assert.ok(app.includes('const COACH_EMPTY_TEXT = "No coach message yet.";'), "an empty history must use compact non-coaching copy");
-assert.ok(app.includes('const COACH_UNAVAILABLE_TEXT = "Coach message unavailable.";'), "a missing persisted record must use compact unavailable copy");
+assert.ok(app.includes('const COACH_PREPARING_TEXT = "Analysis is still being prepared.";'), "a transient mismatch must remain in a compact preparing state");
+assert.doesNotMatch(app, /Coach message unavailable/i, "the browser can never recreate the rejected unavailable dead end");
 assert.doesNotMatch(app, /Not a reliable|Only .* of data|does not mean her weight will stay constant|This is an estimate, not a guarantee/i);
 assert.doesNotMatch(app, /1-yr baseline|uncalibrated baseline|historically evaluated baseline/i);
 assert.ok(!app.includes("completed 1-year outcomes"), "validation plumbing must not crowd the visible weight summary");
@@ -213,7 +214,7 @@ const coachTextSandbox = {};
 vm.runInNewContext(`
   const COACH_ANALYZING_TEXT = "Analyzing today’s weigh-in…";
   const COACH_EMPTY_TEXT = "No coach message yet.";
-  const COACH_UNAVAILABLE_TEXT = "Coach message unavailable.";
+  const COACH_PREPARING_TEXT = "Analysis is still being prepared.";
   ${app.slice(coachTextStart, coachTextEnd)}
   this.readCoach = weightCoachText;
 `, coachTextSandbox);
@@ -223,7 +224,7 @@ const analyzingCoach = { weightId: "weight-new", deadlineAt: 8000 };
 assert.equal(readCoach({ id: "weight-new" }, savedCoach, analyzingCoach, 7999), "Analyzing today’s weigh-in…", "the fallback must stay hidden throughout the analysis window");
 assert.equal(readCoach({ id: "weight-new" }, savedCoach, analyzingCoach, 8000), savedCoach.text, "the persisted fallback must appear exactly at the deadline");
 assert.equal(readCoach({ id: "weight-new" }, savedCoach, null, 0), savedCoach.text, "settled views must render only persisted server copy");
-assert.equal(readCoach({ id: "weight-new" }, { ...savedCoach, weightId: "weight-old" }, null, 0), "Coach message unavailable.", "a coach record for another weight must never be synthesized into a replacement");
+assert.equal(readCoach({ id: "weight-new" }, { ...savedCoach, weightId: "weight-old" }, null, 0), "Analysis is still being prepared.", "a coach record for another weight must never be synthesized into a replacement");
 assert.equal(readCoach(null, null, null, 0), "No coach message yet.", "an empty history must not render coaching");
 
 const presentationStart = app.indexOf("function createOneYearOutlookPresentation");
@@ -327,8 +328,9 @@ assert.doesNotMatch(personalAnchorReducer, /brainFileIsGeneratedNoteRecord|gener
 assert.ok(personalAnchorReducer.includes('topics[0] || "letter"'), "an authentic Brain thought without a public topic must reduce to a specific safe trust meaning");
 assert.ok(server.includes("personalAnchorRequired: includePersonalContext"), "finalized coach validation must know when a source-bound personal anchor is required");
 assert.ok(server.includes('errors.push("missing-personal-anchor")'), "a generic action cannot pass as substantial Brain or Lily context");
-assert.ok(server.includes("if (!context?.personalAnchor) return store;"), "the fallback path must leave a saved weight pending instead of publishing context-free coaching");
-assert.doesNotMatch(server, /includePersonalContext\s*:\s*false/, "no coach persistence path may deliberately disable the personal-anchor requirement");
+assert.ok(server.includes('"fallback-emergency-analysis"'), "a validator-passing emergency analysis must prevent a saved weight from becoming unavailable");
+assert.ok(server.includes("includePersonalContext: false"), "the emergency analysis may temporarily omit personal context while richer source reconciliation continues");
+assert.ok(server.includes("ensurePublicCoachForWeight"), "authenticated weight reads and writes must self-heal a missing or pending latest coach idempotently");
 assert.ok(server.includes("personalAnchor: sanitizePersonalAnchor(context.personalAnchor)"), "the private coach record must persist only the reduced personal anchor needed for exact repair");
 assert.ok(server.includes("semanticAnchorId") && server.includes("approvedText"), "private anchor provenance must retain its semantic kind and approved copy without raw source text");
 assert.doesNotMatch(server, /sourceSpecificBrainContextLeads|BRAIN_LED_FALLBACK_STRUCTURES|supportLeads\s*:\s*true/, "no source type may move personal context ahead of the verdict and measured evidence");

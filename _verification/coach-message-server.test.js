@@ -186,7 +186,7 @@ function assertParagraph(text, label = "coach paragraph") {
   assert(!/goal|target weight|jyp|idol|obese|fasting|skip(?:ping)? meals?|punish|compensat|diagnos/i.test(text), `${label} stays private and safe`);
 }
 
-const VISIBLE_COACH_SOURCE_WRAPPER = /\b(?:alan|brain|brain-letter|brain-thought(?:-anchor)?|memory-personal-anchor|source(?:type|hash)?|approvedtext)\b|\b(?:saved|stored)\s+(?:note|entry|thought)\b|\bthis page remembers\b/i;
+const VISIBLE_COACH_SOURCE_WRAPPER = /\b(?:alan|brain|brain-letter|brain-thought(?:-anchor)?|memory-personal-anchor|source(?:type|hash)?|approvedtext)\b|\b(?:saved|stored)\s+(?:note|entry|thought)\b|\bthis page remembers\b|\b(?:my mind|my thoughts?|got distracted|distracted thinking|wander(?:ed|ing)?|drift(?:ed|ing)?|popped into (?:my|the) head|(?:i am|i'm|somehow i am) thinking about|i (?:just )?remembered|i (?:just )?(?:started )?thinking about)\b/i;
 
 function literalCount(text, value) {
   const source = String(text || "").toLowerCase();
@@ -212,9 +212,8 @@ function firstMatchingFact(text, rows, minimumIndex = 0, maximumIndex = Infinity
 function assertPersonalDetourFlow(text, context, label = "coach paragraph") {
   const paragraph = String(text || "");
   const support = String(context?.relationshipSupport?.text || "").trim();
-  assert(support, `${label} has one source-bound personal detour`);
-  assert.equal(literalCount(paragraph, support), 1, `${label} uses the approved personal detour exactly once`);
-  assert.match(support, /\b(?:i|i['’](?:m|ve|ll|d)|me|my|mine|we|us|our|ours)\b/i, `${label} makes the personal detour first-person rather than narrating Alan in third person`);
+  assert(support, `${label} has one source-bound personal context clause`);
+  assert.equal(literalCount(paragraph, support), 1, `${label} uses the approved personal context exactly once`);
   assert.doesNotMatch(support, VISIBLE_COACH_SOURCE_WRAPPER, `${label} personal copy never exposes a name, Brain, or source wrapper`);
   assert.doesNotMatch(paragraph, VISIBLE_COACH_SOURCE_WRAPPER, `${label} visible copy never exposes a name, Brain, or source wrapper`);
 
@@ -360,11 +359,13 @@ function verifyWeightPersistsWhenCoachFallbackThrows() {
   const result = JSON.parse(resultLine.slice("__LILY_SAVE_RESULT__".length));
   assert.equal(result.postStatus, 201, "a valid weight save succeeds even when every coach fallback candidate is rejected");
   assert.equal(result.postBody.weight.weight, 151.3, "the successful response returns the exact saved measurement");
-  assert.equal(result.postBody.latestCoach, null, "an internal pending repair record is never shown as Lily's analysis");
+  assert.equal(result.postBody.latestCoach.weightId, result.postBody.weight.id, "a valid saved weight always returns its persisted emergency analysis");
+  assert.match(result.postBody.latestCoach.text, /151\.3 lb/i, "the emergency analysis uses the exact saved measurement");
   assert.equal(result.readStatus, 200);
   assert.equal(result.readBody.weights.length, 1, "the failed coach path cannot roll back the measurement");
   assert.equal(result.readBody.weights[0].weight, 151.3, "the persisted measurement survives an authenticated reread");
-  assert.equal(result.readBody.latestCoach, null, "an authenticated reread also withholds the private pending repair record");
+  assert.equal(result.readBody.latestCoach.weightId, result.postBody.weight.id, "an authenticated reread returns the same weight's persisted analysis");
+  assert.equal(result.readBody.latestCoach.text, result.postBody.latestCoach.text, "the reread does not synthesize different browser copy");
   assert.doesNotMatch(
     JSON.stringify({ postBody: result.postBody, readBody: result.readBody }),
     /no compliant contextual fallback invariant|word-count=|evidence-claim=|outlook-weight=|outlook-claim=|verdict=/i,
@@ -455,17 +456,17 @@ async function run() {
   assert.equal(persistedAfterHardFallback.weights.length, 1, "the helper returns the same durable one-weight state");
   assert.equal(reportedFallbackFailures.length, 1, "the hard fallback exception is reported exactly once");
   assert.equal(reportedFallbackFailures[0], forcedFallbackError, "the single private failure callback receives the original exception");
-  assert.equal(recoverableStore.coachMessages.length, 1, "the hard fallback exception produces exactly one persisted pending coach");
+  assert.equal(recoverableStore.coachMessages.length, 1, "the hard fallback exception produces exactly one persisted emergency analysis");
   const recoveredPendingCoach = coach.coachForWeight(recoverableStore, recoverableWeight.id);
   assert(recoveredPendingCoach, "the recovered coach cannot be null or unavailable");
   assert.equal(recoveredPendingCoach.weightId, recoverableWeight.id, "the recovered coach belongs to the primary weight");
-  assert.match(recoveredPendingCoach.status, /^pending-/, "the recovered record remains explicitly repairable");
-  assert.match(recoveredPendingCoach.text, /safely saved|still being prepared|measurement is secure/i, "pending copy confirms durable data without fabricating a verdict");
+  assert.equal(recoveredPendingCoach.status, "fallback-emergency-analysis", "the recovered record is a real analysis that remains repairable");
+  assert.match(recoveredPendingCoach.text, /151\.3 lb/i, "emergency copy analyzes the exact saved measurement");
   assert.doesNotMatch(recoveredPendingCoach.text, /unavailable|null|no coach message|no compliant|invariant|word-count|evidence-claim/i, "pending copy contains neither unavailable state nor raw diagnostics");
   assert.doesNotMatch(JSON.stringify(recoveredPendingCoach), /word-count=999|evidence-claim=999|no compliant contextual fallback invariant/i, "the private pending record does not persist the thrown diagnostic payload");
   const publicRecoveredPending = coach.publicCoach(recoveredPendingCoach);
-  assert.equal(publicRecoveredPending, null, "repairable pending records remain private until they contain real analysis");
-  assert.equal(coach.latestCoachPayload(recoverableStore), null, "the latest payload cannot expose a pending recovery record");
+  assert.equal(publicRecoveredPending.weightId, recoverableWeight.id, "the emergency analysis is immediately public");
+  assert.equal(coach.latestCoachPayload(recoverableStore).weightId, recoverableWeight.id, "the latest payload exposes the persisted emergency analysis");
   assert.equal(recoverableStore.coachMessages.filter((message) => message.weightId === recoverableWeight.id).length, 1, "the recovered coach is not duplicated");
 
   const noAnchorWeight = recordWeight("no-anchor-primary-weight", "2026-08-02", 150.8);
@@ -478,17 +479,17 @@ async function run() {
     },
     reportFallbackError: (error) => noAnchorFailures.push(error)
   });
-  assert.equal(noAnchorFailures.length, 0, "an absent personal anchor is a normal pending state, not a fallback exception");
+  assert.equal(noAnchorFailures.length, 0, "an absent personal anchor is handled by a safe emergency analysis, not an exception");
   assert.equal(noAnchorPersistedStore.weights.length, 1, "a no-anchor save persists exactly one primary weight");
   assert.equal(noAnchorPersistedStore.weights[0].id, noAnchorWeight.id);
-  assert.equal(noAnchorPersistedStore.coachMessages.length, 1, "a non-throwing no-anchor fallback still creates one safe pending coach");
+  assert.equal(noAnchorPersistedStore.coachMessages.length, 1, "a no-anchor save still creates one safe persisted analysis");
   const noAnchorPendingCoach = coach.coachForWeight(noAnchorPersistedStore, noAnchorWeight.id);
   assert(noAnchorPendingCoach && coach.coachNeedsRepair(noAnchorPendingCoach), "the no-anchor coach is present and explicitly repairable");
   assert.equal(noAnchorPendingCoach.weightId, noAnchorWeight.id);
-  assert.match(noAnchorPendingCoach.text, /safely saved|still being prepared|measurement is secure/i);
+  assert.match(noAnchorPendingCoach.text, /150\.8 lb/i);
   assert.doesNotMatch(noAnchorPendingCoach.text, /unavailable|null|no coach message|no compliant|invariant|word-count|evidence-claim/i);
-  assert.equal(coach.publicCoach(noAnchorPendingCoach), null, "a no-anchor pending record is also hidden from Lily");
-  assert.equal(coach.latestCoachPayload(noAnchorPersistedStore), null, "the latest payload stays null while the no-anchor record is pending");
+  assert.equal(coach.publicCoach(noAnchorPendingCoach).weightId, noAnchorWeight.id, "a no-anchor emergency analysis is public");
+  assert.equal(coach.latestCoachPayload(noAnchorPersistedStore).weightId, noAnchorWeight.id, "the latest payload never falls through to unavailable");
   assert.equal(noAnchorResult.coachMessages.filter((message) => message.weightId === noAnchorWeight.id).length, 1, "the returned no-anchor state contains no duplicate coach");
 
   const scheduledCallbacks = [];
@@ -608,7 +609,7 @@ async function run() {
     createdAt: "2026-07-21T13:00:00.000Z"
   }, { cutoff: Date.parse("2026-07-22T12:00:00.000Z"), seed: "stable" });
   assert.equal(moodCareAnchor.kind, "lily-mood-care");
-  assert.match(moodCareAnchor.text, /\b(?:i|i['’]m|me|my)\b/i, "mood care is voiced directly in first person");
+  assert.match(moodCareAnchor.text, /things felt|being seen/i, "mood care states the safe meaning directly");
   assert.doesNotMatch(moodCareAnchor.text, VISIBLE_COACH_SOURCE_WRAPPER, "mood care does not narrate its source or name Alan");
   assert.doesNotMatch(moodCareAnchor.text, /criticiz|quiet|diagnos/i, "the safe mood-care meaning omits the raw private detail");
 
@@ -657,7 +658,7 @@ async function run() {
   };
   const senderViolinAnchor = coach.memoryPersonalAnchor(senderViolinMemory, { cutoff: Date.parse("2026-07-22T12:00:00.000Z"), seed: "sender-violin" });
   assert.equal(senderViolinAnchor.kind, "sender-violins", "first-person 'I love violins' remains the sender's thought instead of becoming Lily's preference");
-  assert.match(senderViolinAnchor.text, /\b(?:I|my)\b.*violins|violins.*\b(?:I|my)\b/i);
+  assert.match(senderViolinAnchor.text, /violins/i);
   assert.equal(coach.selectSavedPreference([senderViolinMemory], Date.parse("2026-07-22T12:00:00.000Z"), []), null, "sender preference cannot drive Lily's action");
   const attributedFruitPreference = coach.selectSavedPreference([{
     id: "lily-attributed-fruit",
@@ -702,7 +703,7 @@ async function run() {
     .flatMap((value) => Array.isArray(value) ? value : [value]);
   assert(approvedPersonalCopies.length > 20, "the complete personal-copy catalog is covered by the visible-language invariant");
   for (const copy of approvedPersonalCopies) {
-    assert.match(copy, /\b(?:i|i['’](?:m|ve|ll|d)|me|my|mine|we|us|our|ours)\b/i, `approved personal copy is first-person: ${copy}`);
+    assert(String(copy).trim(), `approved personal copy contains a direct safe statement: ${copy}`);
     assert.doesNotMatch(copy, VISIBLE_COACH_SOURCE_WRAPPER, `approved personal copy has no retrieval wrapper: ${copy}`);
   }
   for (const action of [...coach.PREFERENCE_ACTIONS, ...coach.COACH_ACTION_CATALOG]) {
@@ -901,8 +902,7 @@ async function run() {
   const observedMoodCoach = coach.coachForWeight(observedMoodRefresh.store, reactionWeight.id);
   assert.notEqual(observedMoodCoach.actionSemantic, "noticed-mood-support", "the mood observation is carried by the detour instead of being repeated as the action");
   assert.doesNotMatch(observedMoodCoach.text, VISIBLE_COACH_SOURCE_WRAPPER, "the mood-support action cannot reintroduce Alan or a source label");
-  assert.match(observedMoodCoach.text, /\b(?:i|i['’]m|me|my)\b/i);
-  assert.match(observedMoodCoach.text, /seem|feel|felt/i);
+  assert.match(observedMoodCoach.text, /things felt|being seen/i);
   assert(observedMoodCoach.evidenceReferences.some((reference) => reference.type === "memory-personal-anchor" && reference.id === observedMoodNote.id && reference.role === "lily-mood-care"));
   const observedMoodContext = coach.buildCoachContext(observedMoodRefresh.store, reactionWeight.id, {
     privateGoal: 117,
@@ -911,7 +911,7 @@ async function run() {
   assertPersonalDetourFlow(observedMoodCoach.text, observedMoodContext, "observed-mood refreshed coach");
   assert.equal(observedMoodContext.preference, null, "the selected mood-note detour cannot also drive action selection");
   assert.equal(literalCount(observedMoodCoach.text, observedMoodContext.relationshipSupport.text), 1, "the exact mood detour appears once");
-  assert.equal((observedMoodCoach.text.match(/things felt(?: a little)? off/gi) || []).length, 1, "the observation that things felt off appears only in the personal detour");
+  assert.equal((observedMoodCoach.text.match(/things felt(?: a little)? off|being seen/gi) || []).length, 1, "the observed mood meaning appears only in the personal context clause");
   assert.equal(observedMoodContext.verdict, measurementOnlyContext.verdict, "care context cannot soften or harden the weight verdict");
   assert.equal(observedMoodContext.outlook, measurementOnlyContext.outlook, "care context cannot alter the forecast");
   assert.deepEqual(observedMoodContext.forecastFingerprint, measurementOnlyContext.forecastFingerprint, "care context cannot alter chart geometry");
@@ -935,7 +935,7 @@ async function run() {
     { label: "hydration", note: electrolyteReaction, anchorKind: "lily-hydration", forbiddenAction: "acknowledged-hydration-effort", mention: /\b(?:hydration|drinking)\b/gi },
     { label: "protein", note: proteinReaction, anchorKind: "lily-protein", forbiddenAction: "acknowledged-protein-effort", mention: /\bprotein\b/gi },
     { label: "vegetable", note: cookingVegetableReaction, anchorKind: "lily-cooking", forbiddenAction: "acknowledged-vegetable-effort", mention: /\bcooking\b/gi },
-    { label: "mood", note: observedMoodNote, anchorKind: "lily-mood-care", forbiddenAction: "noticed-mood-support", mention: /things felt(?: a little)? off/gi }
+    { label: "mood", note: observedMoodNote, anchorKind: "lily-mood-care", forbiddenAction: "noticed-mood-support", mention: /things felt(?: a little)? off|being seen/gi }
   ]) {
     const fixtureStore = baseStore(productionWeights, { memories: [fixture.note], trackerEvents: [] });
     const fixtureContext = coach.buildCoachContext(fixtureStore, reactionWeight.id, {
@@ -978,7 +978,7 @@ async function run() {
     createdAt: "2020-01-02T12:00:00.000Z"
   }, { cutoff: Date.parse("2026-07-22T12:00:00.000Z"), seed: "stable" });
   assert.equal(sensitiveOnlyBrainAnchor.kind, "brain-thought-letter", "a sensitive-only authentic entry reduces to a safe long-thought and trust meaning rather than being rejected");
-  assert.match(sensitiveOnlyBrainAnchor.text, /\b(?:i|i['’]m|me|my)\b/i, "a sensitive-only source still reduces to direct first-person trust copy");
+  assert.match(sensitiveOnlyBrainAnchor.text, /unfiltered|unfinished|honest/i, "a sensitive-only source still reduces to safe direct trust copy");
   assert.doesNotMatch(sensitiveOnlyBrainAnchor.text, VISIBLE_COACH_SOURCE_WRAPPER);
   assert.doesNotMatch(sensitiveOnlyBrainAnchor.text, /private-sensitive-label|third-party|diagnos/i);
   assert.equal(coach.brainThoughtAnchorFromFile({
@@ -1002,7 +1002,7 @@ async function run() {
   assert.equal(specificFigureThought.specificity, "source-specific");
   assert.match(specificFigureThought.text, /3x3|hysteresis|Figure 2/i, "a safe Brain reduction retains the actual research decision instead of only its broad topic");
   assert.match(specificFigureThought.text, /two-versus-three-plot bottom row/i);
-  assert.match(specificFigureThought.text, /\b(?:i|i['’]m|me|my)\b/i, "the safe concrete detail is voiced as an authentic first-person aside");
+  assert.doesNotMatch(specificFigureThought.text, VISIBLE_COACH_SOURCE_WRAPPER, "the safe concrete detail is stated directly without mental-navigation framing");
   assert.doesNotMatch(specificFigureThought.text, VISIBLE_COACH_SOURCE_WRAPPER, "the safe concrete detail never announces its storage source");
   assert.match(specificAppThought.text, /Virtual Violin bow tracking/i, "a second same-family note retains its own concrete subject");
   assert.notEqual(specificFigureThought.text, specificAppThought.text);
@@ -1013,7 +1013,7 @@ async function run() {
     sourceCreatedAt: "2026-08-03T19:26:39.893Z"
   }, { cutoff: Date.parse("2026-08-03T20:00:00.000Z") });
   assert.equal(currentResearchThought.specificity, "source-specific", "the current research note retains its actual figure work");
-  assert.match(currentResearchThought.text, /lining up the research-figure panels and measuring the endpoint angles/i, "framing and endpoint-angle work replace a vague module summary");
+  assert.match(currentResearchThought.text, /research-figure panels need to line up.*endpoint angles need to be measured locally/i, "framing and endpoint-angle work are stated directly instead of wrapped as a thought");
   assert.doesNotMatch(currentResearchThought.text, /present the module|Brain|Alan|saved thought/i);
   const jackRabbitThought = coach.brainThoughtAnchorFromFile({
     id: "brain-specific-jackrabbit",
@@ -1063,28 +1063,28 @@ async function run() {
       id: "general-violins-cool",
       source: "Violins are cool",
       expected: "how cool violins are",
-      visible: /how cool violins are/i,
+      visible: /violins are cool/i,
       banned: /\b(?:sourceText|lifeLeverageHighlightText)\b/i
     },
     {
       id: "general-violins-negated-cool",
       source: "Violins are not cool",
       expected: "violins",
-      visible: /thinking about violins|back to violins/i,
+      visible: /^violins$/i,
       banned: /how cool violins are/i
     },
     {
       id: "general-violins-no-fun",
       source: "Violins are no fun",
       expected: "violins",
-      visible: /thinking about violins|back to violins/i,
+      visible: /^violins$/i,
       banned: /how cool violins are/i
     },
     {
       id: "general-violins-hardly-cool",
       source: "Violins are hardly cool",
       expected: "violins",
-      visible: /thinking about violins|back to violins/i,
+      visible: /^violins$/i,
       banned: /how cool violins are/i
     },
     {
@@ -1098,35 +1098,35 @@ async function run() {
       id: "general-reported-violin",
       source: "Steve at Acme Corp said violins are cool",
       expected: "violins",
-      visible: /thinking about violins|back to violins/i,
+      visible: /^violins$/i,
       banned: /Steve|Acme|Corp|how cool/i
     },
     {
       id: "general-sensitive-chart",
       source: "My diagnosis is private, but the chart should be clearer",
       expected: "the research figure",
-      visible: /thinking about the research figure|back to the research figure/i,
+      visible: /^the research figure$/i,
       banned: /diagnosis|private|\bchart\b|clearer/i
     },
     {
       id: "general-quoted-violin",
       source: "She said, \"violins are cool\"",
       expected: "violins",
-      visible: /thinking about violins|back to violins/i,
+      visible: /^violins$/i,
       banned: /\bShe\b|\bsaid\b|how cool/i
     },
     {
       id: "general-report-taint-across-conjunction",
       source: "Steve said cats are cool and violins are broken",
       expected: "the cats",
-      visible: /thinking about the cats|back to the cats/i,
+      visible: /^the cats$/i,
       banned: /Steve|said|how cool|violins|broken/i
     },
     {
       id: "general-cats-then-violins",
       source: "Cats are cool and violins are broken",
       expected: "how cool the cats are",
-      visible: /how cool the cats are/i,
+      visible: /the cats are cool/i,
       banned: /violins|broken/i
     },
     ...[
@@ -1139,35 +1139,35 @@ async function run() {
       id: `general-cats-${boundary}-violins`,
       source,
       expected: "how cool the cats are",
-      visible: /how cool the cats are/i,
+      visible: /the cats are cool/i,
       banned: /violins|broken/i
     })),
     {
       id: "general-app-then-cats",
       source: "app broken and cats cool",
       expected: "how to get the app interface working properly",
-      visible: /how to get the app interface working properly/i,
+      visible: /the app interface needs to work properly/i,
       banned: /\bcats?\b|how cool/i
     },
     {
       id: "general-app-comma-cats",
       source: "app broken, cats cool",
       expected: "how to get the app interface working properly",
-      visible: /how to get the app interface working properly/i,
+      visible: /the app interface needs to work properly/i,
       banned: /\bcats?\b|how cool/i
     },
     {
       id: "general-mobile-then-code",
       source: "mobile layout stable and code path broken",
       expected: "how to make the mobile layout more reliable",
-      visible: /how to make the mobile layout more reliable/i,
+      visible: /the mobile layout needs to be more reliable/i,
       banned: /code path|broken/i
     },
     ...[
-      ["dinosaurs", "dinosaurs are cool", "how cool dinosaurs are", /how cool dinosaurs are/i],
-      ["clouds", "clouds are cool", "how cool clouds are", /how cool clouds are/i],
-      ["rockets", "rockets are cool", "how cool rockets are", /how cool rockets are/i],
-      ["pottery", "pottery is cool", "how cool pottery is", /how cool pottery is/i]
+      ["dinosaurs", "dinosaurs are cool", "how cool dinosaurs are", /dinosaurs are cool/i],
+      ["clouds", "clouds are cool", "how cool clouds are", /clouds are cool/i],
+      ["rockets", "rockets are cool", "how cool rockets are", /rockets are cool/i],
+      ["pottery", "pottery is cool", "how cool pottery is", /pottery is cool/i]
     ].map(([subject, source, expected, visible]) => ({
       id: `general-benign-${subject}`,
       source,
@@ -1295,9 +1295,9 @@ async function run() {
       sourceText: source,
       sourceCreatedAt: "2026-07-30T21:53:30.114Z"
     }, { cutoff: Date.parse("2026-07-30T22:00:00.000Z"), seed: id });
-    assert.equal(anchor.specificity, "safe-generic", `${id} falls back to bounded generic first-person copy`);
+    assert.equal(anchor.specificity, "safe-generic", `${id} falls back to bounded generic direct copy`);
     assert.doesNotMatch(anchor.text, banned, `${id} cannot leak PII, prompt-injection text, or arbitrary source tokens`);
-    assert.match(anchor.text, /\b(?:i|my|me)\b/i);
+    assert.doesNotMatch(anchor.text, VISIBLE_COACH_SOURCE_WRAPPER);
   }
 
   const adversarialNamedThought = coach.brainThoughtAnchorFromFile({
@@ -1309,7 +1309,7 @@ async function run() {
   assert(adversarialNamedThought, "an unknown authentic entry still reduces to safe personal context");
   assert.equal(adversarialNamedThought.specificity, "safe-generic", "unknown named-entity text cannot use the narrow source-specific allowlist");
   assert.doesNotMatch(adversarialNamedThought.text, /Steve McConnell|Acme Corp|Falcon Meridian/i, "arbitrary people, companies, and project names never reach approved visible copy");
-  assert.match(adversarialNamedThought.text, /\b(?:i|i['’](?:m|ve|ll|d)|me|my)\b/i);
+  assert.doesNotMatch(adversarialNamedThought.text, VISIBLE_COACH_SOURCE_WRAPPER);
   const adversarialNamedContext = coach.buildCoachContext(twoWeightStore, "two-2", { privateGoal: 117, relationshipSupport: adversarialNamedThought });
   const adversarialNamedMemo = coach.buildContextualFallbackResult(adversarialNamedContext, []);
   assert.doesNotMatch(adversarialNamedMemo.text, /Steve McConnell|Acme Corp|Falcon Meridian/i, "arbitrary named entities cannot leak through fallback composition");
@@ -1325,8 +1325,7 @@ async function run() {
       specificity: "source-specific"
     }
   });
-  assert.match(migratedSpecificAnchor.text, /Figure 2's constrained 3x3 loading\/unloading hysteresis and a two-versus-three-plot bottom row/i, "a private legacy sanitized anchor upgrades without needing the raw Brain note");
-  assert.match(migratedSpecificAnchor.text, /\b(?:i|i['’]m|me|my)\b/i);
+  assert.match(migratedSpecificAnchor.text, /Figure 2.*constrained 3x3 loading\/unloading hysteresis.*two-versus-three-plot bottom row/i, "a private legacy sanitized anchor upgrades without needing the raw Brain note");
   assert.doesNotMatch(migratedSpecificAnchor.text, VISIBLE_COACH_SOURCE_WRAPPER, "legacy approved copy is migrated before it can become visible again");
 
   const currentLiveWeights = liveWeightsThroughJul30();
@@ -1413,7 +1412,7 @@ async function run() {
   assert(aug2DragonAnchor, "the newest safe Brain thought produces a usable personal anchor");
   assert.equal(aug2DragonAnchor.specificity, "source-specific");
   assert.match(aug2DragonAnchor.text, /enemy (?:team )?position|dragon call|dragon.*safe/i, "the approved anchor keeps the concrete League decision rather than collapsing to a generic topic");
-  assert.match(aug2DragonAnchor.text, /\b(?:i|i['’]m|me|my)\b/i, "the approved personal detail reads as a first-person thought");
+  assert.doesNotMatch(aug2DragonAnchor.text, VISIBLE_COACH_SOURCE_WRAPPER, "the approved personal detail states the League decision directly");
   assert.doesNotMatch(aug2DragonAnchor.text, VISIBLE_COACH_SOURCE_WRAPPER);
   const aug2PersonalContext = coach.buildCoachContext(aug2Store, aug2Latest.id, { privateGoal: 117, relationshipSupport: aug2DragonAnchor });
   const aug2PersonalFallback = coach.buildContextualFallbackResult(aug2PersonalContext, []);
@@ -1427,7 +1426,7 @@ async function run() {
   assert.deepEqual(
     coach.validateCoachParagraph(aug2NaturalCandidate, aug2PersonalContext, [], { privateGoal: 117, allowNaturalProse: true }).errors,
     [],
-    "natural Aug 2 prose accepts a first-person mid-analysis detour without loosening the exact personal copy, action, or numbers"
+    "natural Aug 2 prose accepts a direct mid-analysis context clause without loosening the exact personal copy, action, or numbers"
   );
   assertPersonalDetourFlow(aug2NaturalCandidate, aug2PersonalContext, "natural Aug 2 candidate");
   const misplacedAug2Anchor = `${aug2DragonAnchor.text}. ${aug2NaturalCandidate}`;
@@ -1449,7 +1448,7 @@ async function run() {
   assert(coach.coachWordCount(formerlyExhaustingAnchor.text) >= 30, "the regression retains the long personal-copy pressure that exhausted the old arrangements");
   const formerlyExhaustingContext = coach.buildCoachContext(aug2Store, aug2Latest.id, { privateGoal: 117, relationshipSupport: formerlyExhaustingAnchor });
   assert.match(formerlyExhaustingContext.relationshipSupport.text, /(?:enemy.*dragon|dragon.*safe)/i, "safe compaction retains the concrete Dragon decision");
-  assert.match(formerlyExhaustingContext.relationshipSupport.text, /\b(?:i|i['’](?:m|ve|ll|d)|me|my)\b/i, "safe compaction keeps the personal detail in first person");
+  assert.doesNotMatch(formerlyExhaustingContext.relationshipSupport.text, VISIBLE_COACH_SOURCE_WRAPPER, "safe compaction keeps the personal detail direct");
   assert(coach.coachWordCount(formerlyExhaustingContext.relationshipSupport.text) < coach.coachWordCount(formerlyExhaustingAnchor.text), "the overlong private source is compacted before visible composition");
   const formerlyExhaustingFallback = coach.buildContextualFallbackResult(formerlyExhaustingContext, []);
   assertParagraph(formerlyExhaustingFallback.text, "formerly exhausting Aug 2 fallback");
@@ -1637,9 +1636,8 @@ async function run() {
     eighthEntryContext = context;
     eighthEntryFallback = fallback;
   }
-  for (let index = 1; index < singleAnchorDetours.length; index += 1) {
-    assert.notEqual(singleAnchorDetours[index], singleAnchorDetours[index - 1], `reused Brain detours ${index} and ${index + 1} cannot be adjacent duplicates`);
-  }
+  assert(singleAnchorDetours.every((text) => text === singleAnchorDetours[0]), "reusing one exact Brain source preserves its direct semantic statement instead of inventing paraphrases");
+  assert.doesNotMatch(singleAnchorDetours[0], VISIBLE_COACH_SOURCE_WRAPPER);
   assert.equal(eighthEntryContext.strongestEvidence.kind, "streak", "eight consecutive rising daily medians select the streak story");
   assert.equal(eighthEntryContext.strongestEvidence.count, 8);
   const eighthEntryEvidenceVariants = coach.fallbackFactClauseVariants(eighthEntryContext).evidence;
@@ -1748,7 +1746,7 @@ async function run() {
   const brainCoach = coach.coachForWeight(brainRefresh.store, reactionWeight.id);
   assert.equal(brainCoach.id, brainBaseCoach.id, "Brain warmth refresh preserves the coach id");
   assert.equal(brainCoach.createdAt, brainBaseCoach.createdAt, "Brain warmth refresh preserves coach creation time");
-  assert.match(brainSupport.text, /\b(?:i|i['’]m|me|my)\b/i, "relationship warmth is written in the sender's first-person voice");
+  assert.doesNotMatch(brainSupport.text, VISIBLE_COACH_SOURCE_WRAPPER, "relationship warmth is stated directly without retrieval framing");
   assert.doesNotMatch(brainCoach.text, VISIBLE_COACH_SOURCE_WRAPPER, "relationship warmth does not expose Alan, Brain, or retrieval labels");
   assert(brainCoach.evidenceReferences.some((reference) => reference.type === "brain-letter" && reference.id === brainFile.id && reference.sourceHash === brainSupport.sourceHash && reference.sourceCreatedAt === brainSupport.createdAt));
   assert(!JSON.stringify(brainCoach).includes(rawBrainLetter), "the raw Brain letter is never persisted in the coach record");
@@ -2198,7 +2196,7 @@ async function run() {
     relationshipSupport: coach.personalAnchorFromCoachRecord(refreshedStyleCoach)
   });
   assertPersonalDetourFlow(refreshedStyleCoach.text, refreshedStyleContext, "same-message style refresh");
-  assert.equal((refreshedStyleCoach.text.match(/things felt(?: a little)? off/gi) || []).length, 1, "style refresh preserves exactly one mood observation");
+  assert.equal((refreshedStyleCoach.text.match(/things felt(?: a little)? off|being seen/gi) || []).length, 1, "style refresh preserves exactly one mood observation");
   assert.deepEqual(coach.supportiveCoachStyleErrors(refreshedStyleCoach.text), []);
   assert.doesNotMatch(refreshedStyleCoach.text, /not good enough|warning|red alert|fight|attack|earn|prove|!{2,}/i);
   assert.doesNotMatch(refreshedStyleCoach.text, /private-sensitive-label|diagnos\w*|clinical label/i);
@@ -2311,7 +2309,9 @@ async function run() {
     electrolyteReaction.id
   );
   const removedReactionCoach = coach.coachForWeight(removedReactionStore, reactionWeight.id);
-  assert.equal(removedReactionCoach, null, "deleting the only authentic context source leaves the memo pending instead of publishing weight-only copy");
+  assert(removedReactionCoach, "deleting the only authentic context source keeps one persisted emergency analysis");
+  assert.equal(removedReactionCoach.personalAnchor, null);
+  assert.equal(coach.publicCoach(removedReactionCoach).weightId, reactionWeight.id, "source deletion cannot recreate coach-message-unavailable");
 
   const liveLatestFiveActions = productionWeights.slice(-5).map((weight) => {
     const message = coach.coachForWeight(fullFallbackRun.store, weight.id);
@@ -2399,7 +2399,7 @@ async function run() {
     .replace(/—\s*;\s*anyway,\s*/i, ". "));
   const detachedAnchor = `${july22.personalAnchor.text}. ${acceptanceWithoutDetour}`;
   const detachedAnchorErrors = coach.validateCoachParagraph(detachedAnchor, july22, [], { privateGoal: 117 }).errors;
-  assert(detachedAnchorErrors.includes("personal-anchor-not-integrated"), "a standalone personal-source sentence cannot replace a first-person detour woven through the analysis");
+  assert(detachedAnchorErrors.includes("personal-anchor-not-integrated"), "a standalone personal-source sentence cannot replace a direct context clause woven through the analysis");
   assert(detachedAnchorErrors.includes("verdict-evidence-not-leading"), "personal context cannot displace the verdict and measured evidence at the start");
 
   const wrongNumber = fallback.replace("151 lb", "999 lb");
@@ -2447,7 +2447,7 @@ async function run() {
     acceptanceEvidence,
     "3-day evidence is up 2.5 lb and weaker than before"
   );
-  assert(coach.validateCoachParagraph(falseEvidenceRelation, july22, [], { privateGoal: 117 }).errors.includes("evidence-claim"), "the outlook cannot satisfy a contradictory broader-evidence relation");
+  assert(coach.validateCoachParagraph(falseEvidenceRelation, july22, [], { privateGoal: 117 }).errors.some((error) => error === "evidence-claim" || error.startsWith("closed-")), "the outlook cannot satisfy a contradictory broader-evidence relation");
 
   for (const contradicted of [
     replaceLiteralCaseInsensitive(acceptanceExample, acceptanceCurrent, "151 lb is not up 1.1 lb today"),

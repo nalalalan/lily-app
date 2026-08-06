@@ -73,8 +73,8 @@ async function main() {
   if (current && !coachText.toLowerCase().includes(`about ${Math.round(current.oneYearWeight)} lb`)) {
     throw new Error("Live coach paragraph does not match the current rounded trend outlook.");
   }
-  if (/\b(?:A saved Brain (?:entry|thought)|Alan saved a Brain thought|the longer thought saved here)\b/i.test(coachText)) {
-    throw new Error("Live coach paragraph still uses generic personal-context boilerplate instead of a source-specific anchor.");
+  if (/\b(?:alan|brain|saved (?:entry|thought|note|memory)|source (?:entry|thought|note|memory)|my mind|my thoughts?|got distracted|distracted thinking|wander(?:ed|ing)?|drift(?:ed|ing)?|popped into (?:my|the) head|(?:i am|i'm|somehow i am) thinking about|i (?:just )?remembered|i (?:just )?(?:started )?thinking about)\b/i.test(coachText)) {
+    throw new Error("Live coach paragraph still wraps personal context in source or mental-navigation narration.");
   }
   console.log(JSON.stringify({
     count: rows.length,
