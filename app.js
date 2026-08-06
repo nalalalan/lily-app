@@ -11,7 +11,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const MIN_WEIGHT_TREND_GAP_DAYS = 1;
 const COACH_ANALYZING_TEXT = "Analyzing today’s weigh-in…";
 const COACH_EMPTY_TEXT = "No coach message yet.";
-const COACH_UNAVAILABLE_TEXT = "Coach message unavailable.";
+const COACH_PREPARING_TEXT = "Analysis is still being prepared.";
 const COACH_ANALYSIS_WINDOW_MS = 8000;
 const COACH_POLL_CHECKPOINTS_MS = Object.freeze([500, 1200, 2200, 3500, 5000, 6500, 7800]);
 const COACH_CONTEXT_FOLLOWUP_MS = Object.freeze([20000, 70000, 155000, 315000]);
@@ -919,7 +919,7 @@ function weightCoachText(newest, latestCoach, coachAnalysis, now = Date.now()) {
     return COACH_ANALYZING_TEXT;
   }
   if (newestId && saved && saved.weightId === newestId) return saved.text;
-  return newest ? COACH_UNAVAILABLE_TEXT : COACH_EMPTY_TEXT;
+  return newest ? COACH_PREPARING_TEXT : COACH_EMPTY_TEXT;
 }
 
 function createWeightCoachMessage(newest) {
