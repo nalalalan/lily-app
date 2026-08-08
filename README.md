@@ -22,8 +22,8 @@ Set `public/config.js` to an empty API base for same-origin local API testing, o
 - `GET /api/memories` - list shared memories
 - `POST /api/memories` - save notes, image data, and video data
 - `DELETE /api/memories/:id` - delete a saved memory
-- `GET /api/weights` - list saved weight records plus the latest persisted coach paragraph
-- `POST /api/weights` - durably save a weight with the server timestamp, then attach its persisted coach paragraph without allowing coach validation or generation to roll back the measurement
+- `GET /api/weights` - list saved weight records plus the latest persisted coach paragraph and current boba reward progress
+- `POST /api/weights` - durably save a weight with the server timestamp, award any newly crossed boba thresholds once, then attach its persisted coach paragraph without allowing coach validation or generation to roll back the measurement
 - `DELETE /api/weights/:id` - delete a saved weight record
 - `GET /api/tracker` - read conflict, longest streak, and period tracker counts
 - `POST /api/tracker/conflict` - save a conflict event; an authenticated backfill may include a past `dateKey`
@@ -33,6 +33,8 @@ Set `public/config.js` to an empty API base for same-origin local API testing, o
 - `POST /api/chat` - answer from saved Lily context
 
 ## Weight trend outlook and coach
+
+The boba baseline is the exact mean of the available America/New_York daily-median weights in the inclusive Aug 2-8, 2026 calendar window. Missing days are not filled in. The store retains the exact baseline, source window, observed dates, and count while the authenticated response and memo use one-decimal display values. Each whole pound below the baseline is a one-time threshold; a saved weigh-in can earn every newly passed threshold, but reads, restarts, deletions, later rises, and re-crossings cannot mint or duplicate a reward. Earned events retain their level, exact threshold, seven-day average, timestamp, and triggering weight ID.
 
 The one-year trend outlook calculates one point for every calendar-day median using only the measurements available through that date. The existing causal annual target remains bounded by the robust walk-forward model and momentum diagnostics. The displayed annual series has no retained velocity: confirmed multi-reading evidence moves 30% toward the current target with a 2 lb cap, while weak, flat, isolated, or reversal evidence moves 25% with a 0.75 lb cap. Every step moves toward its current target without overshoot. The current headline exactly matches the final plotted point.
 

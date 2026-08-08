@@ -1015,6 +1015,240 @@ async function run() {
   assert.equal(currentResearchThought.specificity, "source-specific", "the current research note retains its actual figure work");
   assert.match(currentResearchThought.text, /research-figure panels need to line up.*endpoint angles need to be measured locally/i, "framing and endpoint-angle work are stated directly instead of wrapped as a thought");
   assert.doesNotMatch(currentResearchThought.text, /present the module|Brain|Alan|saved thought/i);
+  const detailedPressureThought = coach.brainThoughtAnchorFromFile({
+    id: "brain-detailed-pressure-figures",
+    sourceText: "BF01 and BF02 need the full 10 psi, 50 psi, 80 psi, and 120 psi panel set. A private-sensitive-label diagnosis appears elsewhere in the entry.",
+    sourceCreatedAt: "2026-08-08T14:00:00.000Z"
+  }, { cutoff: Date.parse("2026-08-08T15:00:00.000Z") });
+  assert.equal(detailedPressureThought.specificity, "source-specific", "a current Brain figure note keeps multiple safe source-backed details in one approved anchor");
+  assert.equal(detailedPressureThought.text, "BF01 and BF02 need panels at 10, 50, 80, and 120 psi");
+  assert.doesNotMatch(detailedPressureThought.text, /private-sensitive-label|diagnos|Brain|Alan|note|source/i, "richer figure detail still excludes private material and source wrappers");
+  const detailedArrayThought = coach.brainThoughtAnchorFromFile({
+    id: "brain-detailed-array-comparison",
+    sourceText: "Figure 2 should compare loading and unloading hysteresis for the 1x1, 2x2, and 3x3 arrays.",
+    sourceCreatedAt: "2026-08-08T14:01:00.000Z"
+  }, { cutoff: Date.parse("2026-08-08T15:00:00.000Z") });
+  assert.equal(detailedArrayThought.text, "Figure 2 should compare the 1x1, 2x2, and 3x3 arrays through loading/unloading hysteresis");
+  assert.doesNotMatch(detailedArrayThought.text, VISIBLE_COACH_SOURCE_WRAPPER);
+  const currentPressureArrayThought = coach.brainThoughtAnchorFromFile({
+    id: "brain-current-pressure-arrays",
+    sourceText: "Present the 1x1, 2x2, and 3x3 pressure arrays clearly in the research figure.",
+    sourceCreatedAt: "2026-08-08T01:20:00.000Z"
+  }, { cutoff: Date.parse("2026-08-08T15:00:00.000Z") });
+  assert.equal(currentPressureArrayThought.text, "The 1x1, 2x2, and 3x3 pressure arrays need to be presented clearly");
+  assert.equal(currentPressureArrayThought.specificity, "source-specific");
+  assert.doesNotMatch(currentPressureArrayThought.text, VISIBLE_COACH_SOURCE_WRAPPER);
+  const negatedPressurePanels = coach.brainThoughtAnchorFromFile({
+    id: "brain-negated-pressure-panels",
+    sourceText: "Do not include BF01 and BF02 panels at 10 psi, 50 psi, 80 psi, and 120 psi.",
+    sourceCreatedAt: "2026-08-08T01:21:00.000Z"
+  }, { cutoff: Date.parse("2026-08-08T15:00:00.000Z") });
+  assert.notEqual(negatedPressurePanels?.text, "BF01 and BF02 need panels at 10, 50, 80, and 120 psi", "a negated panel instruction cannot be reversed into a positive coach fact");
+  const noPressurePanels = coach.brainThoughtAnchorFromFile({
+    id: "brain-no-pressure-panels",
+    sourceText: "BF01 and BF02 need no panels at 10 psi, 50 psi, 80 psi, and 120 psi.",
+    sourceCreatedAt: "2026-08-08T01:21:30.000Z"
+  }, { cutoff: Date.parse("2026-08-08T15:00:00.000Z") });
+  assert.notEqual(noPressurePanels?.text, "BF01 and BF02 need panels at 10, 50, 80, and 120 psi", "need-no wording cannot be reversed into a positive panel requirement");
+  const negatedPressureArrays = coach.brainThoughtAnchorFromFile({
+    id: "brain-negated-pressure-arrays",
+    sourceText: "Do not present the 1x1, 2x2, and 3x3 pressure arrays clearly.",
+    sourceCreatedAt: "2026-08-08T01:22:00.000Z"
+  }, { cutoff: Date.parse("2026-08-08T15:00:00.000Z") });
+  assert.notEqual(negatedPressureArrays?.text, "The 1x1, 2x2, and 3x3 pressure arrays need to be presented clearly", "a negated presentation instruction cannot be reversed into a positive coach fact");
+  assert.doesNotMatch(negatedPressureArrays?.text || "", /3x3.{0,48}(?:present|clear)|(?:present|clear).{0,48}3x3/i, "a negated full-array clause cannot fall through into a positive partial-array anchor");
+  const noNeedPressureArrays = coach.brainThoughtAnchorFromFile({
+    id: "brain-no-need-pressure-arrays",
+    sourceText: "There is no need to present the 1x1, 2x2, and 3x3 pressure arrays clearly.",
+    sourceCreatedAt: "2026-08-08T01:22:30.000Z"
+  }, { cutoff: Date.parse("2026-08-08T15:00:00.000Z") });
+  assert.notEqual(noNeedPressureArrays?.text, "The 1x1, 2x2, and 3x3 pressure arrays need to be presented clearly", "no-need wording cannot be reversed into a positive presentation instruction");
+  const negatedHysteresisComparison = coach.brainThoughtAnchorFromFile({
+    id: "brain-negated-hysteresis-comparison",
+    sourceText: "Figure 2 should not compare loading and unloading hysteresis for the 1x1, 2x2, and 3x3 arrays.",
+    sourceCreatedAt: "2026-08-08T01:23:00.000Z"
+  }, { cutoff: Date.parse("2026-08-08T15:00:00.000Z") });
+  assert.notEqual(negatedHysteresisComparison?.text, "Figure 2 should compare the 1x1, 2x2, and 3x3 arrays through loading/unloading hysteresis", "a negated comparison cannot be reversed into a positive coach fact");
+  assert.doesNotMatch(negatedHysteresisComparison?.text || "", /(?:3x3|hysteresis).{0,64}(?:present|compare|show)|(?:present|compare|show).{0,64}(?:3x3|hysteresis)/i, "a negated comparison clause cannot fall through into a positive partial-array anchor");
+
+  const bobaBaselineWeights = [
+    recordWeight("boba-baseline-aug2", "2026-08-02", 150.5),
+    recordWeight("boba-baseline-aug3", "2026-08-03", 150.4),
+    recordWeight("boba-baseline-aug4", "2026-08-04", 150.3),
+    recordWeight("boba-baseline-aug5", "2026-08-05", 150.1)
+  ];
+  const bobaBaselineStore = {
+    ...baseStore(bobaBaselineWeights),
+    bobaReward: {
+      version: 1,
+      baselineAverageLb: 150.325,
+      baselineDateKey: "2026-08-08",
+      baselineRecordedAt: "2026-08-08T16:00:00.000Z",
+      earnedThresholds: []
+    }
+  };
+  const bobaBaselineContext = coach.buildCoachContext(bobaBaselineStore, "boba-baseline-aug5", {
+    privateGoal: 117,
+    operationalNow: Date.parse("2026-08-08T16:00:00.000Z"),
+    relationshipSupport: currentPressureArrayThought
+  });
+  assert.equal(bobaBaselineContext.bobaReward.currentSevenDayAverageDisplayLb, 150.3, "the latest Aug 5 memo uses the operational Aug 8 seven-day window");
+  assert.equal(bobaBaselineContext.bobaReward.nextThresholdDisplayLb, 149.3);
+  assert.equal(bobaBaselineContext.bobaReward.poundsToNextBobaDisplayLb, 1);
+  assert.equal(bobaBaselineContext.analysisPlan.bobaReward.poundsToNextBobaLb, 1);
+  const bobaBaselineMemo = coach.buildContextualFallbackResult(bobaBaselineContext, []);
+  assert.match(bobaBaselineMemo.text, /150\.3 lb 7-day average|7-day average[^.]*150\.3 lb/i);
+  assert.match(bobaBaselineMemo.text, /149\.3 lb[^.]*boba|boba[^.]*149\.3 lb/i);
+  assert.match(bobaBaselineMemo.text, /1\.0 lb/);
+  assert.match(bobaBaselineMemo.text, /exciting|yummmm/i, "the one-pound boba countdown feels playful without pressure overload");
+  assert.equal((bobaBaselineMemo.text.match(/The 1x1, 2x2, and 3x3 pressure arrays need to be presented clearly/g) || []).length, 1, "one richer approved Brain anchor is woven into the boba memo exactly once");
+  assert.doesNotMatch(bobaBaselineMemo.text, VISIBLE_COACH_SOURCE_WRAPPER);
+  assert.deepEqual(coach.validateCoachParagraph(bobaBaselineMemo.text, bobaBaselineContext, [], { privateGoal: 117 }).errors, []);
+  const bobaBaselineCoachRecord = coach.createCoachMessageRecord(
+    bobaBaselineContext,
+    bobaBaselineMemo.text,
+    "fallback-boba-baseline-test",
+    "2026-08-08T16:00:00.000Z",
+    null,
+    { action: bobaBaselineMemo.action, structureId: bobaBaselineMemo.structureId, previousMessages: [] }
+  );
+  const bobaPublicCoach = coach.publicCoach(bobaBaselineCoachRecord);
+  assert.deepEqual(Object.keys(bobaPublicCoach).sort(), ["createdAt", "text", "weightId"], "memo integration does not widen the public coach payload with private analysis or provenance");
+  const bobaRolloverStore = { ...bobaBaselineStore, coachMessages: [bobaBaselineCoachRecord] };
+  const bobaRolloverReward = coach.calculateStoreBobaReward(bobaRolloverStore, {
+    asOf: "2026-08-10T16:00:00.000Z",
+    weightId: "boba-baseline-aug5"
+  });
+  assert.equal(bobaRolloverReward.currentSevenDayAverageDisplayLb, 150.2);
+  assert.equal(bobaRolloverReward.poundsToNextBobaDisplayLb, 0.9);
+  assert.equal(coach.coachBobaRewardNeedsRepair(bobaBaselineCoachRecord, bobaRolloverReward), true, "calendar rollover marks a stale reward memo for repair");
+  const bobaRolloverRefresh = coach.refreshLatestCoachStyleInStore(
+    bobaRolloverStore,
+    "fallback-boba-window-refresh-test",
+    Date.parse("2026-08-10T16:00:00.000Z"),
+    { force: true }
+  );
+  const bobaRolloverCoach = coach.coachForWeight(bobaRolloverRefresh.store, "boba-baseline-aug5");
+  assert.equal(bobaRolloverRefresh.updated, true);
+  assert.equal(coach.coachBobaRewardNeedsRepair(bobaRolloverCoach, bobaRolloverReward), false, "the repaired memo stores the same reward facts shown by the card");
+  assert.equal(coach.coachBobaRewardNeedsRepair({
+    analysisPlan: { bobaReward: { currentSevenDayAverageLb: 150.2, nextThresholdLb: 149.3, poundsToNextBobaLb: 0.9, earnedCount: 0, earnedForWeightId: 0, earnedThresholdLb: null } }
+  }, {
+    currentSevenDayAverageLb: 150.16,
+    currentSevenDayAverageDisplayLb: 150.2,
+    nextThresholdLb: 149.325,
+    nextThresholdDisplayLb: 149.3,
+    poundsToNextBobaLb: 0.835,
+    poundsToNextBobaDisplayLb: 0.9,
+    earnedCount: 0,
+    earnedForWeightId: 0,
+    latestEarnedThreshold: null
+  }), false, "display-ceiled reward facts do not trigger an idempotent GET repair loop");
+  assert.match(bobaRolloverCoach.text, /150\.2 lb/);
+  assert.match(bobaRolloverCoach.text, /149\.3 lb/);
+  assert.match(bobaRolloverCoach.text, /0\.9 lb/);
+  const staleWeightDefaultBrainRefresh = coach.refreshLatestCoachForBrainRelationship(
+    bobaBaselineStore,
+    currentPressureArrayThought,
+    "fallback-current-brain-test",
+    Date.parse("2026-08-08T16:00:00.000Z")
+  );
+  assert.equal(staleWeightDefaultBrainRefresh.updated, false, "historical memo refreshes remain causal by default");
+  const operationalCurrentBrainRefresh = coach.refreshLatestCoachForBrainRelationship(
+    bobaBaselineStore,
+    currentPressureArrayThought,
+    "fallback-current-brain-test",
+    Date.parse("2026-08-08T16:00:00.000Z"),
+    { allowCurrentThoughtRefresh: true }
+  );
+  assert.equal(operationalCurrentBrainRefresh.updated, true, "the explicit latest-memo path can use a current safe Brain thought even when the latest saved weight is older");
+  const operationalCurrentBrainCoach = coach.coachForWeight(operationalCurrentBrainRefresh.store, "boba-baseline-aug5");
+  assert(operationalCurrentBrainCoach.text.includes(currentPressureArrayThought.text));
+  assert.equal((operationalCurrentBrainCoach.text.match(/The 1x1, 2x2, and 3x3 pressure arrays need to be presented clearly/g) || []).length, 1);
+  assert.doesNotMatch(operationalCurrentBrainCoach.text, VISIBLE_COACH_SOURCE_WRAPPER);
+
+  const earnedBobaWeights = Array.from({ length: 7 }, (_, index) => recordWeight(
+    `boba-earned-${index + 1}`,
+    `2026-08-${String(index + 9).padStart(2, "0")}`,
+    149
+  ));
+  const earnedBobaStore = {
+    ...baseStore(earnedBobaWeights),
+    bobaReward: {
+      version: 1,
+      baselineAverageLb: 150.325,
+      baselineDateKey: "2026-08-08",
+      baselineRecordedAt: "2026-08-08T16:00:00.000Z",
+      earnedThresholds: [{
+        level: 1,
+        thresholdLb: 149.325,
+        earnedAt: "2026-08-15T16:00:00.000Z",
+        sevenDayAverageLb: 149,
+        weightId: "boba-earned-7"
+      }]
+    }
+  };
+  const earnedBobaContext = coach.buildCoachContext(earnedBobaStore, "boba-earned-7", {
+    privateGoal: 117,
+    operationalNow: Date.parse("2026-08-15T16:00:00.000Z"),
+    relationshipSupport: currentPressureArrayThought
+  });
+  assert.equal(earnedBobaContext.bobaReward.earnedForWeightId, 1);
+  assert.equal(earnedBobaContext.bobaReward.nextThresholdDisplayLb, 148.3);
+  assert.equal(earnedBobaContext.bobaReward.poundsToNextBobaDisplayLb, 0.7);
+  const earnedBobaMemo = coach.buildContextualFallbackResult(earnedBobaContext, []);
+  assert.match(earnedBobaMemo.text, /boba/i);
+  assert.match(earnedBobaMemo.text, /earn(?:ed|s|ing)/i);
+  assert.match(earnedBobaMemo.text, /148\.3 lb/);
+  assert.match(earnedBobaMemo.text, /0\.7 lb/);
+  assert.match(earnedBobaMemo.text, /delicious|deserved|yummmm/i);
+  assert.equal((earnedBobaMemo.text.match(/The 1x1, 2x2, and 3x3 pressure arrays need to be presented clearly/g) || []).length, 1);
+  assert.deepEqual(coach.validateCoachParagraph(earnedBobaMemo.text, earnedBobaContext, [], { privateGoal: 117 }).errors, []);
+
+  const multiBobaWeights = Array.from({ length: 7 }, (_, index) => recordWeight(
+    `boba-multi-${index + 1}`,
+    `2026-08-${String(index + 16).padStart(2, "0")}`,
+    147
+  ));
+  const multiBobaStore = {
+    ...baseStore(multiBobaWeights),
+    bobaReward: {
+      version: 1,
+      baselineAverageLb: 150.325,
+      baselineDateKey: "2026-08-08",
+      baselineRecordedAt: "2026-08-08T16:00:00.000Z",
+      earnedThresholds: [1, 2, 3].map((level) => ({
+        level,
+        thresholdLb: 150.325 - level,
+        earnedAt: "2026-08-22T16:00:00.000Z",
+        sevenDayAverageLb: 147,
+        weightId: "boba-multi-7"
+      }))
+    }
+  };
+  const multiBobaContext = coach.buildCoachContext(multiBobaStore, "boba-multi-7", {
+    privateGoal: 117,
+    operationalNow: Date.parse("2026-08-22T16:00:00.000Z"),
+    relationshipSupport: currentPressureArrayThought
+  });
+  assert.equal(multiBobaContext.bobaReward.earnedForWeightId, 3);
+  const multiBobaMemo = coach.buildContextualFallbackResult(multiBobaContext, []);
+  assert.match(multiBobaMemo.text, /3 delicious bobas/i, "a skipped-threshold weigh-in celebrates every newly earned boba");
+  assert.deepEqual(coach.validateCoachParagraph(multiBobaMemo.text, multiBobaContext, [], { privateGoal: 117 }).errors, []);
+
+  const recrossWeight = recordWeight("boba-after-earned", "2026-08-16", 149);
+  const recrossStore = { ...earnedBobaStore, weights: [...earnedBobaWeights, recrossWeight] };
+  const recrossContext = coach.buildCoachContext(recrossStore, recrossWeight.id, {
+    privateGoal: 117,
+    operationalNow: Date.parse("2026-08-16T16:00:00.000Z"),
+    relationshipSupport: currentPressureArrayThought
+  });
+  assert.equal(recrossContext.bobaReward.earnedCount, 1);
+  assert.equal(recrossContext.bobaReward.earnedForWeightId, 0, "a later crossing cannot re-earn the already-recorded threshold");
+  const recrossMemo = coach.buildContextualFallbackResult(recrossContext, []);
+  assert.doesNotMatch(recrossMemo.text, /boba.{0,36}earn(?:ed|s|ing)|earn(?:ed|s|ing).{0,36}boba/i, "only the triggering weigh-in celebrates the earned boba");
+  assert.match(recrossMemo.text, /148\.3 lb/);
+  assert.match(recrossMemo.text, /0\.7 lb/);
   const jackRabbitThought = coach.brainThoughtAnchorFromFile({
     id: "brain-specific-jackrabbit",
     sourceText: "I love the little JackRabbit e-bike because it feels effortless and does not require any pedaling.",

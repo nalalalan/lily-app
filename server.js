@@ -4,6 +4,12 @@ const fsp = require("node:fs/promises");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const weightForecast = require("./public/weight-forecast.js");
+const {
+  calculateBobaRewardState,
+  createBobaRewardBaseline,
+  normalizeBobaRewardState,
+  publicBobaReward
+} = require("./boba-reward.js");
 
 const port = Number(process.env.PORT || 3000);
 const publicDir = path.join(__dirname, "public");
@@ -28,6 +34,7 @@ const coachBackgroundGenerationTimeoutMs = Math.max(coachGenerationTimeoutMs, Nu
 const brainApiBase = String(process.env.BRAIN_API_BASE || "").trim().replace(/\/+$/, "");
 const brainRequestTimeoutMs = Math.max(250, Number(process.env.LILY_BRAIN_TIMEOUT_MS || 2000));
 const trackerTimeZone = process.env.LILY_TRACKER_TIME_ZONE || "America/New_York";
+const bobaBaselineDateKey = process.env.LILY_BOBA_BASELINE_DATE_KEY || "2026-08-08";
 const defaultPeriodCycleDays = 28;
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || "http://localhost:3000,http://127.0.0.1:3000,https://lily.aolabs.io")
   .split(",")
@@ -72,16 +79,16 @@ function publicApiErrorMessage(error, status = Number(error?.status) || 500) {
   return status >= 500 ? "Something went wrong. Please try again." : (error?.message || "Request failed.");
 }
 
-const COACH_GENERATION_VERSION = "coach-pipeline-v26";
-const COACH_ANALYSIS_VERSION = "coach-analysis-v11";
-const COACH_WRITER_PROMPT_VERSION = "coach-writer-v20";
-const COACH_CRITIC_PROMPT_VERSION = "coach-critic-v9";
-const COACH_VALIDATOR_VERSION = "coach-validator-v15";
-const COACH_FALLBACK_VERSION = "coach-fallback-v17";
+const COACH_GENERATION_VERSION = "coach-pipeline-v27";
+const COACH_ANALYSIS_VERSION = "coach-analysis-v12";
+const COACH_WRITER_PROMPT_VERSION = "coach-writer-v21";
+const COACH_CRITIC_PROMPT_VERSION = "coach-critic-v10";
+const COACH_VALIDATOR_VERSION = "coach-validator-v16";
+const COACH_FALLBACK_VERSION = "coach-fallback-v18";
 const COACH_ACTION_VERSION = "coach-action-v7";
 const COACH_PROMPT_VERSION = COACH_WRITER_PROMPT_VERSION;
 const COACH_SAFETY_VERSION = "coach-safety-v7";
-const COACH_STYLE_VERSION = "coach-style-direct-context-v12";
+const COACH_STYLE_VERSION = "coach-style-boba-context-v13";
 const COACH_PENDING_STATUS = "pending-contextual-repair";
 const COACH_MIN_WORDS = 35;
 const COACH_MAX_WORDS = 55;
@@ -104,7 +111,7 @@ async function ensureDataDir() {
   try {
     await fsp.access(storePath);
   } catch (error) {
-    await fsp.writeFile(storePath, JSON.stringify({ memories: [], weights: [], chats: [], trackerEvents: [], coachMessages: [] }, null, 2));
+    await fsp.writeFile(storePath, JSON.stringify({ memories: [], weights: [], chats: [], trackerEvents: [], coachMessages: [], bobaReward: null }, null, 2));
   }
 }
 
@@ -140,7 +147,8 @@ async function readStore() {
     weights: Array.isArray(parsed.weights) ? parsed.weights : [],
     chats: Array.isArray(parsed.chats) ? parsed.chats : [],
     trackerEvents: Array.isArray(parsed.trackerEvents) ? parsed.trackerEvents : [],
-    coachMessages: Array.isArray(parsed.coachMessages) ? parsed.coachMessages : []
+    coachMessages: Array.isArray(parsed.coachMessages) ? parsed.coachMessages : [],
+    bobaReward: normalizeBobaRewardState(parsed.bobaReward)
   };
 }
 
@@ -358,6 +366,49 @@ function publicWeight(record) {
 
 function publicWeights(weights) {
   return weights.map(publicWeight);
+}
+
+function calculateStoreBobaReward(store, options = {}) {
+  const weights = Array.isArray(store?.weights) ? store.weights : [];
+  let rewardState = normalizeBobaRewardState(store?.bobaReward);
+  if (!rewardState) {
+    rewardState = createBobaRewardBaseline(weights, {
+      baselineDateKey: options.baselineDateKey || bobaBaselineDateKey,
+      recordedAt: options.recordedAt || new Date().toISOString(),
+      timeZone: trackerTimeZone
+    });
+  }
+  if (!rewardState) return null;
+  return calculateBobaRewardState(weights, rewardState, {
+    asOf: options.asOf === undefined ? Date.now() : options.asOf,
+    asOfDateKey: options.asOfDateKey,
+    allowAwards: options.allowAwards === true,
+    earnedAt: options.earnedAt,
+    weightId: options.weightId,
+    timeZone: trackerTimeZone
+  });
+}
+
+function reconcileBobaRewardInStore(store, options = {}) {
+  const reward = calculateStoreBobaReward(store, options);
+  if (!reward) return store;
+  return { ...store, bobaReward: reward.state };
+}
+
+async function backfillBobaRewardState(options = {}) {
+  const currentStore = await readStore();
+  if (normalizeBobaRewardState(currentStore.bobaReward)) return currentStore;
+  const candidate = calculateStoreBobaReward(currentStore, {
+    baselineDateKey: options.baselineDateKey || bobaBaselineDateKey,
+    recordedAt: options.recordedAt || new Date().toISOString(),
+    asOf: options.asOf === undefined ? Date.now() : options.asOf
+  });
+  if (!candidate) return currentStore;
+  return writeStore((store) => reconcileBobaRewardInStore(store, {
+    baselineDateKey: options.baselineDateKey || bobaBaselineDateKey,
+    recordedAt: options.recordedAt || new Date().toISOString(),
+    asOf: options.asOf === undefined ? Date.now() : options.asOf
+  }));
 }
 
 function weightInPounds(record) {
@@ -941,6 +992,9 @@ function brainSpecificRelationNegated(text, relationPattern) {
   const source = String(text || "");
   const match = relationPattern.exec(source);
   if (!match) return false;
+  const directNoNeed = new RegExp(`\\bno\\s+(?:(?:real|actual)\\s+)?(?:need|reason|requirement)\\s+(?:to\\s+)?(?:${relationPattern.source})`, "i");
+  if (directNoNeed.test(source)) return true;
+  if (/\b(?:need|needs|require|requires)\s+no\b/i.test(source)) return true;
   const directAvoid = new RegExp(`\\bavoid(?:s|ed|ing)?(?:\\s+(?:ever|really|actually|fully|clearly)){0,2}\\s+(?:${relationPattern.source})`, "i");
   if (directAvoid.test(source)) return true;
   const directWithout = new RegExp(`\\bwithout(?:\\s+(?:ever|really|actually|fully|clearly|needing\\s+to|being\\s+able\\s+to)){0,2}\\s+(?:${relationPattern.source})`, "i");
@@ -954,7 +1008,51 @@ function brainResearchSpecificSubject(source) {
     .normalize("NFKC")
     .replace(/[\u200B-\u200D\uFEFF]/g, " ")
     .slice(0, 6000);
-  const researchFigureContext = /\b(?:bf0[1-9]|figures?|plots?|panels?|research|paper)\b/i.test(normalized);
+  const researchFigureContext = /\b(?:bf0[1-9]|figures?|plots?|panels?|arrays?|pressure|research|paper)\b/i.test(normalized);
+  const detailClauses = normalized
+    .split(/[.!?;\n]+/)
+    .map((clause) => clause.trim())
+    .filter((clause) => clause
+      && !BRAIN_GENERAL_REPORT.test(clause)
+      && !BRAIN_GENERAL_PII.test(clause)
+      && !BRAIN_GENERAL_INJECTION.test(clause)
+      && !BRAIN_GENERAL_SENSITIVE.test(clause)
+      && !containsPrivateCoachBlockedTerm(clause));
+  const fullArraySetIn = (clause) => ["1x1", "2x2", "3x3"].every((grid) => {
+    const [rows, columns] = grid.split("x");
+    return new RegExp(`\\b${rows}\\s*[xX×]\\s*${columns}\\b`, "i").test(clause);
+  });
+  const pressureRelation = /\b(?:need|needs|require|requires|include|includes|show|showing|present|presenting|display|displaying)\b/i;
+  const pressureClause = detailClauses.find((clause) => {
+    const ids = Array.from(new Set(Array.from(clause.matchAll(/\bbf0[1-9]\b/gi), (match) => match[0].toUpperCase())));
+    const fullPressureSet = [10, 50, 80, 120].every((pressure) => new RegExp(`\\b${pressure}\\s*psi\\b`, "i").test(clause));
+    return ids.length >= 2 && fullPressureSet && pressureRelation.test(clause)
+      && !brainSpecificRelationNegated(clause, pressureRelation);
+  });
+  const presentationRelation = /\b(?:present|presented|presenting|show|showing|display|displaying|plot|plotting|clear|clearer)\b/i;
+  const pressureArrayClause = detailClauses.find((clause) => fullArraySetIn(clause)
+    && /\bpressure\b/i.test(clause)
+    && /\barrays?\b/i.test(clause)
+    && presentationRelation.test(clause)
+    && !brainSpecificRelationNegated(clause, presentationRelation));
+  const comparisonRelation = /\b(?:compare|compares|comparing|show|showing|present|presenting|plot|plotting|evaluate|evaluating)\b/i;
+  const hysteresisClause = detailClauses.find((clause) => fullArraySetIn(clause)
+    && /\bloading\b/i.test(clause)
+    && /\bunloading\b/i.test(clause)
+    && /\bhysteresis\b/i.test(clause)
+    && comparisonRelation.test(clause)
+    && !brainSpecificRelationNegated(clause, comparisonRelation));
+  if (researchFigureContext && pressureClause) {
+    const figureIds = Array.from(new Set(Array.from(pressureClause.matchAll(/\bbf0[1-9]\b/gi), (match) => match[0].toUpperCase())));
+    return `${figureIds.slice(0, 2).join(" and ")} need panels at 10, 50, 80, and 120 psi`;
+  }
+  if (researchFigureContext && pressureArrayClause) {
+    return "The 1x1, 2x2, and 3x3 pressure arrays need to be presented clearly";
+  }
+  if (researchFigureContext && hysteresisClause) {
+    const figure = hysteresisClause.match(/\bfigure\s*\d+[a-z]?\b/i)?.[0]?.replace(/\s+/g, " ") || "The research figure";
+    return `${titleCaseFirst(figure)} should compare the 1x1, 2x2, and 3x3 arrays through loading/unloading hysteresis`;
+  }
   const panelFraming = researchFigureContext
     && /\b(?:fram(?:e|ed|ing)|align(?:ed|ment)?|panels?)\b/i.test(normalized)
     && /\b(?:same\s+framing|framing\s+is\s+off|framed\s+(?:way\s+)?too\s+(?:high|low)|align(?:ed|ment)?|move\s+(?:the\s+)?panels?)\b/i.test(normalized);
@@ -965,7 +1063,11 @@ function brainResearchSpecificSubject(source) {
   if (panelFraming) return "how to line up the research-figure panels";
   if (endpointAngles) return "how to measure the endpoint angles on the research figure";
 
-  const text = brainSpecificFragments(source).find((fragment) =>
+  const genericResearchRelation = /\b(?:show|showing|present|presenting|display|displaying|figure|plot|hysteresis|compare|comparing|measure|measuring|align|move)\b/i;
+  const genericResearchSource = detailClauses
+    .filter((clause) => !brainSpecificRelationNegated(clause, genericResearchRelation))
+    .join(". ");
+  const text = brainSpecificFragments(genericResearchSource).find((fragment) =>
     /\b(?:research|science|paper|figure|plot|module|array|hysteresis)\w*\b/i.test(fragment)
       && !brainSpecificRelationNegated(fragment, /\b(?:show|showing|present|presenting|display|displaying|figure|plot|hysteresis)\b/i)
       && !/\b(?:module|array|hysteresis|\d+\s*[x×]\s*\d+|plots?)\b.{0,48}\b(?:instead\s+of|rather\s+than)\b.{0,48}\b(?:module|array|hysteresis|\d+\s*[x×]\s*\d+|plots?)\b/i.test(fragment)) || "";
@@ -1606,8 +1708,10 @@ async function fetchLatestBrainPersonalAnchor(store, options = {}) {
     const thoughtAnchors = rows
       .map((file) => brainThoughtAnchorFromFile(file, { ...options, cutoff: thoughtCutoff }))
       .filter(Boolean);
-    const freshThoughts = thoughtAnchors.filter((anchor) => !recentKeys.has(`id:${anchor.id}`)
-      && !recentKeys.has(`semantic:${personalAnchorSemanticKind(anchor.kind)}`));
+    const freshThoughts = options.preferNewestCurrentThought === true
+      ? thoughtAnchors
+      : thoughtAnchors.filter((anchor) => !recentKeys.has(`id:${anchor.id}`)
+        && !recentKeys.has(`semantic:${personalAnchorSemanticKind(anchor.kind)}`));
     candidates.push(...freshThoughts);
     if (!freshThoughts.length && thoughtAnchors.length) {
       const usageIndex = (anchor) => previousMessages.findIndex((message) => (message.evidenceReferences || []).some((reference) => reference.id === anchor.id));
@@ -2012,6 +2116,52 @@ function evidenceRelation(current, previous) {
   return { kind: "held", phrase: "similar to the prior context" };
 }
 
+function coachBobaRewardState(store, currentWeight, causalRows = [], options = {}) {
+  const persisted = normalizeBobaRewardState(store?.bobaReward);
+  const currentTime = Date.parse(currentWeight?.createdAt);
+  if (!persisted || !Number.isFinite(currentTime)) return null;
+  const latestWeight = latestWeightRecord(store);
+  const isLatestWeight = latestWeight?.id === currentWeight.id;
+  const requestedOperationalNow = Number(options.operationalNow);
+  const operationalNow = Number.isFinite(requestedOperationalNow) ? requestedOperationalNow : Date.now();
+  const asOf = isLatestWeight ? Math.max(currentTime, operationalNow) : currentTime;
+  const currentDateKey = trackerDateKey(asOf);
+  if (!currentDateKey || currentDateKey < persisted.baselineDateKey) return null;
+  const causalWeightIds = new Set((Array.isArray(causalRows) ? causalRows : []).map((record) => String(record?.id || "")).filter(Boolean));
+  const causalRewardState = {
+    ...persisted,
+    earnedThresholds: isLatestWeight ? persisted.earnedThresholds : persisted.earnedThresholds.filter((entry) => (
+      entry.weightId ? causalWeightIds.has(String(entry.weightId)) : Date.parse(entry.earnedAt) <= currentTime
+    ))
+  };
+  const rewardWeights = isLatestWeight ? (Array.isArray(store?.weights) ? store.weights : causalRows) : causalRows;
+  const result = calculateBobaRewardState(rewardWeights, causalRewardState, {
+    asOf,
+    weightId: currentWeight.id,
+    timeZone: trackerTimeZone
+  });
+  if (!result || !Number.isFinite(Number(result.currentSevenDayAverageLb))) return null;
+  const earnedForWeightId = Math.max(0, Number(result.earnedForWeightId) || 0);
+  return {
+    baselineAverageLb: Number(result.baselineAverageLb),
+    baselineAverageDisplayLb: Number(result.baselineAverageDisplayLb),
+    currentSevenDayAverageLb: Number(result.currentSevenDayAverageLb),
+    currentSevenDayAverageDisplayLb: Number(result.currentSevenDayAverageDisplayLb),
+    nextThresholdLb: Number(result.nextThresholdLb),
+    nextThresholdDisplayLb: Number(result.nextThresholdDisplayLb),
+    poundsToNextBobaLb: Number(result.poundsToNextBobaLb),
+    poundsToNextBobaDisplayLb: Number(result.poundsToNextBobaDisplayLb),
+    observedDayCount: Number(result.observedDayCount) || 0,
+    earnedCount: Math.max(0, Number(result.earnedCount) || 0),
+    earnedForWeightId,
+    latestEarnedThreshold: result.latestEarnedThreshold ? {
+      level: Number(result.latestEarnedThreshold.level),
+      thresholdLb: Number(result.latestEarnedThreshold.thresholdLb),
+      weightId: result.latestEarnedThreshold.weightId ? String(result.latestEarnedThreshold.weightId) : null
+    } : null
+  };
+}
+
 function buildAnalysisPlan(context) {
   const evidence = context.strongestEvidence;
   return {
@@ -2045,6 +2195,16 @@ function buildAnalysisPlan(context) {
       semantic: context.actionSemantic,
       approvedRealizations: context.actionRealizations.map((realization) => ({ id: realization.id, text: realization.text }))
     },
+    bobaReward: context.bobaReward ? {
+      currentSevenDayAverageLb: context.bobaReward.currentSevenDayAverageDisplayLb,
+      nextThresholdLb: context.bobaReward.nextThresholdDisplayLb,
+      poundsToNextBobaLb: context.bobaReward.poundsToNextBobaDisplayLb,
+      earnedCount: context.bobaReward.earnedCount,
+      earnedForWeightId: context.bobaReward.earnedForWeightId,
+      earnedThresholdLb: context.bobaReward.earnedForWeightId > 0
+        ? Number(Number(context.bobaReward.latestEarnedThreshold?.thresholdLb).toFixed(1))
+        : null
+    } : null,
     savedContext: context.preference ? {
       kind: context.preference.kind,
       transient: context.preference.transient === true
@@ -2167,6 +2327,7 @@ function buildCoachContext(store, weightId, options = {}) {
 
   const actionPreference = preference?.id && preference.id === relationshipSupport?.id ? null : preference;
   const actionSelection = selectCoachAction(store, current, actionPreference, outlier, recentConflict);
+  const bobaReward = coachBobaRewardState(store, current, rows, { operationalNow: options.operationalNow });
   const selectedPreference = actionSelection.preferenceId ? actionPreference : null;
   const comparisonWindowDays = Number.isFinite(strongestEvidence.comparisonWindowDays) ? strongestEvidence.comparisonWindowDays : 0;
   const selectedWindowDays = Math.max(Number(strongestEvidence.windowDays) || 0, comparisonWindowDays);
@@ -2232,6 +2393,7 @@ function buildCoachContext(store, weightId, options = {}) {
     actionId: actionSelection.id,
     actionSemantic: actionSelection.semantic,
     actionRealizations: actionSelection.realizations,
+    bobaReward,
     recentActionIds: actionSelection.recentActionIds,
     recentActionSemantics: actionSelection.recentActionSemantics,
     recentActionTexts: actionSelection.recentActionTexts,
@@ -2583,6 +2745,45 @@ const WRITER_SAFE_CLOSINGS = Object.freeze({
 
 const FALLBACK_CLOSINGS = WRITER_SAFE_CLOSINGS;
 
+function bobaMemoNumber(value) {
+  return Number.isFinite(Number(value)) ? Number(value).toFixed(1) : "";
+}
+
+function bobaRewardClosingCandidates(context) {
+  const reward = context?.bobaReward;
+  const currentAverage = bobaMemoNumber(reward?.currentSevenDayAverageDisplayLb);
+  const nextThreshold = bobaMemoNumber(reward?.nextThresholdDisplayLb);
+  const poundsRemaining = bobaMemoNumber(reward?.poundsToNextBobaDisplayLb);
+  if (!currentAverage || !nextThreshold || !poundsRemaining) return [];
+  const earnedNow = Math.max(0, Number(reward.earnedForWeightId) || 0);
+  if (earnedNow > 0) {
+    const latestThreshold = Number(reward.latestEarnedThreshold?.thresholdLb);
+    const earnedThreshold = bobaMemoNumber(Number.isFinite(latestThreshold)
+      ? latestThreshold
+      : Number(reward.baselineAverageLb) - Number(reward.earnedCount));
+    const rewardNoun = earnedNow === 1 ? "a delicious boba" : `${earnedNow} delicious bobas`;
+    return [
+      `${currentAverage} lb over 7 days earns ${rewardNoun} through ${earnedThreshold} lb! Next: ${nextThreshold} lb, ${poundsRemaining} lb away—delicious, yummmm!`,
+      `The ${currentAverage} lb 7-day average earns ${rewardNoun} at ${earnedThreshold} lb! Next: ${nextThreshold} lb, ${poundsRemaining} lb away—yummmm!`,
+      `${rewardNoun.charAt(0).toUpperCase()}${rewardNoun.slice(1)} is officially earned at a ${currentAverage} lb 7-day average; the next threshold is ${nextThreshold} lb, ${poundsRemaining} lb away—delicious, deserved, yummmm!`,
+      `The ${currentAverage} lb 7-day average clears the ${earnedThreshold} lb boba threshold; ${rewardNoun} is earned, and the next at ${nextThreshold} lb is ${poundsRemaining} lb away—what a win, yummmm!`
+    ];
+  }
+  return [
+    `The ${currentAverage} lb 7-day average is ${poundsRemaining} lb from boba at ${nextThreshold} lb—exciting, yummmm!`,
+    `At ${currentAverage} lb, the 7-day average is ${poundsRemaining} lb from delicious boba at ${nextThreshold} lb—yummmm!`,
+    `A ${currentAverage} lb 7-day average leaves ${poundsRemaining} lb before the next boba at ${nextThreshold} lb—so close, so exciting, yummmm!`,
+    `The next delicious boba unlocks at a ${nextThreshold} lb 7-day average; from ${currentAverage} lb, only ${poundsRemaining} lb remains—absolutely possible!`
+  ];
+}
+
+function coachClosingCandidates(context) {
+  const rewardClosings = bobaRewardClosingCandidates(context);
+  return rewardClosings.length
+    ? rewardClosings
+    : (FALLBACK_CLOSINGS[context?.verdict] || FALLBACK_CLOSINGS["not-good-enough"]);
+}
+
 function composeFallbackParagraph(opening, current, evidence, outlook, action, close, layout, relationshipSupport = "") {
   const clean = (value) => String(value || "").trim().replace(/[.!?]+$/g, "");
   const slots = {
@@ -2810,6 +3011,7 @@ function coachPresentationSeed(context) {
       kind: context.relationshipSupport.kind,
       sourceHash: context.relationshipSupport.sourceHash
     } : null,
+    bobaReward: context.analysisPlan?.bobaReward || null,
     preference: context.preference?.kind || null,
     actionSemantic: context.actionSemantic
   })).digest("hex");
@@ -2918,7 +3120,9 @@ function coachStoryFingerprint(context) {
     Number.isFinite(Number(evidence.comparisonWindowDays)) ? Number(evidence.comparisonWindowDays) : "",
     Number.isFinite(Number(evidence.comparisonMovement)) ? comparisonDirection : "",
     outlook?.direction || context?.outlookDirection || "",
-    outlook?.relationToEvidence || context?.outlookEvidenceRelation || ""
+    outlook?.relationToEvidence || context?.outlookEvidenceRelation || "",
+    plan.bobaReward ? (Number(plan.bobaReward.earnedForWeightId) > 0 ? "boba-earned" : "boba-progress") : "",
+    plan.bobaReward ? Number(plan.bobaReward.earnedCount) || 0 : ""
   ].join("|");
 }
 
@@ -3060,9 +3264,11 @@ function buildContextualFallbackCandidates(context, previousMessages = [], limit
     throw new Error(`no compliant contextual fallback invariant for ${context.weightId || "unknown-weight"}/${context.verdict || "unknown-verdict"}: unsafe-language=1`);
   }
   const openings = coachOpeningCandidates(context);
-  const closings = options.writerSafe
-    ? (WRITER_SAFE_CLOSINGS[context.verdict] || WRITER_SAFE_CLOSINGS["not-good-enough"])
-    : (FALLBACK_CLOSINGS[context.verdict] || FALLBACK_CLOSINGS["not-good-enough"]);
+  const closings = context.bobaReward
+    ? coachClosingCandidates(context)
+    : options.writerSafe
+      ? (WRITER_SAFE_CLOSINGS[context.verdict] || WRITER_SAFE_CLOSINGS["not-good-enough"])
+      : coachClosingCandidates(context);
   const facts = fallbackFactClauseVariants(context);
   const wordBounds = coachWordBounds(context);
   const presentationSeed = coachPresentationSeed(context);
@@ -3290,7 +3496,7 @@ function approvedCoachCopyComponents(context) {
     outlookFacts: context?.includeOutlook ? facts.outlook.filter(Boolean) : [],
     modifiers: context?.trackerModifier?.text ? [context.trackerModifier.text] : [],
     relationshipSupport: context?.relationshipSupport?.text ? [context.relationshipSupport.text] : [],
-    closings: FALLBACK_CLOSINGS[context?.verdict] || FALLBACK_CLOSINGS["not-good-enough"]
+    closings: coachClosingCandidates(context)
   };
 }
 
@@ -3495,7 +3701,14 @@ function validateCoachParagraph(text, context, previousMessages = [], options = 
     Number(trimCoachNumber(Math.abs(context.strongestEvidence?.comparisonMovement))),
     Number(context.streak?.count),
     ...Object.values(context.movements || {}).map((movement) => Number(trimCoachNumber(Math.abs(movement)))),
-    ...numericTokens(context.relationshipSupport?.text || "")
+    ...numericTokens(context.relationshipSupport?.text || ""),
+    Number(context.bobaReward?.baselineAverageDisplayLb),
+    Number(context.bobaReward?.currentSevenDayAverageDisplayLb),
+    Number(context.bobaReward?.nextThresholdDisplayLb),
+    Number(context.bobaReward?.poundsToNextBobaDisplayLb),
+    Number(context.bobaReward?.latestEarnedThreshold?.thresholdLb),
+    Number(context.bobaReward?.earnedCount),
+    Number(context.bobaReward?.earnedForWeightId)
   ] : [];
   for (const number of numericTokens(paragraph)) {
     if (!allowedNumbers.some((allowed) => Number.isFinite(allowed) && Math.abs(allowed - number) < 0.001)) {
@@ -3848,7 +4061,7 @@ function renderWriterLead(value, context, candidateIndex = 0, previousMessages =
   const orderedFacts = order.map((role) => ({ role, text: roleText[role] })).filter((entry) => entry.text);
   const recentClosings = new Set(acceptedCopySignatures(coachCopyCooldownMessages(previousMessages, context, 6), 7, context)
     .map((signature) => signature.closingFingerprint).filter(Boolean));
-  const allClosingRows = FALLBACK_CLOSINGS[context?.verdict] || FALLBACK_CLOSINGS["not-good-enough"];
+  const allClosingRows = coachClosingCandidates(context);
   const agencyClosingRows = allClosingRows.filter((candidate) => !supportiveCoachStyleErrors(candidate).includes("missing-agency"));
   const closingRows = agencyClosingRows.length ? agencyClosingRows : allClosingRows;
   let closing = closingRows[(seed + candidateIndex) % closingRows.length];
@@ -3916,6 +4129,7 @@ function parseCriticResult(text, candidateCount = COACH_CANDIDATE_COUNT) {
 function publicCoachFacts(context) {
   return {
     analysis: context.analysisPlan,
+    bobaReward: context.analysisPlan?.bobaReward || null,
     periodModifier: context.trackerModifier?.text || null,
     relationshipSupport: context.relationshipSupport ? { kind: context.relationshipSupport.kind, approvedText: context.relationshipSupport.text } : null,
     personalContextDetour: personalContextDetours(context),
@@ -3931,6 +4145,7 @@ function criticCoachFacts(context) {
     strongestEvidence: context.analysisPlan.strongestEvidence,
     relationToPrior: context.analysisPlan.relationToPrior,
     outlook: context.analysisPlan.outlook,
+    bobaReward: context.analysisPlan.bobaReward,
     periodModifier: context.trackerModifier?.text || null,
     relationshipSupport: context.relationshipSupport ? { kind: context.relationshipSupport.kind, approvedText: context.relationshipSupport.text } : null,
     personalContextDetour: personalContextDetours(context),
@@ -4446,6 +4661,12 @@ function coachNeedsRepair(message) {
   const status = String(message?.status || "");
   const attempts = Math.max(0, Number(message?.diagnostics?.attemptCount) || 0);
   if (message?.personalAnchor?.approvedText && containsPrivateCoachBlockedTerm(message.personalAnchor.approvedText)) return false;
+  if (message && (
+    message.styleVersion !== COACH_STYLE_VERSION
+    || message.analysisVersion !== COACH_ANALYSIS_VERSION
+    || message.validatorVersion !== COACH_VALIDATOR_VERSION
+    || message.fallbackVersion !== COACH_FALLBACK_VERSION
+  )) return true;
   if (status.startsWith("pending-")) return true;
   if (status === "fallback-emergency-analysis") return true;
   if (attempts === 0 && [
@@ -4458,15 +4679,47 @@ function coachNeedsRepair(message) {
   return attempts < 2 && /^fallback-(?:timeout|api-error|writer-|critic-)/.test(status);
 }
 
+function canonicalCoachBobaRewardFacts(value) {
+  if (!value || typeof value !== "object") return null;
+  const currentAverage = Number(value.currentSevenDayAverageDisplayLb ?? value.currentSevenDayAverageLb);
+  const nextThreshold = Number(value.nextThresholdDisplayLb ?? value.nextThresholdLb);
+  const poundsRemaining = Number(value.poundsToNextBobaDisplayLb ?? value.poundsToNextBobaLb);
+  if (![currentAverage, nextThreshold, poundsRemaining].every(Number.isFinite)) return null;
+  const earnedForWeightId = Math.max(0, Math.floor(Number(value.earnedForWeightId) || 0));
+  const rawEarnedThreshold = value.earnedThresholdLb ?? value.latestEarnedThreshold?.thresholdLb;
+  const earnedThreshold = earnedForWeightId > 0 && Number.isFinite(Number(rawEarnedThreshold))
+    ? Number(Number(rawEarnedThreshold).toFixed(1))
+    : null;
+  return {
+    currentSevenDayAverageLb: Number(currentAverage.toFixed(1)),
+    nextThresholdLb: Number(nextThreshold.toFixed(1)),
+    poundsToNextBobaLb: Number(poundsRemaining.toFixed(1)),
+    earnedCount: Math.max(0, Math.floor(Number(value.earnedCount) || 0)),
+    earnedForWeightId,
+    earnedThresholdLb: earnedThreshold
+  };
+}
+
+function coachBobaRewardNeedsRepair(message, currentReward) {
+  const persistedFacts = canonicalCoachBobaRewardFacts(message?.analysisPlan?.bobaReward);
+  const currentFacts = canonicalCoachBobaRewardFacts(currentReward);
+  return JSON.stringify(persistedFacts) !== JSON.stringify(currentFacts);
+}
+
 async function persistWeightWithRecoverableCoach(created, options = {}) {
   const persist = options.persist || writeStore;
   const attachFallback = options.attachFallback || addFallbackCoachForWeight;
   const reportFallbackError = options.reportFallbackError || ((error) => {
     console.warn("Lily coach fallback creation failed", String(error?.name || "error"));
   });
-  let savedStore = await persist((store) => ({
+  let savedStore = await persist((store) => reconcileBobaRewardInStore({
     ...store,
     weights: [created, ...(Array.isArray(store.weights) ? store.weights : [])]
+  }, {
+    asOf: created.createdAt,
+    allowAwards: true,
+    earnedAt: created.createdAt,
+    weightId: created.id
   }));
   try {
     savedStore = await persist((store) => attachFallback(store, created.id, "fallback-contextual"));
@@ -4571,7 +4824,7 @@ function refreshLatestCoachForSavedMemories(store, memoryIds, personalContextCut
   return { store: nextStore, updated: true, weightId: latestWeight.id, latestCoach: publicCoach(replacement) };
 }
 
-function refreshLatestCoachForBrainRelationship(store, relationshipSupport, status = "fallback-brain-relationship", operationalNow = Date.now()) {
+function refreshLatestCoachForBrainRelationship(store, relationshipSupport, status = "fallback-brain-relationship", operationalNow = Date.now(), options = {}) {
   const latestWeight = (Array.isArray(store.weights) ? store.weights : [])
     .slice()
     .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)) || String(right.id).localeCompare(String(left.id)))[0];
@@ -4593,17 +4846,25 @@ function refreshLatestCoachForBrainRelationship(store, relationshipSupport, stat
   const existingSupportTime = Date.parse(existingAnchor?.createdAt || existingBrainReference?.sourceCreatedAt || "");
   const strictRelationshipSource = relationshipSupport.sourceType === "brain-letter";
   const genericThoughtSource = relationshipSupport.sourceType === "brain-thought-anchor";
+  const operationalCurrentThought = genericThoughtSource
+    && options.allowCurrentThoughtRefresh === true
+    && Number.isFinite(supportTime)
+    && Number.isFinite(now)
+    && supportTime <= now
+    && now - supportTime <= BRAIN_RELATIONSHIP_MAX_AGE_MS;
   const sourceIsCausal = strictRelationshipSource
     ? brainSourceWithinWeightWindow(latestWeight, relationshipSupport, now)
     : genericThoughtSource
-      ? Number.isFinite(weightTime) && Number.isFinite(supportTime) && Number.isFinite(now)
+      ? operationalCurrentThought || (Number.isFinite(weightTime) && Number.isFinite(supportTime) && Number.isFinite(now)
         && supportTime <= now
-        && now - weightTime <= BRAIN_RELATIONSHIP_MAX_AGE_MS
+        && now - weightTime <= BRAIN_RELATIONSHIP_MAX_AGE_MS)
       : false;
   if (!sourceIsCausal
     || (!sourceReductionChanged && Number.isFinite(existingSupportTime) && supportTime <= existingSupportTime)
     || (existingBrainReference && !Number.isFinite(existingSupportTime) && supportTime < weightTime)
-    || (!sourceReductionChanged && !personalAnchorIsAvailable(store, relationshipSupport, latestWeight.id))) {
+    || (!sourceReductionChanged
+      && !operationalCurrentThought
+      && !personalAnchorIsAvailable(store, relationshipSupport, latestWeight.id))) {
     return { store, updated: false, alreadyCurrent: false, weightId: latestWeight.id, latestCoach: publicCoach(existing) };
   }
 
@@ -4788,6 +5049,7 @@ function coachRefreshPreservationSnapshot(store, targetWeightId = "") {
     targetCoachId: targetCoach?.id || "",
     targetCoachCreatedAt: targetCoach?.createdAt || "",
     weightsHash: jsonHash(weights),
+    bobaRewardHash: jsonHash(store.bobaReward || null),
     memoriesHash: jsonHash(memories),
     trackerEventsHash: jsonHash(trackerEvents),
     chatsHash: jsonHash(chats),
@@ -4803,6 +5065,7 @@ function assertCoachRefreshPreserved(before, after) {
     "targetCoachId",
     "targetCoachCreatedAt",
     "weightsHash",
+    "bobaRewardHash",
     "memoriesHash",
     "trackerEventsHash",
     "chatsHash",
@@ -4848,19 +5111,20 @@ function latestCoachPersonalContextCutoff(store, coach) {
   return timestamps.length ? Math.max(...timestamps) : NaN;
 }
 
-function refreshLatestCoachStyleInStore(store, status = "fallback-style-refresh", now = Date.now()) {
+function refreshLatestCoachStyleInStore(store, status = "fallback-style-refresh", now = Date.now(), options = {}) {
   const snapshot = coachRefreshPreservationSnapshot(store);
   const latestWeight = (store.weights || []).find((weight) => weight.id === snapshot.latestWeightId);
   const existing = coachForWeight(store, snapshot.latestWeightId);
   if (!latestWeight || !existing) return { store, updated: false, alreadyCurrent: false, weightId: snapshot.latestWeightId, personalContextCutoff: NaN };
-  if (existing.styleVersion === COACH_STYLE_VERSION) {
+  if (existing.styleVersion === COACH_STYLE_VERSION && options.force !== true) {
     return { store, updated: false, alreadyCurrent: true, weightId: latestWeight.id, personalContextCutoff: latestCoachPersonalContextCutoff(store, existing) };
   }
   const personalContextCutoff = latestCoachPersonalContextCutoff(store, existing);
   const persistedPersonalAnchor = personalAnchorFromCoachRecord(existing);
   const context = buildCoachContext(store, latestWeight.id, {
     personalContextCutoff: Number.isFinite(personalContextCutoff) ? personalContextCutoff : undefined,
-    relationshipSupport: persistedPersonalAnchor || undefined
+    relationshipSupport: persistedPersonalAnchor || undefined,
+    operationalNow: now
   });
   if (!context?.personalAnchor) {
     return {
@@ -5536,13 +5800,35 @@ async function handleApi(req, res, pathname) {
         return currentLatestWeight ? ensurePublicCoachForWeight(currentStore, currentLatestWeight.id) : currentStore;
       });
     }
+    const rewardPreflightStore = await readStore();
+    const rewardPreflightWeight = latestWeightRecord(rewardPreflightStore);
+    const rewardPreflightCoach = rewardPreflightWeight ? coachForWeight(rewardPreflightStore, rewardPreflightWeight.id) : null;
+    const rewardPreflight = calculateStoreBobaReward(rewardPreflightStore, {
+      asOf: Date.now(),
+      weightId: rewardPreflightWeight?.id
+    });
+    if (rewardPreflightWeight && rewardPreflightCoach && coachBobaRewardNeedsRepair(rewardPreflightCoach, rewardPreflight)) {
+      await writeStore((currentStore) => {
+        const currentLatestWeight = latestWeightRecord(currentStore);
+        const currentCoach = currentLatestWeight ? coachForWeight(currentStore, currentLatestWeight.id) : null;
+        const currentReward = calculateStoreBobaReward(currentStore, {
+          asOf: Date.now(),
+          weightId: currentLatestWeight?.id
+        });
+        if (!currentLatestWeight || !currentCoach || !coachBobaRewardNeedsRepair(currentCoach, currentReward)) return currentStore;
+        const refreshed = refreshLatestCoachStyleInStore(currentStore, "fallback-boba-window-refresh", Date.now(), { force: true });
+        return refreshed.updated ? refreshed.store : currentStore;
+      });
+    }
     const store = await readStore();
     const latestWeight = latestWeightRecord(store);
     const latestCoach = latestWeight ? coachForWeight(store, latestWeight.id) : null;
+    const bobaReward = calculateStoreBobaReward(store, { asOf: Date.now(), weightId: latestWeight?.id });
     if (latestWeight && coachNeedsRepair(latestCoach)) scheduleCoachGeneration(latestWeight.id);
     send(res, 200, {
       weights: publicWeights(store.weights).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))),
-      latestCoach: publicCoach(latestCoach)
+      latestCoach: publicCoach(latestCoach),
+      bobaReward: publicBobaReward(bobaReward)
     });
     return;
   }
@@ -5648,13 +5934,22 @@ async function handleApi(req, res, pathname) {
     assertExpectedCoachRefreshState(initialSnapshot, expected, expectedCoach);
     const initialWeight = (initialStore.weights || []).find((weight) => weight.id === initialSnapshot.targetWeightId);
     const initialWeightTime = Date.parse(initialWeight?.createdAt);
-    const relationshipSupport = await fetchLatestBrainRelationshipSupport(initialStore, {
+    const relationshipSupport = await fetchLatestBrainPersonalAnchor(initialStore, {
       cutoff: Number.isFinite(initialWeightTime) ? Math.min(operationalNow, initialWeightTime + BRAIN_WEIGHT_INDEX_GRACE_MS) : operationalNow,
+      thoughtCutoff: operationalNow,
       earliest: Number.isFinite(initialWeightTime) ? initialWeightTime - BRAIN_WEIGHT_CONTEXT_LOOKBACK_MS : undefined,
       operationalNow,
-      excludedWeightId: initialSnapshot.targetWeightId
+      weight: initialWeight,
+      weightId: initialSnapshot.targetWeightId,
+      excludedWeightId: initialSnapshot.targetWeightId,
+      preferNewestCurrentThought: true
     });
-    if (!relationshipSupport || !brainSourceWithinWeightWindow(initialWeight, relationshipSupport, operationalNow)) {
+    const relationshipSupportTime = Date.parse(relationshipSupport?.createdAt || "");
+    const eligibleCurrentThought = relationshipSupport?.sourceType === "brain-thought-anchor"
+      && Number.isFinite(relationshipSupportTime)
+      && relationshipSupportTime <= operationalNow
+      && operationalNow - relationshipSupportTime <= BRAIN_RELATIONSHIP_MAX_AGE_MS;
+    if (!relationshipSupport || (!eligibleCurrentThought && !brainSourceWithinWeightWindow(initialWeight, relationshipSupport, operationalNow))) {
       throw Object.assign(new Error("No recent eligible personal context was available for this refresh."), { status: 409 });
     }
 
@@ -5664,7 +5959,9 @@ async function handleApi(req, res, pathname) {
     await writeStore(async (store) => {
       baseline = coachRefreshPreservationSnapshot(store);
       assertExpectedCoachRefreshState(baseline, expected, expectedCoach);
-      prepared = refreshLatestCoachForBrainRelationship(store, relationshipSupport, "fallback-brain-relationship-maintenance", operationalNow);
+      prepared = refreshLatestCoachForBrainRelationship(store, relationshipSupport, "fallback-brain-relationship-maintenance", operationalNow, {
+        allowCurrentThoughtRefresh: eligibleCurrentThought
+      });
       if (!prepared.updated) {
         if (prepared.alreadyCurrent) return store;
         throw Object.assign(new Error("The recent personal context was not eligible for the latest coach."), { status: 409 });
@@ -5885,7 +6182,12 @@ async function handleApi(req, res, pathname) {
     };
     const savedStore = await persistWeightWithRecoverableCoach(created);
     const savedCoach = coachForWeight(savedStore, created.id);
-    send(res, 201, { weight: publicWeight(created), latestCoach: publicCoach(savedCoach) });
+    const bobaReward = calculateStoreBobaReward(savedStore, { asOf: created.createdAt, weightId: created.id });
+    send(res, 201, {
+      weight: publicWeight(created),
+      latestCoach: publicCoach(savedCoach),
+      bobaReward: publicBobaReward(bobaReward)
+    });
     if (coachNeedsRepair(savedCoach)) scheduleCoachGeneration(created.id);
     if (!savedCoach?.personalAnchor?.approvedText || !containsPrivateCoachBlockedTerm(savedCoach.personalAnchor.approvedText)) {
       scheduleBrainContextReconciliation(created.id);
@@ -5976,7 +6278,7 @@ async function handleApi(req, res, pathname) {
   const deleteWeightMatch = /^\/api\/weights\/([^/]+)$/.exec(pathname);
   if (deleteWeightMatch && req.method === "DELETE") {
     const id = decodeURIComponent(deleteWeightMatch[1]);
-    await writeStore((store) => removeWeightAndCoach(store, id));
+    await writeStore((store) => reconcileBobaRewardInStore(removeWeightAndCoach(store, id), { asOf: Date.now() }));
     send(res, 200, { ok: true });
     return;
   }
@@ -6116,6 +6418,7 @@ const server = http.createServer(async (req, res) => {
 
 if (require.main === module) {
   ensureDataDir()
+    .then(backfillBobaRewardState)
     .then(backfillCoachMessages)
     .then(() => {
       server.listen(port, () => {
@@ -6157,10 +6460,13 @@ if (process.env.NODE_ENV === "test" || process.env.LILY_COACH_CLI === "1") {
     WRITER_SAFE_OPENINGS,
     addFallbackCoachForWeight,
     addPendingCoachForWeight,
+    backfillBobaRewardState,
     assertCoachRefreshPreserved,
     assertExpectedCoachRefreshState,
     backfillCoachMessages,
     buildCoachContext,
+    calculateBobaRewardState,
+    calculateStoreBobaReward,
     brainRelationshipSupportAvailable,
     brainRelationshipSupportFromFile,
     brainThoughtAnchorFromFile,
@@ -6174,6 +6480,7 @@ if (process.env.NODE_ENV === "test" || process.env.LILY_COACH_CLI === "1") {
     buildContextualFallbackCandidates,
     buildContextualFallbackResult,
     causalPreviousCoachMessages,
+    coachBobaRewardNeedsRepair,
     coachForWeight,
     coachNeedsRepair,
     coachRefreshPreservationSnapshot,
@@ -6236,6 +6543,7 @@ if (process.env.NODE_ENV === "test" || process.env.LILY_COACH_CLI === "1") {
     personalAnchorReferenceKeys,
     personalAnchorSemanticKind,
     persistWeightWithRecoverableCoach,
+    reconcileBobaRewardInStore,
     reportedCoachEffort,
     referencedBrainLetterIds,
     selectSavedPreference,

@@ -68,7 +68,9 @@ assert.ok(
 assert.ok(app.includes('].join(" · ")'), "the visible forecast values must stay compact and scannable");
 assert.ok(app.includes('`about ${Math.round(exact)} lb in 1 yr`'), "an uncalibrated outlook must use a rounded about-value");
 assert.equal((app.match(/id="weightCoach"/g) || []).length, 1, "the primary card must contain exactly one coach paragraph");
+assert.equal((app.match(/id="weightBoba"/g) || []).length, 1, "the primary card must contain exactly one boba progress line");
 assert.ok(!app.includes('id="weightVerdict"'), "the rejected standalone verdict paragraph must stay removed");
+assert.match(styles, /\.panel-head p\.weight-boba\s*\{[\s\S]*?font-weight:\s*740;/, "boba progress must remain a compact, intentional part of the weight card");
 assert.match(styles, /\.panel-head p\.weight-coach\s*\{[\s\S]*?font-weight:\s*700;/, "coach copy must have an intentional first-read treatment");
 assert.ok(
   app.indexOf('id="weightLatest"') < app.indexOf('id="weightEstimate"') &&
@@ -76,7 +78,9 @@ assert.ok(
   "latest weight, forecast line, and one coach paragraph must lead the card in that order"
 );
 assert.ok(app.includes("state.latestCoach = normalizeLatestCoach(weightResult.latestCoach)"), "initial loading must retain the persisted coach paragraph");
+assert.ok(app.includes("state.bobaReward = normalizeBobaReward(weightResult.bobaReward)"), "initial loading must retain persisted boba progress");
 assert.ok(app.includes("state.latestCoach = normalizeLatestCoach(result.latestCoach)"), "weight refreshes and saves must retain the returned coach paragraph");
+assert.ok(app.includes("state.bobaReward = normalizeBobaReward(result.bobaReward)"), "weight refreshes and saves must retain returned boba progress");
 assert.equal((app.match(/Analyzing today’s weigh-in…/g) || []).length, 1, "a saved weigh-in must use exactly one analyzing message");
 assert.ok(app.includes("const COACH_ANALYSIS_WINDOW_MS = 8000;"), "the analyzing state must end at the eight-second deadline");
 const coachCheckpointsMatch = app.match(/const COACH_POLL_CHECKPOINTS_MS = Object\.freeze\(\[([^\]]+)\]\);/);
@@ -217,8 +221,10 @@ vm.runInNewContext(`
   const COACH_PREPARING_TEXT = "Analysis is still being prepared.";
   ${app.slice(coachTextStart, coachTextEnd)}
   this.readCoach = weightCoachText;
+  this.formatBoba = formatBobaReward;
 `, coachTextSandbox);
 const readCoach = coachTextSandbox.readCoach;
+const formatBoba = coachTextSandbox.formatBoba;
 const savedCoach = { weightId: "weight-new", text: "Persisted server coach.", createdAt: "2026-07-22T12:00:00Z" };
 const analyzingCoach = { weightId: "weight-new", deadlineAt: 8000 };
 assert.equal(readCoach({ id: "weight-new" }, savedCoach, analyzingCoach, 7999), "Analyzing today’s weigh-in…", "the fallback must stay hidden throughout the analysis window");
@@ -226,6 +232,17 @@ assert.equal(readCoach({ id: "weight-new" }, savedCoach, analyzingCoach, 8000), 
 assert.equal(readCoach({ id: "weight-new" }, savedCoach, null, 0), savedCoach.text, "settled views must render only persisted server copy");
 assert.equal(readCoach({ id: "weight-new" }, { ...savedCoach, weightId: "weight-old" }, null, 0), "Analysis is still being prepared.", "a coach record for another weight must never be synthesized into a replacement");
 assert.equal(readCoach(null, null, null, 0), "No coach message yet.", "an empty history must not render coaching");
+assert.equal(
+  formatBoba({ baselineAverageLb: 150.3, baselineDateKey: "2026-08-08", currentSevenDayAverageLb: 150.3, nextThresholdLb: 149.3, poundsToNextBobaLb: 1, earnedCount: 0 }),
+  "🧋 0 bobas earned · 7-day average 150.3 lb · next boba 149.3 lb · 1.0 lb to go",
+  "the live baseline must state the current average, next threshold, and exact boba distance in one compact line"
+);
+assert.equal(
+  formatBoba({ baselineAverageLb: 150.3, baselineDateKey: "2026-08-08", currentSevenDayAverageLb: 148.2, nextThresholdLb: 147.3, poundsToNextBobaLb: 0.9, earnedCount: 2 }),
+  "🧋 2 bobas earned · 7-day average 148.2 lb · next boba 147.3 lb · 0.9 lb to go",
+  "earned rewards and the next one-time threshold must remain visible together"
+);
+assert.equal(formatBoba(null), "", "an unavailable reward state must not render a placeholder card");
 
 const presentationStart = app.indexOf("function createOneYearOutlookPresentation");
 const presentationEnd = app.indexOf("function createOneYearOutlookChart", presentationStart);
