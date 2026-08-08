@@ -21,6 +21,7 @@ const state = {
   memories: [],
   weights: [],
   latestCoach: null,
+  bobaReward: null,
   coachAnalysis: null,
   tracker: null,
   pendingFiles: [],
@@ -112,6 +113,7 @@ function renderShell() {
                   <h2 id="weightTitle">weight</h2>
                   <p id="weightLatest">No weights saved.</p>
                   <p class="weight-estimate" id="weightEstimate">1-week, 1-month, 1-year estimates need saved weights.</p>
+                  <p class="weight-boba" id="weightBoba" aria-live="polite" hidden></p>
                   <p class="weight-coach" id="weightCoach" aria-live="polite">No coach message yet.</p>
                 </div>
               </div>
@@ -414,6 +416,7 @@ async function loadWeights(options = {}) {
     const result = await apiFetch("/api/weights");
     state.weights = Array.isArray(result.weights) ? result.weights : [];
     state.latestCoach = normalizeLatestCoach(result.latestCoach);
+    state.bobaReward = normalizeBobaReward(result.bobaReward);
     cancelCoachAnalysisIfLatestChanged();
     renderWeights();
   } catch (error) {
@@ -443,6 +446,7 @@ async function loadData(options = {}) {
     state.memories = Array.isArray(memoryResult.memories) ? memoryResult.memories : [];
     state.weights = Array.isArray(weightResult.weights) ? weightResult.weights : [];
     state.latestCoach = normalizeLatestCoach(weightResult.latestCoach);
+    state.bobaReward = normalizeBobaReward(weightResult.bobaReward);
     cancelCoachAnalysisIfLatestChanged();
     state.tracker = trackerResult.tracker || null;
     renderWall();
@@ -557,6 +561,7 @@ async function saveWeight(event) {
     const fallbackCoach = normalizeLatestCoach(result.latestCoach);
     state.weights = mergeSavedWeight(state.weights, result.weight);
     state.latestCoach = fallbackCoach;
+    state.bobaReward = normalizeBobaReward(result.bobaReward);
     const analysis = beginCoachAnalysis(result.weight?.id, fallbackCoach);
     input.value = "";
     renderWeights();
@@ -643,13 +648,16 @@ async function pollCoachReplacement(analysis) {
     try {
       const result = await apiFetch("/api/weights");
       const latestCoach = normalizeLatestCoach(result.latestCoach);
+      const bobaReward = normalizeBobaReward(result.bobaReward);
       const latestWeight = Array.isArray(result.weights) ? result.weights[0] : null;
       if (!latestWeight || String(latestWeight.id) !== analysis.weightId) {
         state.weights = Array.isArray(result.weights) ? result.weights : state.weights;
+        state.bobaReward = bobaReward;
         settleCoachAnalysis(analysis, latestCoach);
         return;
       }
       state.weights = result.weights;
+      state.bobaReward = bobaReward;
       if (latestCoach) {
         analysis.latestPersistedCoach = latestCoach;
         state.latestCoach = latestCoach;
@@ -752,6 +760,7 @@ function renderWall() {
 function renderWeights() {
   const latest = document.getElementById("weightLatest");
   const estimate = document.getElementById("weightEstimate");
+  const boba = document.getElementById("weightBoba");
   const coach = document.getElementById("weightCoach");
   const actualChartWrap = document.getElementById("weightActualChartWrap");
   const forecastChartWrap = document.getElementById("weightForecastChartWrap");
@@ -775,6 +784,11 @@ function renderWeights() {
   const newest = rows[0];
   latest.textContent = newest ? `${formatWeight(newest)} saved ${formatDateTime(newest.createdAt)}` : "No weights saved.";
   if (estimate) estimate.textContent = createWeightEstimate(currentForecast);
+  if (boba) {
+    const bobaText = formatBobaReward(state.bobaReward);
+    boba.textContent = bobaText;
+    boba.hidden = !bobaText;
+  }
   if (coach) coach.textContent = createWeightCoachMessage(newest);
   if (actualChartValue) actualChartValue.textContent = newest ? `${formatWeight(newest)} now` : "--";
   if (forecastChartValue) {
@@ -910,6 +924,32 @@ function normalizeLatestCoach(value) {
     text,
     createdAt: value.createdAt || null
   };
+}
+
+function normalizeBobaReward(value) {
+  if (!value || typeof value !== "object") return null;
+  const baselineAverageLb = Number(value.baselineAverageLb);
+  const currentSevenDayAverageLb = Number(value.currentSevenDayAverageLb);
+  const nextThresholdLb = Number(value.nextThresholdLb);
+  const poundsToNextBobaLb = Number(value.poundsToNextBobaLb);
+  const earnedCount = Math.max(0, Math.floor(Number(value.earnedCount) || 0));
+  if (![baselineAverageLb, currentSevenDayAverageLb, nextThresholdLb, poundsToNextBobaLb].every(Number.isFinite)) return null;
+  return {
+    baselineAverageLb,
+    baselineDateKey: String(value.baselineDateKey || ""),
+    currentSevenDayAverageLb,
+    nextThresholdLb,
+    poundsToNextBobaLb: Math.max(0, poundsToNextBobaLb),
+    observedDayCount: Math.max(0, Math.floor(Number(value.observedDayCount) || 0)),
+    earnedCount
+  };
+}
+
+function formatBobaReward(value) {
+  const reward = normalizeBobaReward(value);
+  if (!reward) return "";
+  const earned = reward.earnedCount === 1 ? "1 boba earned" : `${reward.earnedCount} bobas earned`;
+  return `🧋 ${earned} · 7-day average ${reward.currentSevenDayAverageLb.toFixed(1)} lb · next boba ${reward.nextThresholdLb.toFixed(1)} lb · ${reward.poundsToNextBobaLb.toFixed(1)} lb to go`;
 }
 
 function weightCoachText(newest, latestCoach, coachAnalysis, now = Date.now()) {

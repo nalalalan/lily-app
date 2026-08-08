@@ -280,6 +280,18 @@ noscript {
   font-weight: 720;
 }
 
+.panel-head p.weight-boba {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid rgba(141, 51, 77, 0.18);
+  border-radius: 8px;
+  background: #fff5f7;
+  color: var(--accent-strong);
+  font-size: 12px;
+  line-height: 1.4;
+  font-weight: 740;
+}
+
 .panel-head p.weight-coach {
   margin-top: 10px;
   color: var(--ink);
