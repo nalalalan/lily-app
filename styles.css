@@ -280,7 +280,11 @@ noscript {
   font-weight: 720;
 }
 
-.panel-head p.weight-boba {
+.panel-head .weight-boba {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 2px 10px;
   margin-top: 8px;
   padding: 8px 10px;
   border: 1px solid rgba(141, 51, 77, 0.18);
@@ -290,6 +294,44 @@ noscript {
   font-size: 12px;
   line-height: 1.4;
   font-weight: 740;
+}
+
+.weight-boba[hidden] {
+  display: none;
+}
+
+.weight-boba-label,
+.weight-boba-next {
+  min-width: 0;
+}
+
+.weight-boba-average {
+  color: var(--ink);
+  font-size: 17px;
+  line-height: 1.1;
+}
+
+.weight-boba-window {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 620;
+}
+
+.weight-boba-next {
+  margin-top: 5px;
+}
+
+.weight-boba-distance {
+  color: var(--accent-strong);
+  white-space: nowrap;
+}
+
+.weight-boba-earned {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 680;
 }
 
 .panel-head p.weight-coach {
