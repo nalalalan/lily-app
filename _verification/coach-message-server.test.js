@@ -1164,6 +1164,7 @@ async function run() {
   assert.equal(operationalCurrentBrainRefresh.updated, true, "the explicit latest-memo path can use a current safe Brain thought even when the latest saved weight is older");
   const operationalCurrentBrainCoach = coach.coachForWeight(operationalCurrentBrainRefresh.store, "boba-baseline-aug5");
   assert(operationalCurrentBrainCoach.text.includes(currentPressureArrayThought.text));
+  assert(operationalCurrentBrainCoach.evidenceReferences.some((reference) => reference.type === "brain-thought-anchor" && reference.id === currentPressureArrayThought.id), "the current safe thought keeps its real reference type for live refresh verification");
   assert.equal((operationalCurrentBrainCoach.text.match(/The 1x1, 2x2, and 3x3 pressure arrays need to be presented clearly/g) || []).length, 1);
   assert.doesNotMatch(operationalCurrentBrainCoach.text, VISIBLE_COACH_SOURCE_WRAPPER);
 

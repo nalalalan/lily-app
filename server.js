@@ -5985,7 +5985,8 @@ async function handleApi(req, res, pathname) {
     const finalSnapshot = coachRefreshPreservationSnapshot(finalStore, prepared?.weightId || baseline?.targetWeightId);
     assertCoachRefreshPreserved(baseline, finalSnapshot);
     const finalRecord = coachForWeight(finalStore, finalSnapshot.targetWeightId);
-    const brainReferenced = Boolean(finalRecord?.evidenceReferences?.some((reference) => reference.type === "brain-letter" && reference.id === relationshipSupport.id));
+    const expectedReferenceType = relationshipSupport.sourceType || "brain-letter";
+    const brainReferenced = Boolean(finalRecord?.evidenceReferences?.some((reference) => reference.type === expectedReferenceType && reference.id === relationshipSupport.id));
     if (!brainReferenced || !finalRecord?.text?.includes(relationshipSupport.text)) {
       throw Object.assign(new Error("The refreshed coach did not retain the approved personal context."), { status: 409 });
     }
