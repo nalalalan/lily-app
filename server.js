@@ -79,16 +79,16 @@ function publicApiErrorMessage(error, status = Number(error?.status) || 500) {
   return status >= 500 ? "Something went wrong. Please try again." : (error?.message || "Request failed.");
 }
 
-const COACH_GENERATION_VERSION = "coach-pipeline-v27";
+const COACH_GENERATION_VERSION = "coach-pipeline-v28";
 const COACH_ANALYSIS_VERSION = "coach-analysis-v12";
-const COACH_WRITER_PROMPT_VERSION = "coach-writer-v21";
+const COACH_WRITER_PROMPT_VERSION = "coach-writer-v22";
 const COACH_CRITIC_PROMPT_VERSION = "coach-critic-v10";
 const COACH_VALIDATOR_VERSION = "coach-validator-v16";
-const COACH_FALLBACK_VERSION = "coach-fallback-v18";
+const COACH_FALLBACK_VERSION = "coach-fallback-v19";
 const COACH_ACTION_VERSION = "coach-action-v7";
 const COACH_PROMPT_VERSION = COACH_WRITER_PROMPT_VERSION;
 const COACH_SAFETY_VERSION = "coach-safety-v7";
-const COACH_STYLE_VERSION = "coach-style-boba-context-v13";
+const COACH_STYLE_VERSION = "coach-style-boba-average-v14";
 const COACH_PENDING_STATUS = "pending-contextual-repair";
 const COACH_MIN_WORDS = 35;
 const COACH_MAX_WORDS = 55;
@@ -1035,6 +1035,19 @@ function brainResearchSpecificSubject(source) {
     && /\barrays?\b/i.test(clause)
     && presentationRelation.test(clause)
     && !brainSpecificRelationNegated(clause, presentationRelation));
+  const indexedDetailClauses = detailClauses.map((clause, index) => ({ clause, index }));
+  const arrayPresentationEvidence = indexedDetailClauses.find(({ clause }) => /\barrays?\b/i.test(clause)
+    && presentationRelation.test(clause)
+    && !BRAIN_SPECIFIC_NEGATION.test(clause)
+    && !brainSpecificRelationNegated(clause, presentationRelation));
+  const pressureEvidence = indexedDetailClauses.find(({ clause }) => /\bpressure\b/i.test(clause)
+    && !BRAIN_SPECIFIC_NEGATION.test(clause));
+  const gridFigureEvidence = indexedDetailClauses.find(({ clause }) => fullArraySetIn(clause)
+    && /\bfigures?\b/i.test(clause)
+    && !BRAIN_SPECIFIC_NEGATION.test(clause));
+  const compositeEvidence = [arrayPresentationEvidence, pressureEvidence, gridFigureEvidence].filter(Boolean);
+  const crossClausePressureArrayPresentation = compositeEvidence.length === 3
+    && Math.max(...compositeEvidence.map(({ index }) => index)) - Math.min(...compositeEvidence.map(({ index }) => index)) <= 16;
   const comparisonRelation = /\b(?:compare|compares|comparing|show|showing|present|presenting|plot|plotting|evaluate|evaluating)\b/i;
   const hysteresisClause = detailClauses.find((clause) => fullArraySetIn(clause)
     && /\bloading\b/i.test(clause)
@@ -1046,7 +1059,7 @@ function brainResearchSpecificSubject(source) {
     const figureIds = Array.from(new Set(Array.from(pressureClause.matchAll(/\bbf0[1-9]\b/gi), (match) => match[0].toUpperCase())));
     return `${figureIds.slice(0, 2).join(" and ")} need panels at 10, 50, 80, and 120 psi`;
   }
-  if (researchFigureContext && pressureArrayClause) {
+  if (researchFigureContext && (pressureArrayClause || crossClausePressureArrayPresentation)) {
     return "The 1x1, 2x2, and 3x3 pressure arrays need to be presented clearly";
   }
   if (researchFigureContext && hysteresisClause) {
@@ -2763,17 +2776,17 @@ function bobaRewardClosingCandidates(context) {
       : Number(reward.baselineAverageLb) - Number(reward.earnedCount));
     const rewardNoun = earnedNow === 1 ? "a delicious boba" : `${earnedNow} delicious bobas`;
     return [
-      `${currentAverage} lb over 7 days earns ${rewardNoun} through ${earnedThreshold} lb! Next: ${nextThreshold} lb, ${poundsRemaining} lb away—delicious, yummmm!`,
-      `The ${currentAverage} lb 7-day average earns ${rewardNoun} at ${earnedThreshold} lb! Next: ${nextThreshold} lb, ${poundsRemaining} lb away—yummmm!`,
-      `${rewardNoun.charAt(0).toUpperCase()}${rewardNoun.slice(1)} is officially earned at a ${currentAverage} lb 7-day average; the next threshold is ${nextThreshold} lb, ${poundsRemaining} lb away—delicious, deserved, yummmm!`,
-      `The ${currentAverage} lb 7-day average clears the ${earnedThreshold} lb boba threshold; ${rewardNoun} is earned, and the next at ${nextThreshold} lb is ${poundsRemaining} lb away—what a win, yummmm!`
+      `Last 7 days' average is ${currentAverage} lb, earning ${rewardNoun} through ${earnedThreshold} lb. Next boba average: ${nextThreshold} lb, ${poundsRemaining} lb away—yummmm!`,
+      `A ${currentAverage} lb average across the last 7 days earns ${rewardNoun} through ${earnedThreshold} lb. The next boba average is ${nextThreshold} lb, ${poundsRemaining} lb away—delicious!`,
+      `${rewardNoun.charAt(0).toUpperCase()}${rewardNoun.slice(1)} is earned from the last 7 days' ${currentAverage} lb average. Next boba average: ${nextThreshold} lb, ${poundsRemaining} lb away—deserved, yummmm!`,
+      `The current average for the last 7 days is ${currentAverage} lb, clearing ${earnedThreshold} lb and earning ${rewardNoun}. The next boba average is ${nextThreshold} lb, ${poundsRemaining} lb away—what a win!`
     ];
   }
   return [
-    `The ${currentAverage} lb 7-day average is ${poundsRemaining} lb from boba at ${nextThreshold} lb—exciting, yummmm!`,
-    `At ${currentAverage} lb, the 7-day average is ${poundsRemaining} lb from delicious boba at ${nextThreshold} lb—yummmm!`,
-    `A ${currentAverage} lb 7-day average leaves ${poundsRemaining} lb before the next boba at ${nextThreshold} lb—so close, so exciting, yummmm!`,
-    `The next delicious boba unlocks at a ${nextThreshold} lb 7-day average; from ${currentAverage} lb, only ${poundsRemaining} lb remains—absolutely possible!`
+    `Last 7 days' average is ${currentAverage} lb. The next boba average is ${nextThreshold} lb, ${poundsRemaining} lb away—exciting, yummmm!`,
+    `The current average across the last 7 days is ${currentAverage} lb, just ${poundsRemaining} lb from the ${nextThreshold} lb boba average—yummmm!`,
+    `Averaging the last 7 days gives ${currentAverage} lb. The next boba average is ${nextThreshold} lb, with ${poundsRemaining} lb to go—so exciting!`,
+    `The current 7-day average covers the last 7 days: ${currentAverage} lb. Delicious boba is at a ${nextThreshold} lb average, ${poundsRemaining} lb away—absolutely possible!`
   ];
 }
 

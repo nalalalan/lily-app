@@ -70,7 +70,11 @@ assert.ok(app.includes('`about ${Math.round(exact)} lb in 1 yr`'), "an uncalibra
 assert.equal((app.match(/id="weightCoach"/g) || []).length, 1, "the primary card must contain exactly one coach paragraph");
 assert.equal((app.match(/id="weightBoba"/g) || []).length, 1, "the primary card must contain exactly one boba progress line");
 assert.ok(!app.includes('id="weightVerdict"'), "the rejected standalone verdict paragraph must stay removed");
-assert.match(styles, /\.panel-head p\.weight-boba\s*\{[\s\S]*?font-weight:\s*740;/, "boba progress must remain a compact, intentional part of the weight card");
+assert.match(styles, /\.panel-head \.weight-boba\s*\{[\s\S]*?font-weight:\s*740;/, "boba progress must remain a compact, intentional part of the weight card");
+assert.match(styles, /\.weight-boba\[hidden\]\s*\{[\s\S]*?display:\s*none;/, "the boba surface must not expose first-paint placeholders before live data arrives");
+for (const id of ["weightBobaAverage", "weightBobaWindow", "weightBobaThreshold", "weightBobaDistance"]) {
+  assert.equal((app.match(new RegExp(`id="${id}"`, "g")) || []).length, 1, `${id} must have one direct-read surface`);
+}
 assert.match(styles, /\.panel-head p\.weight-coach\s*\{[\s\S]*?font-weight:\s*700;/, "coach copy must have an intentional first-read treatment");
 assert.ok(
   app.indexOf('id="weightLatest"') < app.indexOf('id="weightEstimate"') &&
@@ -233,13 +237,13 @@ assert.equal(readCoach({ id: "weight-new" }, savedCoach, null, 0), savedCoach.te
 assert.equal(readCoach({ id: "weight-new" }, { ...savedCoach, weightId: "weight-old" }, null, 0), "Analysis is still being prepared.", "a coach record for another weight must never be synthesized into a replacement");
 assert.equal(readCoach(null, null, null, 0), "No coach message yet.", "an empty history must not render coaching");
 assert.equal(
-  formatBoba({ baselineAverageLb: 150.3, baselineDateKey: "2026-08-08", currentSevenDayAverageLb: 150.3, nextThresholdLb: 149.3, poundsToNextBobaLb: 1, earnedCount: 0 }),
-  "🧋 0 bobas earned · 7-day average 150.3 lb · next boba 149.3 lb · 1.0 lb to go",
-  "the live baseline must state the current average, next threshold, and exact boba distance in one compact line"
+  formatBoba({ baselineAverageLb: 150.3, baselineDateKey: "2026-08-08", currentSevenDayAverageLb: 150.3, nextThresholdLb: 149.3, poundsToNextBobaLb: 1, observedDayCount: 4, windowStartDateKey: "2026-08-02", windowEndDateKey: "2026-08-08", earnedCount: 0 }),
+  "Current 7-day average 150.3 lb from Aug 2–8, averaging 4 weigh-in days. Next boba average 149.3 lb, 1.0 lb to go. 0 bobas earned.",
+  "the live baseline must identify the exact seven-day window, averaged days, threshold, and remaining distance"
 );
 assert.equal(
-  formatBoba({ baselineAverageLb: 150.3, baselineDateKey: "2026-08-08", currentSevenDayAverageLb: 148.2, nextThresholdLb: 147.3, poundsToNextBobaLb: 0.9, earnedCount: 2 }),
-  "🧋 2 bobas earned · 7-day average 148.2 lb · next boba 147.3 lb · 0.9 lb to go",
+  formatBoba({ baselineAverageLb: 150.3, baselineDateKey: "2026-08-08", currentSevenDayAverageLb: 148.2, nextThresholdLb: 147.3, poundsToNextBobaLb: 0.9, observedDayCount: 7, windowStartDateKey: "2026-08-16", windowEndDateKey: "2026-08-22", earnedCount: 2 }),
+  "Current 7-day average 148.2 lb from Aug 16–22, averaging 7 weigh-in days. Next boba average 147.3 lb, 0.9 lb to go. 2 bobas earned.",
   "earned rewards and the next one-time threshold must remain visible together"
 );
 assert.equal(formatBoba(null), "", "an unavailable reward state must not render a placeholder card");

@@ -113,7 +113,13 @@ function renderShell() {
                   <h2 id="weightTitle">weight</h2>
                   <p id="weightLatest">No weights saved.</p>
                   <p class="weight-estimate" id="weightEstimate">1-week, 1-month, 1-year estimates need saved weights.</p>
-                  <p class="weight-boba" id="weightBoba" aria-live="polite" hidden></p>
+                  <div class="weight-boba" id="weightBoba" aria-live="polite" hidden>
+                    <span class="weight-boba-label">🧋 Current 7-day average</span>
+                    <strong class="weight-boba-average" id="weightBobaAverage">--</strong>
+                    <span class="weight-boba-window" id="weightBobaWindow"></span>
+                    <span class="weight-boba-next">Next boba average: <strong id="weightBobaThreshold">--</strong></span>
+                    <strong class="weight-boba-distance" id="weightBobaDistance">-- to go</strong>
+                  </div>
                   <p class="weight-coach" id="weightCoach" aria-live="polite">No coach message yet.</p>
                 </div>
               </div>
@@ -785,9 +791,15 @@ function renderWeights() {
   latest.textContent = newest ? `${formatWeight(newest)} saved ${formatDateTime(newest.createdAt)}` : "No weights saved.";
   if (estimate) estimate.textContent = createWeightEstimate(currentForecast);
   if (boba) {
-    const bobaText = formatBobaReward(state.bobaReward);
-    boba.textContent = bobaText;
-    boba.hidden = !bobaText;
+    const reward = normalizeBobaReward(state.bobaReward);
+    boba.hidden = !reward;
+    if (reward) {
+      document.getElementById("weightBobaAverage").textContent = `${reward.currentSevenDayAverageLb.toFixed(1)} lb`;
+      document.getElementById("weightBobaWindow").textContent = `${formatBobaDateRange(reward.windowStartDateKey, reward.windowEndDateKey)} · ${reward.observedDayCount} weigh-in day${reward.observedDayCount === 1 ? "" : "s"} averaged`;
+      document.getElementById("weightBobaThreshold").textContent = `${reward.nextThresholdLb.toFixed(1)} lb`;
+      document.getElementById("weightBobaDistance").textContent = `${reward.poundsToNextBobaLb.toFixed(1)} lb to go`;
+      boba.setAttribute("aria-label", formatBobaReward(reward));
+    }
   }
   if (coach) coach.textContent = createWeightCoachMessage(newest);
   if (actualChartValue) actualChartValue.textContent = newest ? `${formatWeight(newest)} now` : "--";
@@ -941,15 +953,37 @@ function normalizeBobaReward(value) {
     nextThresholdLb,
     poundsToNextBobaLb: Math.max(0, poundsToNextBobaLb),
     observedDayCount: Math.max(0, Math.floor(Number(value.observedDayCount) || 0)),
+    windowStartDateKey: /^\d{4}-\d{2}-\d{2}$/.test(String(value.windowStartDateKey || "")) ? String(value.windowStartDateKey) : "",
+    windowEndDateKey: /^\d{4}-\d{2}-\d{2}$/.test(String(value.windowEndDateKey || "")) ? String(value.windowEndDateKey) : "",
     earnedCount
   };
+}
+
+function formatBobaDateKey(value) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ""));
+  if (!match) return "Last 7 days";
+  return new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "short", day: "numeric" })
+    .format(new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]))));
+}
+
+function formatBobaDateRange(startDateKey, endDateKey) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(startDateKey || "")) || !/^\d{4}-\d{2}-\d{2}$/.test(String(endDateKey || ""))) {
+    return "Last 7 days";
+  }
+  const start = formatBobaDateKey(startDateKey);
+  const end = formatBobaDateKey(endDateKey);
+  const startParts = /^(\S+)\s+(\d+)$/.exec(start);
+  const endParts = /^(\S+)\s+(\d+)$/.exec(end);
+  return startParts && endParts && startParts[1] === endParts[1]
+    ? `${startParts[1]} ${startParts[2]}–${endParts[2]}`
+    : `${start}–${end}`;
 }
 
 function formatBobaReward(value) {
   const reward = normalizeBobaReward(value);
   if (!reward) return "";
   const earned = reward.earnedCount === 1 ? "1 boba earned" : `${reward.earnedCount} bobas earned`;
-  return `🧋 ${earned} · 7-day average ${reward.currentSevenDayAverageLb.toFixed(1)} lb · next boba ${reward.nextThresholdLb.toFixed(1)} lb · ${reward.poundsToNextBobaLb.toFixed(1)} lb to go`;
+  return `Current 7-day average ${reward.currentSevenDayAverageLb.toFixed(1)} lb from ${formatBobaDateRange(reward.windowStartDateKey, reward.windowEndDateKey)}, averaging ${reward.observedDayCount} weigh-in day${reward.observedDayCount === 1 ? "" : "s"}. Next boba average ${reward.nextThresholdLb.toFixed(1)} lb, ${reward.poundsToNextBobaLb.toFixed(1)} lb to go. ${earned}.`;
 }
 
 function weightCoachText(newest, latestCoach, coachAnalysis, now = Date.now()) {

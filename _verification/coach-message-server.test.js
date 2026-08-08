@@ -1038,6 +1038,24 @@ async function run() {
   assert.equal(currentPressureArrayThought.text, "The 1x1, 2x2, and 3x3 pressure arrays need to be presented clearly");
   assert.equal(currentPressureArrayThought.specificity, "source-specific");
   assert.doesNotMatch(currentPressureArrayThought.text, VISIBLE_COACH_SOURCE_WRAPPER);
+  const crossClausePressureArrayThought = coach.brainThoughtAnchorFromFile({
+    id: "brain-cross-clause-pressure-arrays",
+    sourceText: "Show the array clearly. Pressure is the relevant measurement. Figure 2 includes the 1x1, 2x2, and 3x3 layouts.",
+    sourceCreatedAt: "2026-08-08T01:20:30.000Z"
+  }, { cutoff: Date.parse("2026-08-08T15:00:00.000Z") });
+  assert.equal(crossClausePressureArrayThought.text, "The 1x1, 2x2, and 3x3 pressure arrays need to be presented clearly", "separate nearby safe clauses from one current research thought retain the full source-backed detail");
+  const negatedCrossClausePressureArrayThought = coach.brainThoughtAnchorFromFile({
+    id: "brain-negated-cross-clause-pressure-arrays",
+    sourceText: "Do not show the array clearly. Pressure is the relevant measurement. Figure 2 includes the 1x1, 2x2, and 3x3 layouts.",
+    sourceCreatedAt: "2026-08-08T01:20:45.000Z"
+  }, { cutoff: Date.parse("2026-08-08T15:00:00.000Z") });
+  assert.notEqual(negatedCrossClausePressureArrayThought?.text, "The 1x1, 2x2, and 3x3 pressure arrays need to be presented clearly", "a negated array-presentation clause cannot supply one part of a positive composite fact");
+  const privateCrossClausePressureArrayThought = coach.brainThoughtAnchorFromFile({
+    id: "brain-private-cross-clause-pressure-arrays",
+    sourceText: "Show the private diagnosis array clearly. Pressure is the relevant measurement. Figure 2 includes the 1x1, 2x2, and 3x3 layouts.",
+    sourceCreatedAt: "2026-08-08T01:20:50.000Z"
+  }, { cutoff: Date.parse("2026-08-08T15:00:00.000Z") });
+  assert.notEqual(privateCrossClausePressureArrayThought?.text, "The 1x1, 2x2, and 3x3 pressure arrays need to be presented clearly", "a private blocked clause cannot supply one part of a public composite fact");
   const negatedPressurePanels = coach.brainThoughtAnchorFromFile({
     id: "brain-negated-pressure-panels",
     sourceText: "Do not include BF01 and BF02 panels at 10 psi, 50 psi, 80 psi, and 120 psi.",
@@ -1097,7 +1115,7 @@ async function run() {
   assert.equal(bobaBaselineContext.bobaReward.poundsToNextBobaDisplayLb, 1);
   assert.equal(bobaBaselineContext.analysisPlan.bobaReward.poundsToNextBobaLb, 1);
   const bobaBaselineMemo = coach.buildContextualFallbackResult(bobaBaselineContext, []);
-  assert.match(bobaBaselineMemo.text, /150\.3 lb 7-day average|7-day average[^.]*150\.3 lb/i);
+  assert.match(bobaBaselineMemo.text, /last 7 days[^.]*average[^.]*150\.3 lb|average[^.]*last 7 days[^.]*150\.3 lb/i, "the memo explicitly says the current value averages the last seven days");
   assert.match(bobaBaselineMemo.text, /149\.3 lb[^.]*boba|boba[^.]*149\.3 lb/i);
   assert.match(bobaBaselineMemo.text, /1\.0 lb/);
   assert.match(bobaBaselineMemo.text, /exciting|yummmm/i, "the one-pound boba countdown feels playful without pressure overload");
@@ -1145,6 +1163,7 @@ async function run() {
     latestEarnedThreshold: null
   }), false, "display-ceiled reward facts do not trigger an idempotent GET repair loop");
   assert.match(bobaRolloverCoach.text, /150\.2 lb/);
+  assert.match(bobaRolloverCoach.text, /last 7 days/i);
   assert.match(bobaRolloverCoach.text, /149\.3 lb/);
   assert.match(bobaRolloverCoach.text, /0\.9 lb/);
   const staleWeightDefaultBrainRefresh = coach.refreshLatestCoachForBrainRelationship(
@@ -1199,6 +1218,7 @@ async function run() {
   assert.equal(earnedBobaContext.bobaReward.poundsToNextBobaDisplayLb, 0.7);
   const earnedBobaMemo = coach.buildContextualFallbackResult(earnedBobaContext, []);
   assert.match(earnedBobaMemo.text, /boba/i);
+  assert.match(earnedBobaMemo.text, /last 7 days/i);
   assert.match(earnedBobaMemo.text, /earn(?:ed|s|ing)/i);
   assert.match(earnedBobaMemo.text, /148\.3 lb/);
   assert.match(earnedBobaMemo.text, /0\.7 lb/);
@@ -1234,6 +1254,7 @@ async function run() {
   });
   assert.equal(multiBobaContext.bobaReward.earnedForWeightId, 3);
   const multiBobaMemo = coach.buildContextualFallbackResult(multiBobaContext, []);
+  assert.match(multiBobaMemo.text, /last 7 days/i);
   assert.match(multiBobaMemo.text, /3 delicious bobas/i, "a skipped-threshold weigh-in celebrates every newly earned boba");
   assert.deepEqual(coach.validateCoachParagraph(multiBobaMemo.text, multiBobaContext, [], { privateGoal: 117 }).errors, []);
 
