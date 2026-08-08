@@ -397,7 +397,6 @@ function reconcileBobaRewardInStore(store, options = {}) {
 
 async function backfillBobaRewardState(options = {}) {
   const currentStore = await readStore();
-  if (normalizeBobaRewardState(currentStore.bobaReward)) return currentStore;
   const candidate = calculateStoreBobaReward(currentStore, {
     baselineDateKey: options.baselineDateKey || bobaBaselineDateKey,
     recordedAt: options.recordedAt || new Date().toISOString(),
@@ -2768,32 +2767,36 @@ function bobaMemoNumber(value) {
   return Number.isFinite(Number(value)) ? Number(value).toFixed(1) : "";
 }
 
+function bobaWholePound(value) {
+  return Number.isFinite(Number(value)) ? String(Math.round(Number(value))) : "";
+}
+
 function bobaRewardClosingCandidates(context) {
   const reward = context?.bobaReward;
   const currentAverage = bobaMemoNumber(reward?.currentSevenDayAverageDisplayLb);
-  const nextThreshold = bobaMemoNumber(reward?.nextThresholdDisplayLb);
+  const nextThreshold = bobaWholePound(reward?.nextThresholdDisplayLb);
   const poundsRemaining = bobaMemoNumber(reward?.poundsToNextBobaDisplayLb);
   if (!currentAverage || !nextThreshold || !poundsRemaining) return [];
   const earnedNow = Math.max(0, Number(reward.earnedForWeightId) || 0);
   if (earnedNow > 0) {
     const latestThreshold = Number(reward.latestEarnedThreshold?.thresholdLb);
-    const earnedThreshold = bobaMemoNumber(Number.isFinite(latestThreshold)
+    const earnedThreshold = bobaWholePound(Number.isFinite(latestThreshold)
       ? latestThreshold
-      : Number(reward.baselineAverageLb) - Number(reward.earnedCount));
+      : Number(reward.nextThresholdDisplayLb) + 1);
     const rewardNoun = earnedNow === 1 ? "a delicious boba" : `${earnedNow} delicious bobas`;
     const rewardVerb = earnedNow === 1 ? "is" : "are";
     return [
-      `Last 7 days' average is ${currentAverage} lb, earning ${rewardNoun} through ${earnedThreshold} lb. Next boba average: ${nextThreshold} lb, ${poundsRemaining} lb away—yummmm!`,
-      `A ${currentAverage} lb average across the last 7 days earns ${rewardNoun} through ${earnedThreshold} lb. The next boba average is ${nextThreshold} lb, ${poundsRemaining} lb away—delicious!`,
-      `${rewardNoun.charAt(0).toUpperCase()}${rewardNoun.slice(1)} ${rewardVerb} earned from the last 7 days' ${currentAverage} lb average. Next boba average: ${nextThreshold} lb, ${poundsRemaining} lb away—deserved, yummmm!`,
-      `The current average for the last 7 days is ${currentAverage} lb, clearing ${earnedThreshold} lb and earning ${rewardNoun}. The next boba average is ${nextThreshold} lb, ${poundsRemaining} lb away—what a win!`
+      `Last 7 calendar days average ${currentAverage} lb, earning ${rewardNoun} through ${earnedThreshold} lb. Next boba: ${nextThreshold} lb, ${poundsRemaining} lb away—possible!`,
+      `The last 7 calendar-day average is ${currentAverage} lb, earning ${rewardNoun} through ${earnedThreshold} lb. Next boba: ${nextThreshold} lb, ${poundsRemaining} lb away—delicious!`,
+      `${rewardNoun.charAt(0).toUpperCase()}${rewardNoun.slice(1)} ${rewardVerb} earned from the last 7 calendar days' ${currentAverage} lb average. Next boba: ${nextThreshold} lb, ${poundsRemaining} lb away—possible!`,
+      `The ${currentAverage} lb average uses the last 7 calendar days, clearing ${earnedThreshold} lb for ${rewardNoun}. Next boba: ${nextThreshold} lb, ${poundsRemaining} lb away—what a win!`
     ];
   }
   return [
-    `Last 7 days' average is ${currentAverage} lb. The next boba average is ${nextThreshold} lb, ${poundsRemaining} lb away—exciting, yummmm!`,
-    `The current average across the last 7 days is ${currentAverage} lb, just ${poundsRemaining} lb from the ${nextThreshold} lb boba average—yummmm!`,
-    `Averaging the last 7 days gives ${currentAverage} lb. The next boba average is ${nextThreshold} lb, with ${poundsRemaining} lb to go—so exciting!`,
-    `The current 7-day average covers the last 7 days: ${currentAverage} lb. Delicious boba is at a ${nextThreshold} lb average, ${poundsRemaining} lb away—absolutely possible!`
+    `Last 7 calendar days average ${currentAverage} lb. Next boba average: ${nextThreshold} lb, ${poundsRemaining} lb away—possible, yummmm!`,
+    `The last 7 calendar-day average is ${currentAverage} lb. Next boba: ${nextThreshold} lb, ${poundsRemaining} lb away—within reach!`,
+    `Last 7 calendar days: ${currentAverage} lb average. Next boba average: ${nextThreshold} lb, ${poundsRemaining} lb to go—possible!`,
+    `The ${currentAverage} lb average uses the last 7 calendar days. Next boba: ${nextThreshold} lb, ${poundsRemaining} lb away—progress!`
   ];
 }
 

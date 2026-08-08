@@ -238,13 +238,13 @@ assert.equal(readCoach({ id: "weight-new" }, savedCoach, null, 0), savedCoach.te
 assert.equal(readCoach({ id: "weight-new" }, { ...savedCoach, weightId: "weight-old" }, null, 0), "Analysis is still being prepared.", "a coach record for another weight must never be synthesized into a replacement");
 assert.equal(readCoach(null, null, null, 0), "No coach message yet.", "an empty history must not render coaching");
 assert.equal(
-  formatBoba({ baselineAverageLb: 150.3, baselineDateKey: "2026-08-08", currentSevenDayAverageLb: 150.3, nextThresholdLb: 149.3, poundsToNextBobaLb: 1, observedDayCount: 4, windowStartDateKey: "2026-08-02", windowEndDateKey: "2026-08-08", earnedCount: 0 }),
-  "Current 7-day average 150.3 lb from Aug 2–8, averaging 4 weigh-in days. Next boba average 149.3 lb, 1.0 lb to go. 0 bobas earned.",
+  formatBoba({ baselineAverageLb: 150.3, baselineDateKey: "2026-08-08", currentSevenDayAverageLb: 150.3, nextThresholdLb: 149, poundsToNextBobaLb: 1.3, observedDayCount: 4, windowStartDateKey: "2026-08-02", windowEndDateKey: "2026-08-08", earnedCount: 0 }),
+  "Average for the last 7 calendar days: 150.3 lb. Window Aug 2–8; 4 weigh-in days included. Next boba average 149 lb, 1.3 lb to go. 0 bobas earned.",
   "the live baseline must identify the exact seven-day window, averaged days, threshold, and remaining distance"
 );
 assert.equal(
-  formatBoba({ baselineAverageLb: 150.3, baselineDateKey: "2026-08-08", currentSevenDayAverageLb: 148.2, nextThresholdLb: 147.3, poundsToNextBobaLb: 0.9, observedDayCount: 7, windowStartDateKey: "2026-08-16", windowEndDateKey: "2026-08-22", earnedCount: 2 }),
-  "Current 7-day average 148.2 lb from Aug 16–22, averaging 7 weigh-in days. Next boba average 147.3 lb, 0.9 lb to go. 2 bobas earned.",
+  formatBoba({ baselineAverageLb: 150.3, baselineDateKey: "2026-08-08", currentSevenDayAverageLb: 148.2, nextThresholdLb: 147, poundsToNextBobaLb: 1.2, observedDayCount: 7, windowStartDateKey: "2026-08-16", windowEndDateKey: "2026-08-22", earnedCount: 2 }),
+  "Average for the last 7 calendar days: 148.2 lb. Window Aug 16–22; 7 weigh-in days included. Next boba average 147 lb, 1.2 lb to go. 2 bobas earned.",
   "earned rewards and the next one-time threshold must remain visible together"
 );
 assert.equal(formatBoba(null), "", "an unavailable reward state must not render a placeholder card");

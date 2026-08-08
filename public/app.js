@@ -114,7 +114,7 @@ function renderShell() {
                   <p id="weightLatest">No weights saved.</p>
                   <p class="weight-estimate" id="weightEstimate">1-week, 1-month, 1-year estimates need saved weights.</p>
                   <div class="weight-boba" id="weightBoba" aria-live="polite" hidden>
-                    <span class="weight-boba-label">🧋 Current 7-day average</span>
+                    <span class="weight-boba-label">🧋 Average for the last 7 calendar days</span>
                     <strong class="weight-boba-average" id="weightBobaAverage">--</strong>
                     <span class="weight-boba-window" id="weightBobaWindow"></span>
                     <span class="weight-boba-next">Next boba average: <strong id="weightBobaThreshold">--</strong></span>
@@ -796,8 +796,8 @@ function renderWeights() {
     boba.hidden = !reward;
     if (reward) {
       document.getElementById("weightBobaAverage").textContent = `${reward.currentSevenDayAverageLb.toFixed(1)} lb`;
-      document.getElementById("weightBobaWindow").textContent = `${formatBobaDateRange(reward.windowStartDateKey, reward.windowEndDateKey)} · ${reward.observedDayCount} weigh-in day${reward.observedDayCount === 1 ? "" : "s"} averaged`;
-      document.getElementById("weightBobaThreshold").textContent = `${reward.nextThresholdLb.toFixed(1)} lb`;
+      document.getElementById("weightBobaWindow").textContent = `${formatBobaDateRange(reward.windowStartDateKey, reward.windowEndDateKey)} · ${reward.observedDayCount} weigh-in day${reward.observedDayCount === 1 ? "" : "s"} included`;
+      document.getElementById("weightBobaThreshold").textContent = `${reward.nextThresholdLb.toFixed(0)} lb`;
       document.getElementById("weightBobaDistance").textContent = `${reward.poundsToNextBobaLb.toFixed(1)} lb to go`;
       document.getElementById("weightBobaEarned").textContent = reward.earnedCount === 1 ? "1 boba earned" : `${reward.earnedCount} bobas earned`;
       boba.setAttribute("aria-label", formatBobaReward(reward));
@@ -985,7 +985,7 @@ function formatBobaReward(value) {
   const reward = normalizeBobaReward(value);
   if (!reward) return "";
   const earned = reward.earnedCount === 1 ? "1 boba earned" : `${reward.earnedCount} bobas earned`;
-  return `Current 7-day average ${reward.currentSevenDayAverageLb.toFixed(1)} lb from ${formatBobaDateRange(reward.windowStartDateKey, reward.windowEndDateKey)}, averaging ${reward.observedDayCount} weigh-in day${reward.observedDayCount === 1 ? "" : "s"}. Next boba average ${reward.nextThresholdLb.toFixed(1)} lb, ${reward.poundsToNextBobaLb.toFixed(1)} lb to go. ${earned}.`;
+  return `Average for the last 7 calendar days: ${reward.currentSevenDayAverageLb.toFixed(1)} lb. Window ${formatBobaDateRange(reward.windowStartDateKey, reward.windowEndDateKey)}; ${reward.observedDayCount} weigh-in day${reward.observedDayCount === 1 ? "" : "s"} included. Next boba average ${reward.nextThresholdLb.toFixed(0)} lb, ${reward.poundsToNextBobaLb.toFixed(1)} lb to go. ${earned}.`;
 }
 
 function weightCoachText(newest, latestCoach, coachAnalysis, now = Date.now()) {

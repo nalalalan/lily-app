@@ -1147,13 +1147,13 @@ async function run() {
     relationshipSupport: currentPressureArrayThought
   });
   assert.equal(bobaBaselineContext.bobaReward.currentSevenDayAverageDisplayLb, 150.3, "the latest Aug 5 memo uses the operational Aug 8 seven-day window");
-  assert.equal(bobaBaselineContext.bobaReward.nextThresholdDisplayLb, 149.3);
-  assert.equal(bobaBaselineContext.bobaReward.poundsToNextBobaDisplayLb, 1);
-  assert.equal(bobaBaselineContext.analysisPlan.bobaReward.poundsToNextBobaLb, 1);
+  assert.equal(bobaBaselineContext.bobaReward.nextThresholdDisplayLb, 149);
+  assert.equal(bobaBaselineContext.bobaReward.poundsToNextBobaDisplayLb, 1.3);
+  assert.equal(bobaBaselineContext.analysisPlan.bobaReward.poundsToNextBobaLb, 1.3);
   const bobaBaselineMemo = coach.buildContextualFallbackResult(bobaBaselineContext, []);
-  assert.match(bobaBaselineMemo.text, /last 7 days[^.]*average[^.]*150\.3 lb|average[^.]*last 7 days[^.]*150\.3 lb/i, "the memo explicitly says the current value averages the last seven days");
-  assert.match(bobaBaselineMemo.text, /149\.3 lb[^.]*boba|boba[^.]*149\.3 lb/i);
-  assert.match(bobaBaselineMemo.text, /1\.0 lb/);
+  assert.match(bobaBaselineMemo.text, /last 7 calendar days[^.]*average[^.]*150\.3 lb|average[^.]*last 7 calendar days[^.]*150\.3 lb/i, "the memo explicitly says the current value averages the last seven calendar days");
+  assert.match(bobaBaselineMemo.text, /149 lb[^.]*boba|boba[^.]*149 lb/i);
+  assert.match(bobaBaselineMemo.text, /1\.3 lb/);
   assert.match(bobaBaselineMemo.text, /exciting|yummmm/i, "the one-pound boba countdown feels playful without pressure overload");
   assert.equal((bobaBaselineMemo.text.match(/The 1x1, 2x2, and 3x3 pressure arrays need to be presented clearly/g) || []).length, 1, "one richer approved Brain anchor is woven into the boba memo exactly once");
   assert.doesNotMatch(bobaBaselineMemo.text, VISIBLE_COACH_SOURCE_WRAPPER);
@@ -1174,7 +1174,7 @@ async function run() {
     weightId: "boba-baseline-aug5"
   });
   assert.equal(bobaRolloverReward.currentSevenDayAverageDisplayLb, 150.2);
-  assert.equal(bobaRolloverReward.poundsToNextBobaDisplayLb, 0.9);
+  assert.equal(bobaRolloverReward.poundsToNextBobaDisplayLb, 1.2);
   assert.equal(coach.coachBobaRewardNeedsRepair(bobaBaselineCoachRecord, bobaRolloverReward), true, "calendar rollover marks a stale reward memo for repair");
   const bobaRolloverRefresh = coach.refreshLatestCoachStyleInStore(
     bobaRolloverStore,
@@ -1186,22 +1186,22 @@ async function run() {
   assert.equal(bobaRolloverRefresh.updated, true);
   assert.equal(coach.coachBobaRewardNeedsRepair(bobaRolloverCoach, bobaRolloverReward), false, "the repaired memo stores the same reward facts shown by the card");
   assert.equal(coach.coachBobaRewardNeedsRepair({
-    analysisPlan: { bobaReward: { currentSevenDayAverageLb: 150.2, nextThresholdLb: 149.3, poundsToNextBobaLb: 0.9, earnedCount: 0, earnedForWeightId: 0, earnedThresholdLb: null } }
+    analysisPlan: { bobaReward: { currentSevenDayAverageLb: 150.2, nextThresholdLb: 149, poundsToNextBobaLb: 1.2, earnedCount: 0, earnedForWeightId: 0, earnedThresholdLb: null } }
   }, {
     currentSevenDayAverageLb: 150.16,
     currentSevenDayAverageDisplayLb: 150.2,
-    nextThresholdLb: 149.325,
-    nextThresholdDisplayLb: 149.3,
-    poundsToNextBobaLb: 0.835,
-    poundsToNextBobaDisplayLb: 0.9,
+    nextThresholdLb: 149,
+    nextThresholdDisplayLb: 149,
+    poundsToNextBobaLb: 1.16,
+    poundsToNextBobaDisplayLb: 1.2,
     earnedCount: 0,
     earnedForWeightId: 0,
     latestEarnedThreshold: null
   }), false, "display-ceiled reward facts do not trigger an idempotent GET repair loop");
   assert.match(bobaRolloverCoach.text, /150\.2 lb/);
-  assert.match(bobaRolloverCoach.text, /last 7 days/i);
-  assert.match(bobaRolloverCoach.text, /149\.3 lb/);
-  assert.match(bobaRolloverCoach.text, /0\.9 lb/);
+  assert.match(bobaRolloverCoach.text, /last 7 calendar days/i);
+  assert.match(bobaRolloverCoach.text, /149 lb/);
+  assert.match(bobaRolloverCoach.text, /1\.2 lb/);
   const staleWeightDefaultBrainRefresh = coach.refreshLatestCoachForBrainRelationship(
     bobaBaselineStore,
     currentPressureArrayThought,
@@ -1250,14 +1250,14 @@ async function run() {
     relationshipSupport: currentPressureArrayThought
   });
   assert.equal(earnedBobaContext.bobaReward.earnedForWeightId, 1);
-  assert.equal(earnedBobaContext.bobaReward.nextThresholdDisplayLb, 148.3);
-  assert.equal(earnedBobaContext.bobaReward.poundsToNextBobaDisplayLb, 0.7);
+  assert.equal(earnedBobaContext.bobaReward.nextThresholdDisplayLb, 148);
+  assert.equal(earnedBobaContext.bobaReward.poundsToNextBobaDisplayLb, 1);
   const earnedBobaMemo = coach.buildContextualFallbackResult(earnedBobaContext, []);
   assert.match(earnedBobaMemo.text, /boba/i);
-  assert.match(earnedBobaMemo.text, /last 7 days/i);
+  assert.match(earnedBobaMemo.text, /last 7 calendar days/i);
   assert.match(earnedBobaMemo.text, /earn(?:ed|s|ing)/i);
-  assert.match(earnedBobaMemo.text, /148\.3 lb/);
-  assert.match(earnedBobaMemo.text, /0\.7 lb/);
+  assert.match(earnedBobaMemo.text, /148 lb/);
+  assert.match(earnedBobaMemo.text, /1\.0 lb/);
   assert.match(earnedBobaMemo.text, /delicious|deserved|yummmm/i);
   assert.equal((earnedBobaMemo.text.match(/The 1x1, 2x2, and 3x3 pressure arrays need to be presented clearly/g) || []).length, 1);
   assert.deepEqual(coach.validateCoachParagraph(earnedBobaMemo.text, earnedBobaContext, [], { privateGoal: 117 }).errors, []);
@@ -1290,7 +1290,7 @@ async function run() {
   });
   assert.equal(multiBobaContext.bobaReward.earnedForWeightId, 3);
   const multiBobaMemo = coach.buildContextualFallbackResult(multiBobaContext, []);
-  assert.match(multiBobaMemo.text, /last 7 days/i);
+  assert.match(multiBobaMemo.text, /last 7 calendar days/i);
   assert.match(multiBobaMemo.text, /3 delicious bobas/i, "a skipped-threshold weigh-in celebrates every newly earned boba");
   assert.deepEqual(coach.validateCoachParagraph(multiBobaMemo.text, multiBobaContext, [], { privateGoal: 117 }).errors, []);
   for (const closing of coach.bobaRewardClosingCandidates(multiBobaContext)) {
@@ -1309,8 +1309,8 @@ async function run() {
   assert.equal(recrossContext.bobaReward.earnedForWeightId, 0, "a later crossing cannot re-earn the already-recorded threshold");
   const recrossMemo = coach.buildContextualFallbackResult(recrossContext, []);
   assert.doesNotMatch(recrossMemo.text, /boba.{0,36}earn(?:ed|s|ing)|earn(?:ed|s|ing).{0,36}boba/i, "only the triggering weigh-in celebrates the earned boba");
-  assert.match(recrossMemo.text, /148\.3 lb/);
-  assert.match(recrossMemo.text, /0\.7 lb/);
+  assert.match(recrossMemo.text, /148 lb/);
+  assert.match(recrossMemo.text, /1\.0 lb/);
   const jackRabbitThought = coach.brainThoughtAnchorFromFile({
     id: "brain-specific-jackrabbit",
     sourceText: "I love the little JackRabbit e-bike because it feels effortless and does not require any pedaling.",

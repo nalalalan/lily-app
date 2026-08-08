@@ -3,17 +3,28 @@
 const weightForecast = require("./public/weight-forecast.js");
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const BOBA_REWARD_VERSION = 1;
+const BOBA_REWARD_VERSION = 2;
 const DEFAULT_TIME_ZONE = "America/New_York";
 
 function roundToTenth(value) {
   return Number.isFinite(Number(value)) ? Math.round(Number(value) * 10) / 10 : null;
 }
 
-function ceilToTenth(value) {
+function distanceToTenth(value) {
   if (!Number.isFinite(Number(value))) return null;
   const normalized = Math.max(0, Number(value));
-  return Math.ceil((normalized - 1e-10) * 10) / 10;
+  if (normalized === 0) return 0;
+  return Math.max(0.1, roundToTenth(normalized));
+}
+
+function firstWholePoundThreshold(baselineAverageLb) {
+  const baseline = Number(baselineAverageLb);
+  if (!Number.isFinite(baseline) || baseline <= 0) return null;
+  return Math.floor(baseline - 1 + 1e-9);
+}
+
+function thresholdForLevel(firstThresholdLb, level) {
+  return Number(firstThresholdLb) - Math.floor(Number(level)) + 1;
 }
 
 function validDateKey(value) {
@@ -89,12 +100,15 @@ function calculateSevenDayAverage(weights, options = {}) {
   };
 }
 
-function normalizeEarnedThresholds(entries, baselineAverageLb) {
+function normalizeEarnedThresholds(entries, firstThresholdLb) {
   const byLevel = new Map();
   (Array.isArray(entries) ? entries : []).forEach((entry) => {
     const level = Math.floor(Number(entry?.level));
     if (!Number.isInteger(level) || level < 1 || byLevel.has(level)) return;
-    const thresholdLb = baselineAverageLb - level;
+    const storedThresholdLb = Number(entry?.thresholdLb);
+    const thresholdLb = Number.isFinite(storedThresholdLb) && storedThresholdLb > 0
+      ? storedThresholdLb
+      : thresholdForLevel(firstThresholdLb, level);
     byLevel.set(level, {
       level,
       thresholdLb,
@@ -110,9 +124,15 @@ function normalizeBobaRewardState(rewardState) {
   const baselineAverageLb = Number(rewardState?.baselineAverageLb);
   const baselineDateKey = validDateKey(rewardState?.baselineDateKey);
   if (!Number.isFinite(baselineAverageLb) || baselineAverageLb <= 0 || !baselineDateKey) return null;
+  const storedFirstThresholdLb = Number(rewardState?.firstThresholdLb);
+  const firstThresholdLb = Number.isInteger(storedFirstThresholdLb) && storedFirstThresholdLb > 0
+    ? storedFirstThresholdLb
+    : firstWholePoundThreshold(baselineAverageLb);
+  if (!Number.isInteger(firstThresholdLb) || firstThresholdLb <= 0) return null;
   return {
     version: BOBA_REWARD_VERSION,
     baselineAverageLb,
+    firstThresholdLb,
     baselineDateKey,
     baselineRecordedAt: Number.isFinite(Date.parse(rewardState?.baselineRecordedAt))
       ? new Date(rewardState.baselineRecordedAt).toISOString()
@@ -126,7 +146,7 @@ function normalizeBobaRewardState(rewardState) {
         ? rewardState.baselineWindow.observedDateKeys
         : []).map(validDateKey).filter(Boolean))).sort()
     },
-    earnedThresholds: normalizeEarnedThresholds(rewardState?.earnedThresholds, baselineAverageLb)
+    earnedThresholds: normalizeEarnedThresholds(rewardState?.earnedThresholds, firstThresholdLb)
   };
 }
 
@@ -144,6 +164,7 @@ function createBobaRewardBaseline(weights, options = {}) {
   return {
     version: BOBA_REWARD_VERSION,
     baselineAverageLb: window.averageLb,
+    firstThresholdLb: firstWholePoundThreshold(window.averageLb),
     baselineDateKey,
     baselineRecordedAt: recordedAt,
     baselineWindow: {
@@ -164,9 +185,9 @@ function calculateBobaRewardState(weights, rewardState, options = {}) {
 
   const existingThresholds = normalizedState.earnedThresholds.slice();
   const existingLevels = new Set(existingThresholds.map((entry) => entry.level));
-  const crossedLevelCount = Math.max(0, Math.floor(
-    normalizedState.baselineAverageLb - currentWindow.averageLb + 1e-9
-  ));
+  const crossedLevelCount = currentWindow.averageLb <= normalizedState.firstThresholdLb + 1e-9
+    ? Math.max(0, Math.floor(normalizedState.firstThresholdLb - currentWindow.averageLb + 1e-9) + 1)
+    : 0;
   const earnedAtTime = options.earnedAt instanceof Date
     ? options.earnedAt.getTime()
     : typeof options.earnedAt === "number"
@@ -188,7 +209,7 @@ function calculateBobaRewardState(weights, rewardState, options = {}) {
     if (existingLevels.has(level)) continue;
     const event = {
       level,
-      thresholdLb: normalizedState.baselineAverageLb - level,
+      thresholdLb: thresholdForLevel(normalizedState.firstThresholdLb, level),
       earnedAt,
       sevenDayAverageLb: currentWindow.averageLb,
       weightId
@@ -200,7 +221,9 @@ function calculateBobaRewardState(weights, rewardState, options = {}) {
   existingThresholds.sort((left, right) => left.level - right.level);
 
   const earnedCount = existingThresholds.length;
-  const nextThresholdLb = normalizedState.baselineAverageLb - earnedCount - 1;
+  let nextLevel = 1;
+  while (existingLevels.has(nextLevel)) nextLevel += 1;
+  const nextThresholdLb = thresholdForLevel(normalizedState.firstThresholdLb, nextLevel);
   const poundsToNextBobaLb = Math.max(0, currentWindow.averageLb - nextThresholdLb);
   const latestEarnedThreshold = existingThresholds[existingThresholds.length - 1] || null;
   const nextState = {
@@ -213,12 +236,13 @@ function calculateBobaRewardState(weights, rewardState, options = {}) {
     baselineAverageLb: normalizedState.baselineAverageLb,
     baselineAverageDisplayLb: roundToTenth(normalizedState.baselineAverageLb),
     baselineDateKey: normalizedState.baselineDateKey,
+    firstThresholdLb: normalizedState.firstThresholdLb,
     currentSevenDayAverageLb: currentWindow.averageLb,
     currentSevenDayAverageDisplayLb: currentWindow.averageDisplayLb,
     nextThresholdLb,
     nextThresholdDisplayLb: roundToTenth(nextThresholdLb),
     poundsToNextBobaLb,
-    poundsToNextBobaDisplayLb: ceilToTenth(poundsToNextBobaLb),
+    poundsToNextBobaDisplayLb: distanceToTenth(poundsToNextBobaLb),
     observedDayCount: currentWindow.observedDayCount,
     observedDateKeys: currentWindow.observedDateKeys,
     windowStartDateKey: currentWindow.windowStartDateKey,

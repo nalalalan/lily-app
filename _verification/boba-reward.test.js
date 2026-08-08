@@ -47,6 +47,7 @@ const productionBaseline = createBobaRewardBaseline(liveBaselineWeights, {
   recordedAt: "2026-08-08T18:00:00.000Z"
 });
 assert.equal(productionBaseline.baselineAverageLb, 150.325);
+assert.equal(productionBaseline.firstThresholdLb, 149, "the first reward rounds the exact 149.325 lb target down to the whole-pound 149 lb target");
 assert.deepEqual(productionBaseline.baselineWindow, {
   windowStartDateKey: "2026-08-02",
   windowEndDateKey: "2026-08-08",
@@ -54,15 +55,15 @@ assert.deepEqual(productionBaseline.baselineWindow, {
   observedDateKeys: ["2026-08-02", "2026-08-03", "2026-08-04", "2026-08-05"]
 }, "the persisted baseline retains its source-window provenance");
 const productionReward = calculateBobaRewardState(liveBaselineWeights, productionBaseline, { asOfDateKey: "2026-08-08" });
-assert.equal(productionReward.nextThresholdLb, 149.325);
-assert.equal(productionReward.nextThresholdDisplayLb, 149.3);
-assert.equal(productionReward.poundsToNextBobaDisplayLb, 1);
+assert.equal(productionReward.nextThresholdLb, 149);
+assert.equal(productionReward.nextThresholdDisplayLb, 149);
+assert.equal(productionReward.poundsToNextBobaDisplayLb, 1.3);
 assert.deepEqual(publicBobaReward(productionReward), {
   baselineAverageLb: 150.3,
   baselineDateKey: "2026-08-08",
   currentSevenDayAverageLb: 150.3,
-  nextThresholdLb: 149.3,
-  poundsToNextBobaLb: 1,
+  nextThresholdLb: 149,
+  poundsToNextBobaLb: 1.3,
   observedDayCount: 4,
   windowStartDateKey: "2026-08-02",
   windowEndDateKey: "2026-08-08",
@@ -74,6 +75,24 @@ assert.equal(
   150.325,
   "server ISO timestamps resolve through the Eastern calendar window"
 );
+
+const legacyBaseline = normalizeBobaRewardState({
+  version: 1,
+  baselineAverageLb: 150.325,
+  baselineDateKey: "2026-08-08",
+  baselineRecordedAt: "2026-08-08T18:00:00.000Z",
+  earnedThresholds: []
+});
+assert.equal(legacyBaseline.firstThresholdLb, 149, "an existing baseline without rewards migrates to the whole-pound ladder");
+const justAboveWholeTarget = calculateBobaRewardState([
+  ...dailySeries("2026-08-02", 7, 149.04, "just-above-target")
+], legacyBaseline, {
+  asOfDateKey: "2026-08-08",
+  allowAwards: true,
+  weightId: "just-above-target-7"
+});
+assert.equal(justAboveWholeTarget.earnedCount, 0, "a rounded display never awards a boba before the exact 149 lb average is reached");
+assert.equal(justAboveWholeTarget.poundsToNextBobaDisplayLb, 0.1, "a positive remainder never displays as zero before the threshold is actually reached");
 
 const easternGrouping = calculateSevenDayAverage([
   weight("same-day-morning", "2026-08-02T14:00:00.000Z", 140),
