@@ -327,6 +327,13 @@ noscript {
   white-space: nowrap;
 }
 
+.weight-boba-earned {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 680;
+}
+
 .panel-head p.weight-coach {
   margin-top: 10px;
   color: var(--ink);

@@ -72,9 +72,10 @@ assert.equal((app.match(/id="weightBoba"/g) || []).length, 1, "the primary card 
 assert.ok(!app.includes('id="weightVerdict"'), "the rejected standalone verdict paragraph must stay removed");
 assert.match(styles, /\.panel-head \.weight-boba\s*\{[\s\S]*?font-weight:\s*740;/, "boba progress must remain a compact, intentional part of the weight card");
 assert.match(styles, /\.weight-boba\[hidden\]\s*\{[\s\S]*?display:\s*none;/, "the boba surface must not expose first-paint placeholders before live data arrives");
-for (const id of ["weightBobaAverage", "weightBobaWindow", "weightBobaThreshold", "weightBobaDistance"]) {
+for (const id of ["weightBobaAverage", "weightBobaWindow", "weightBobaThreshold", "weightBobaDistance", "weightBobaEarned"]) {
   assert.equal((app.match(new RegExp(`id="${id}"`, "g")) || []).length, 1, `${id} must have one direct-read surface`);
 }
+assert.match(app, /weightBobaEarned"\)\.textContent\s*=\s*reward\.earnedCount === 1[\s\S]*?bobas earned/, "the persistent earned-boba count must remain visible, not only available to assistive technology");
 assert.match(styles, /\.panel-head p\.weight-coach\s*\{[\s\S]*?font-weight:\s*700;/, "coach copy must have an intentional first-read treatment");
 assert.ok(
   app.indexOf('id="weightLatest"') < app.indexOf('id="weightEstimate"') &&

@@ -34,13 +34,13 @@ async function run() {
     memoNextThreshold: /149\.3 lb/i.test(memo),
     memoDistance: /1\.0 lb/i.test(memo),
     memoBoba: /boba/i.test(memo),
-    memoDetailedBrain: memo.includes("The 1x1, 2x2, and 3x3 pressure arrays need to be presented clearly"),
+    memoSafeBrainContext: memo.includes("The array needs to be presented clearly"),
     memoNoSourceWrapper: !/\b(?:Brain|thought|note|source|retriev|remember)\b/i.test(memo),
     memoWordCountSafe: ((memo.match(/[A-Za-z0-9]+(?:[’'][A-Za-z0-9]+)*/g) || []).length <= 80),
     memoExclamationSafe: (memo.match(/!/g) || []).length <= 1
   };
   const required = Object.entries(checks)
-    .filter(([name]) => name !== "memoDetailedBrain" || expectDetailedBrain)
+    .filter(([name]) => name !== "memoSafeBrainContext" || expectDetailedBrain)
     .filter(([, passed]) => !passed)
     .map(([name]) => name);
   console.log(JSON.stringify({

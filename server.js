@@ -986,7 +986,9 @@ function brainSpecificFragments(source) {
       && !containsPrivateCoachBlockedTerm(fragment));
 }
 
-const BRAIN_SPECIFIC_NEGATION = /\b(?:not|never|no\s+longer|cannot|can[\u2019']?t|couldn[\u2019']?t|doesn[\u2019']?t|didn[\u2019']?t|isn[\u2019']?t|aren[\u2019']?t|wasn[\u2019']?t|weren[\u2019']?t|shouldn[\u2019']?t|mustn[\u2019']?t|won[\u2019']?t|wouldn[\u2019']?t)\b|\b(?:anything\s+but|far\s+from|hard\s+rather\s+than|difficult\s+rather\s+than)\b/i;
+const BRAIN_SPECIFIC_NEGATION = /\b(?:not|never|no|hardly|cannot|can[\u2019']?t|couldn[\u2019']?t|don[\u2019']?t|doesn[\u2019']?t|didn[\u2019']?t|isn[\u2019']?t|aren[\u2019']?t|wasn[\u2019']?t|weren[\u2019']?t|shouldn[\u2019']?t|mustn[\u2019']?t|won[\u2019']?t|wouldn[\u2019']?t)\b|\b(?:anything\s+but|far\s+from|hard\s+rather\s+than|difficult\s+rather\s+than)\b/i;
+const BRAIN_SPECIFIC_CLAUSE_NEGATION = /\b(?:not|never|no|hardly|cannot|can[\u2019']?t|couldn[\u2019']?t|don[\u2019']?t|doesn[\u2019']?t|didn[\u2019']?t|isn[\u2019']?t|aren[\u2019']?t|wasn[\u2019']?t|weren[\u2019']?t|shouldn[\u2019']?t|mustn[\u2019']?t|won[\u2019']?t|wouldn[\u2019']?t|avoid(?:s|ed|ing)?|without)\b|\b(?:anything\s+but|far\s+from|hard\s+rather\s+than|difficult\s+rather\s+than)\b/i;
+const BRAIN_SPECIFIC_CONTRAST = /\b(?:instead\s+of|rather\s+than)\b/i;
 
 function brainSpecificRelationNegated(text, relationPattern) {
   const source = String(text || "");
@@ -999,6 +1001,8 @@ function brainSpecificRelationNegated(text, relationPattern) {
   if (directAvoid.test(source)) return true;
   const directWithout = new RegExp(`\\bwithout(?:\\s+(?:ever|really|actually|fully|clearly|needing\\s+to|being\\s+able\\s+to)){0,2}\\s+(?:${relationPattern.source})`, "i");
   if (directWithout.test(source)) return true;
+  const directContrast = new RegExp(`\\b(?:instead\\s+of|rather\\s+than)(?:\\s+(?:ever|really|actually|fully|clearly)){0,2}\\s+(?:${relationPattern.source})`, "i");
+  if (directContrast.test(source)) return true;
   const nearby = source.slice(Math.max(0, match.index - 56), Math.min(source.length, match.index + match[0].length + 56));
   return BRAIN_SPECIFIC_NEGATION.test(nearby);
 }
@@ -1035,19 +1039,17 @@ function brainResearchSpecificSubject(source) {
     && /\barrays?\b/i.test(clause)
     && presentationRelation.test(clause)
     && !brainSpecificRelationNegated(clause, presentationRelation));
-  const indexedDetailClauses = detailClauses.map((clause, index) => ({ clause, index }));
-  const arrayPresentationEvidence = indexedDetailClauses.find(({ clause }) => /\barrays?\b/i.test(clause)
-    && presentationRelation.test(clause)
-    && !BRAIN_SPECIFIC_NEGATION.test(clause)
-    && !brainSpecificRelationNegated(clause, presentationRelation));
-  const pressureEvidence = indexedDetailClauses.find(({ clause }) => /\bpressure\b/i.test(clause)
-    && !BRAIN_SPECIFIC_NEGATION.test(clause));
-  const gridFigureEvidence = indexedDetailClauses.find(({ clause }) => fullArraySetIn(clause)
+  const gridFigureRelation = /\b(?:include|includes|included|including|contain|contains|contained|containing|show|shows|showed|showing|present|presents|presented|presenting|display|displays|displayed|displaying)\b/i;
+  const gridFigureUncertainty = /\b(?:may|might|could|possibly|perhaps|maybe|whether)\b/i;
+  const gridFigureExclusion = /\b(?:exclude|excludes|excluded|excluding|remove|removes|removed|removing|omit|omits|omitted|omitting|lack|lacks|lacked|lacking|absent|missing)\b/i;
+  const gridFigureClause = detailClauses.find((clause) => fullArraySetIn(clause)
     && /\bfigures?\b/i.test(clause)
-    && !BRAIN_SPECIFIC_NEGATION.test(clause));
-  const compositeEvidence = [arrayPresentationEvidence, pressureEvidence, gridFigureEvidence].filter(Boolean);
-  const crossClausePressureArrayPresentation = compositeEvidence.length === 3
-    && Math.max(...compositeEvidence.map(({ index }) => index)) - Math.min(...compositeEvidence.map(({ index }) => index)) <= 16;
+    && gridFigureRelation.test(clause)
+    && !brainSpecificRelationNegated(clause, gridFigureRelation)
+    && !BRAIN_SPECIFIC_CLAUSE_NEGATION.test(clause)
+    && !BRAIN_SPECIFIC_CONTRAST.test(clause)
+    && !gridFigureUncertainty.test(clause)
+    && !gridFigureExclusion.test(clause));
   const comparisonRelation = /\b(?:compare|compares|comparing|show|showing|present|presenting|plot|plotting|evaluate|evaluating)\b/i;
   const hysteresisClause = detailClauses.find((clause) => fullArraySetIn(clause)
     && /\bloading\b/i.test(clause)
@@ -1059,12 +1061,15 @@ function brainResearchSpecificSubject(source) {
     const figureIds = Array.from(new Set(Array.from(pressureClause.matchAll(/\bbf0[1-9]\b/gi), (match) => match[0].toUpperCase())));
     return `${figureIds.slice(0, 2).join(" and ")} need panels at 10, 50, 80, and 120 psi`;
   }
-  if (researchFigureContext && (pressureArrayClause || crossClausePressureArrayPresentation)) {
+  if (researchFigureContext && pressureArrayClause) {
     return "The 1x1, 2x2, and 3x3 pressure arrays need to be presented clearly";
   }
   if (researchFigureContext && hysteresisClause) {
     const figure = hysteresisClause.match(/\bfigure\s*\d+[a-z]?\b/i)?.[0]?.replace(/\s+/g, " ") || "The research figure";
     return `${titleCaseFirst(figure)} should compare the 1x1, 2x2, and 3x3 arrays through loading/unloading hysteresis`;
+  }
+  if (researchFigureContext && gridFigureClause) {
+    return "The research figure includes the 1x1, 2x2, and 3x3 layouts";
   }
   const panelFraming = researchFigureContext
     && /\b(?:fram(?:e|ed|ing)|align(?:ed|ment)?|panels?)\b/i.test(normalized)
@@ -1078,6 +1083,7 @@ function brainResearchSpecificSubject(source) {
 
   const genericResearchRelation = /\b(?:show|showing|present|presenting|display|displaying|figure|plot|hysteresis|compare|comparing|measure|measuring|align|move)\b/i;
   const genericResearchSource = detailClauses
+    .filter((clause) => !(fullArraySetIn(clause) && /\bfigures?\b/i.test(clause)))
     .filter((clause) => !brainSpecificRelationNegated(clause, genericResearchRelation))
     .join(". ");
   const text = brainSpecificFragments(genericResearchSource).find((fragment) =>
@@ -2775,10 +2781,11 @@ function bobaRewardClosingCandidates(context) {
       ? latestThreshold
       : Number(reward.baselineAverageLb) - Number(reward.earnedCount));
     const rewardNoun = earnedNow === 1 ? "a delicious boba" : `${earnedNow} delicious bobas`;
+    const rewardVerb = earnedNow === 1 ? "is" : "are";
     return [
       `Last 7 days' average is ${currentAverage} lb, earning ${rewardNoun} through ${earnedThreshold} lb. Next boba average: ${nextThreshold} lb, ${poundsRemaining} lb away—yummmm!`,
       `A ${currentAverage} lb average across the last 7 days earns ${rewardNoun} through ${earnedThreshold} lb. The next boba average is ${nextThreshold} lb, ${poundsRemaining} lb away—delicious!`,
-      `${rewardNoun.charAt(0).toUpperCase()}${rewardNoun.slice(1)} is earned from the last 7 days' ${currentAverage} lb average. Next boba average: ${nextThreshold} lb, ${poundsRemaining} lb away—deserved, yummmm!`,
+      `${rewardNoun.charAt(0).toUpperCase()}${rewardNoun.slice(1)} ${rewardVerb} earned from the last 7 days' ${currentAverage} lb average. Next boba average: ${nextThreshold} lb, ${poundsRemaining} lb away—deserved, yummmm!`,
       `The current average for the last 7 days is ${currentAverage} lb, clearing ${earnedThreshold} lb and earning ${rewardNoun}. The next boba average is ${nextThreshold} lb, ${poundsRemaining} lb away—what a win!`
     ];
   }
@@ -6478,6 +6485,7 @@ if (process.env.NODE_ENV === "test" || process.env.LILY_COACH_CLI === "1") {
     assertCoachRefreshPreserved,
     assertExpectedCoachRefreshState,
     backfillCoachMessages,
+    bobaRewardClosingCandidates,
     buildCoachContext,
     calculateBobaRewardState,
     calculateStoreBobaReward,

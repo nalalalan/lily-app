@@ -1038,24 +1038,60 @@ async function run() {
   assert.equal(currentPressureArrayThought.text, "The 1x1, 2x2, and 3x3 pressure arrays need to be presented clearly");
   assert.equal(currentPressureArrayThought.specificity, "source-specific");
   assert.doesNotMatch(currentPressureArrayThought.text, VISIBLE_COACH_SOURCE_WRAPPER);
-  const crossClausePressureArrayThought = coach.brainThoughtAnchorFromFile({
-    id: "brain-cross-clause-pressure-arrays",
-    sourceText: "Show the array clearly. Pressure is the relevant measurement. Figure 2 includes the 1x1, 2x2, and 3x3 layouts.",
+  const singleClauseGridFigureThought = coach.brainThoughtAnchorFromFile({
+    id: "brain-single-clause-grid-figure",
+    sourceText: "The current research figure includes the 1x1, 2x2, and 3x3 layouts.",
     sourceCreatedAt: "2026-08-08T01:20:30.000Z"
   }, { cutoff: Date.parse("2026-08-08T15:00:00.000Z") });
-  assert.equal(crossClausePressureArrayThought.text, "The 1x1, 2x2, and 3x3 pressure arrays need to be presented clearly", "separate nearby safe clauses from one current research thought retain the full source-backed detail");
+  assert.equal(singleClauseGridFigureThought.text, "The research figure includes the 1x1, 2x2, and 3x3 layouts", "one safe clause can retain all of its concrete grid detail without borrowing a relation from elsewhere");
+  const unrelatedCrossClauseThought = coach.brainThoughtAnchorFromFile({
+    id: "brain-unrelated-cross-clause",
+    sourceText: "Show the garden array clearly. Pressure is being measured in the boiler. Figure 2 includes the 1x1, 2x2, and 3x3 layouts.",
+    sourceCreatedAt: "2026-08-08T01:20:35.000Z"
+  }, { cutoff: Date.parse("2026-08-08T15:00:00.000Z") });
+  assert.notEqual(unrelatedCrossClauseThought?.text, "The 1x1, 2x2, and 3x3 pressure arrays need to be presented clearly", "separate subjects cannot be combined into a synthetic pressure-array claim");
+  assert.doesNotMatch(unrelatedCrossClauseThought?.text || "", /pressure arrays/i);
   const negatedCrossClausePressureArrayThought = coach.brainThoughtAnchorFromFile({
     id: "brain-negated-cross-clause-pressure-arrays",
     sourceText: "Do not show the array clearly. Pressure is the relevant measurement. Figure 2 includes the 1x1, 2x2, and 3x3 layouts.",
     sourceCreatedAt: "2026-08-08T01:20:45.000Z"
   }, { cutoff: Date.parse("2026-08-08T15:00:00.000Z") });
   assert.notEqual(negatedCrossClausePressureArrayThought?.text, "The 1x1, 2x2, and 3x3 pressure arrays need to be presented clearly", "a negated array-presentation clause cannot supply one part of a positive composite fact");
+  assert.doesNotMatch(negatedCrossClausePressureArrayThought?.text || "", /array needs to be (?:shown|presented)|pressure arrays/i, "negated presentation text cannot fall through into a positive array instruction");
+  const contrastedCrossClausePressureArrayThought = coach.brainThoughtAnchorFromFile({
+    id: "brain-contrasted-cross-clause-pressure-arrays",
+    sourceText: "Rather than show the array clearly, hide it. Pressure is the relevant measurement. Figure 2 includes the 1x1, 2x2, and 3x3 layouts.",
+    sourceCreatedAt: "2026-08-08T01:20:47.000Z"
+  }, { cutoff: Date.parse("2026-08-08T15:00:00.000Z") });
+  assert.notEqual(contrastedCrossClausePressureArrayThought?.text, "The 1x1, 2x2, and 3x3 pressure arrays need to be presented clearly", "contrast wording cannot be reversed into a positive composite fact");
+  assert.doesNotMatch(contrastedCrossClausePressureArrayThought?.text || "", /array needs to be (?:shown|presented)|pressure arrays/i, "rather-than wording cannot fall through into a positive array instruction");
   const privateCrossClausePressureArrayThought = coach.brainThoughtAnchorFromFile({
     id: "brain-private-cross-clause-pressure-arrays",
     sourceText: "Show the private diagnosis array clearly. Pressure is the relevant measurement. Figure 2 includes the 1x1, 2x2, and 3x3 layouts.",
     sourceCreatedAt: "2026-08-08T01:20:50.000Z"
   }, { cutoff: Date.parse("2026-08-08T15:00:00.000Z") });
   assert.notEqual(privateCrossClausePressureArrayThought?.text, "The 1x1, 2x2, and 3x3 pressure arrays need to be presented clearly", "a private blocked clause cannot supply one part of a public composite fact");
+  assert.doesNotMatch(privateCrossClausePressureArrayThought?.text || "", /private|diagnos|pressure arrays/i);
+  const negatedSingleClauseGridFigureThought = coach.brainThoughtAnchorFromFile({
+    id: "brain-negated-single-clause-grid-figure",
+    sourceText: "Do not use the research figure for the 1x1, 2x2, and 3x3 layouts.",
+    sourceCreatedAt: "2026-08-08T01:20:55.000Z"
+  }, { cutoff: Date.parse("2026-08-08T15:00:00.000Z") });
+  assert.notEqual(negatedSingleClauseGridFigureThought?.text, "The research figure includes the 1x1, 2x2, and 3x3 layouts", "a negated grid-figure clause cannot be restated positively");
+  for (const [id, sourceText] of [
+    ["excluded", "Figure 2 excludes the 1x1, 2x2, and 3x3 layouts."],
+    ["removed", "Remove the 1x1, 2x2, and 3x3 layouts from Figure 2."],
+    ["lacks", "Figure 2 lacks the 1x1, 2x2, and 3x3 layouts."],
+    ["uncertain", "Figure 2 may include the 1x1, 2x2, and 3x3 layouts."]
+  ]) {
+    const anchor = coach.brainThoughtAnchorFromFile({
+      id: `brain-${id}-single-clause-grid-figure`,
+      sourceText,
+      sourceCreatedAt: "2026-08-08T01:20:56.000Z"
+    }, { cutoff: Date.parse("2026-08-08T15:00:00.000Z") });
+    assert.notEqual(anchor?.text, "The research figure includes the 1x1, 2x2, and 3x3 layouts", `${id} grid-figure wording cannot become a certain positive inclusion claim`);
+    assert.doesNotMatch(anchor?.text || "", /(?:show|present|include)\w*[^.]{0,80}(?:1x1|2x2|3x3)|(?:1x1|2x2|3x3)[^.]{0,80}(?:show|present|include)\w*/i, `${id} grid-figure wording cannot fall through into a partial positive grid claim`);
+  }
   const negatedPressurePanels = coach.brainThoughtAnchorFromFile({
     id: "brain-negated-pressure-panels",
     sourceText: "Do not include BF01 and BF02 panels at 10 psi, 50 psi, 80 psi, and 120 psi.",
@@ -1257,6 +1293,10 @@ async function run() {
   assert.match(multiBobaMemo.text, /last 7 days/i);
   assert.match(multiBobaMemo.text, /3 delicious bobas/i, "a skipped-threshold weigh-in celebrates every newly earned boba");
   assert.deepEqual(coach.validateCoachParagraph(multiBobaMemo.text, multiBobaContext, [], { privateGoal: 117 }).errors, []);
+  for (const closing of coach.bobaRewardClosingCandidates(multiBobaContext)) {
+    assert.match(closing, /3 delicious bobas/i, "every multi-threshold closing reports the complete reward count");
+    assert.doesNotMatch(closing, /\bbobas is earned\b/i, "every multi-threshold closing uses plural reward grammar");
+  }
 
   const recrossWeight = recordWeight("boba-after-earned", "2026-08-16", 149);
   const recrossStore = { ...earnedBobaStore, weights: [...earnedBobaWeights, recrossWeight] };

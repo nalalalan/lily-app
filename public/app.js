@@ -119,6 +119,7 @@ function renderShell() {
                     <span class="weight-boba-window" id="weightBobaWindow"></span>
                     <span class="weight-boba-next">Next boba average: <strong id="weightBobaThreshold">--</strong></span>
                     <strong class="weight-boba-distance" id="weightBobaDistance">-- to go</strong>
+                    <span class="weight-boba-earned" id="weightBobaEarned">0 bobas earned</span>
                   </div>
                   <p class="weight-coach" id="weightCoach" aria-live="polite">No coach message yet.</p>
                 </div>
@@ -798,6 +799,7 @@ function renderWeights() {
       document.getElementById("weightBobaWindow").textContent = `${formatBobaDateRange(reward.windowStartDateKey, reward.windowEndDateKey)} · ${reward.observedDayCount} weigh-in day${reward.observedDayCount === 1 ? "" : "s"} averaged`;
       document.getElementById("weightBobaThreshold").textContent = `${reward.nextThresholdLb.toFixed(1)} lb`;
       document.getElementById("weightBobaDistance").textContent = `${reward.poundsToNextBobaLb.toFixed(1)} lb to go`;
+      document.getElementById("weightBobaEarned").textContent = reward.earnedCount === 1 ? "1 boba earned" : `${reward.earnedCount} bobas earned`;
       boba.setAttribute("aria-label", formatBobaReward(reward));
     }
   }
