@@ -339,7 +339,7 @@ noscript {
   color: var(--ink);
   font-size: 13.5px;
   line-height: 1.42;
-  font-weight: 700;
+  font-weight: 400;
 }
 
 .messages {
@@ -605,14 +605,14 @@ noscript {
 
 .weight-input {
   height: 40px;
-  padding: 0 42px 0 11px;
+  padding: 0 64px 0 11px;
   color: var(--ink);
   font-variant-numeric: tabular-nums;
   font-weight: 720;
   outline: none;
 }
 
-.weight-input-wrap span {
+.weight-input-wrap .weight-input-unit {
   position: absolute;
   top: 50%;
   right: 12px;
@@ -620,7 +620,59 @@ noscript {
   font-size: 12px;
   font-weight: 760;
   transform: translateY(-50%);
+  white-space: nowrap;
   pointer-events: none;
+}
+
+.weight-unit-preview {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+  font-weight: 600;
+}
+
+.weight-unit-preview.is-ambiguous {
+  color: var(--accent-strong);
+}
+
+.weight-unit-choices {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.weight-unit-choices[hidden] {
+  display: none;
+}
+
+.weight-unit-choice {
+  min-width: 40px;
+  min-height: 30px;
+  padding: 4px 10px;
+  border: 1px solid rgba(34, 25, 29, 0.16);
+  border-radius: 999px;
+  background: #fffdf9;
+  color: var(--ink);
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.weight-unit-choice[aria-pressed="true"] {
+  border-color: var(--accent-strong);
+  background: #fff0f4;
+  color: var(--accent-strong);
+}
+
+.weight-unit-choice:focus-visible {
+  outline: 3px solid rgba(141, 51, 77, 0.18);
+  outline-offset: 2px;
 }
 
 .weight-chart-stack {
