@@ -1,5 +1,6 @@
 const API_BASE = "https://lily-api-production.up.railway.app";
 const weightForecast = require("../public/weight-forecast.js");
+const weightUnits = require("../public/weight-unit.js");
 
 async function main() {
   if (!process.env.LILY_PIN) throw new Error("LILY_PIN is unavailable.");
@@ -17,12 +18,14 @@ async function main() {
   });
   if (!response.ok) throw new Error(`Weight fetch failed (${response.status}).`);
   const payload = await response.json();
-  const rows = (Array.isArray(payload.weights) ? payload.weights : [])
+  const publicWeights = Array.isArray(payload.weights) ? payload.weights : [];
+  if (!publicWeights.every((record) => record?.unit === "lb")) {
+    throw new Error("Live weight history is not fully exposed in canonical pounds.");
+  }
+  const rows = publicWeights
     .map((record) => ({
       createdAt: record.createdAt,
-      pounds: String(record.unit || "lb").toLowerCase() === "kg"
-        ? Number(record.weight) * 2.2046226218
-        : Number(record.weight)
+      pounds: weightUnits.weightInPounds(record)
     }))
     .filter((record) => Number.isFinite(record.pounds) && Number.isFinite(Date.parse(record.createdAt)))
     .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
@@ -61,19 +64,18 @@ async function main() {
   if (!latestCoach || !latestCoach.weightId || !latestCoach.createdAt || !coachText) {
     throw new Error("Live API did not return a persisted latestCoach payload.");
   }
-  if (coachWords.length < 35 || coachWords.length > 80 || /[\r\n]/.test(coachText)) {
-    throw new Error(`Live coach paragraph failed its one-paragraph word-count gate: ${coachWords.length}`);
+  const coachSentences = coachText.match(/[^.!?]+[.!?]+/g) || [];
+  if (coachWords.length > 42 || coachSentences.length < 2 || coachSentences.length > 3 || !/[.!?]$/.test(coachText) || /[\r\n]/.test(coachText)) {
+    throw new Error(`Live memo failed its concise paragraph gate: ${coachWords.length} words, ${coachSentences.length} sentences`);
   }
   if (/goal|target weight|jyp|idol|obese|fasting|skip(?:ping)? meals?|punish|compensat|diagnos|[âÃÂ�]/i.test(coachText)) {
     throw new Error("Live coach paragraph failed its privacy, safety, or encoding gate.");
   }
-  if (rows.length && !coachText.includes(`${rows.at(-1).pounds} lb`)) {
+  const latestDisplayedPounds = rows.length ? Number(Number(rows.at(-1).pounds).toFixed(1)).toString() : "";
+  if (rows.length && !coachText.includes(`${latestDisplayedPounds} lb`)) {
     throw new Error("Live coach paragraph does not contain the latest measured weight.");
   }
-  if (current && !coachText.toLowerCase().includes(`about ${Math.round(current.oneYearWeight)} lb`)) {
-    throw new Error("Live coach paragraph does not match the current rounded trend outlook.");
-  }
-  if (/\b(?:alan|brain|saved (?:entry|thought|note|memory)|source (?:entry|thought|note|memory)|my mind|my thoughts?|got distracted|distracted thinking|wander(?:ed|ing)?|drift(?:ed|ing)?|popped into (?:my|the) head|(?:i am|i'm|somehow i am) thinking about|i (?:just )?remembered|i (?:just )?(?:started )?thinking about)\b/i.test(coachText)) {
+  if (/\b(?:alan|brain|saved (?:entry|thought|note|memory)|source (?:entry|thought|note|memory)|retriev|my mind|my thoughts?|got distracted|distracted thinking|wander(?:ed|ing)?|drift(?:ed|ing)?|popped into (?:my|the) head|(?:i am|i'm|somehow i am) thinking about|i (?:just )?remembered|i (?:just )?(?:started )?thinking about|anyway|story|signal)\b/i.test(coachText)) {
     throw new Error("Live coach paragraph still wraps personal context in source or mental-navigation narration.");
   }
   console.log(JSON.stringify({
@@ -119,7 +121,7 @@ async function main() {
       weightId: latestCoach.weightId,
       createdAt: latestCoach.createdAt,
       words: coachWords.length,
-      text: coachText,
+      sentences: coachSentences.length,
       persistedParagraphGatePassed: true
     },
     rows: rows.map((record) => ({

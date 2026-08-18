@@ -1,6 +1,7 @@
 const app = document.getElementById("app");
 
 const API_BASE = String(window.LILY_API_BASE || "").replace(/\/$/, "");
+const WEIGHT_UNITS = window.LilyWeightUnits;
 const WEIGHT_FORECAST = window.LilyWeightForecast;
 const TOKEN_KEY = "lily-api-token-v1";
 const TOKEN_EXP_KEY = "lily-api-token-exp-v1";
@@ -9,12 +10,7 @@ const LEGACY_MIGRATED_KEY = "lily-legacy-migrated-v1";
 const PIN_LENGTH = 6;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MIN_WEIGHT_TREND_GAP_DAYS = 1;
-const COACH_ANALYZING_TEXT = "Analyzing today’s weigh-in…";
 const COACH_EMPTY_TEXT = "No coach message yet.";
-const COACH_PREPARING_TEXT = "Analysis is still being prepared.";
-const COACH_ANALYSIS_WINDOW_MS = 8000;
-const COACH_POLL_CHECKPOINTS_MS = Object.freeze([500, 1200, 2200, 3500, 5000, 6500, 7800]);
-const COACH_CONTEXT_FOLLOWUP_MS = Object.freeze([20000, 70000, 155000, 315000]);
 
 const state = {
   authenticated: false,
@@ -22,7 +18,8 @@ const state = {
   weights: [],
   latestCoach: null,
   bobaReward: null,
-  coachAnalysis: null,
+  weightUnitOverride: null,
+  weightUnitChoiceRequired: false,
   tracker: null,
   pendingFiles: [],
   chat: [
@@ -142,10 +139,16 @@ function renderShell() {
                 <label class="weight-field-label" for="weightInput">Weight</label>
                 <div class="weight-entry-row">
                   <div class="weight-input-wrap">
-                    <input class="weight-input" id="weightInput" type="number" min="0" max="1000" step="0.1" inputmode="decimal" placeholder="0.0" aria-label="Lily weight in pounds">
-                    <span aria-hidden="true">lb</span>
+                    <input class="weight-input" id="weightInput" type="number" min="0" max="1000" step="0.1" inputmode="decimal" placeholder="0.0" aria-label="Lily weight in kilograms or pounds" aria-describedby="weightUnitPreview">
+                    <span class="weight-input-unit" id="weightInputUnit" aria-hidden="true">kg / lb</span>
                   </div>
                   <button class="primary-button" type="submit">Save</button>
+                </div>
+                <p class="weight-unit-preview" id="weightUnitPreview" aria-live="polite">Enter kg or lb. Saved weights use pounds.</p>
+                <div class="weight-unit-choices" id="weightUnitChoices" role="group" aria-label="Choose the entered weight unit" hidden>
+                  <span>entered as</span>
+                  <button class="weight-unit-choice" type="button" data-weight-unit="kg" aria-pressed="false">kg</button>
+                  <button class="weight-unit-choice" type="button" data-weight-unit="lb" aria-pressed="false">lb</button>
                 </div>
               </form>
             </section>
@@ -252,6 +255,18 @@ function bindEvents() {
   document.getElementById("refreshButton").addEventListener("click", loadData);
   document.getElementById("memoryForm").addEventListener("submit", saveMemory);
   document.getElementById("weightForm").addEventListener("submit", saveWeight);
+  document.getElementById("weightInput").addEventListener("input", () => {
+    state.weightUnitOverride = null;
+    state.weightUnitChoiceRequired = false;
+    renderWeightUnitDetection();
+  });
+  document.querySelectorAll("[data-weight-unit]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.weightUnitOverride = button.dataset.weightUnit;
+      renderWeightUnitDetection();
+      document.getElementById("weightInput").focus();
+    });
+  });
   document.getElementById("conflictButton").addEventListener("click", () => saveTrackerEvent("conflict"));
   document.getElementById("periodButton").addEventListener("click", () => saveTrackerEvent("period"));
   document.getElementById("clearComposer").addEventListener("click", clearComposer);
@@ -335,7 +350,11 @@ async function apiFetch(path, options = {}) {
     const message = response.status >= 500
       ? "Something went wrong. Please try again."
       : (data.error || data || "Request failed");
-    throw new Error(message);
+    const requestError = new Error(message);
+    requestError.status = response.status;
+    requestError.code = data && typeof data === "object" ? String(data.code || "") : "";
+    requestError.data = data;
+    throw requestError;
   }
   return data;
 }
@@ -347,7 +366,6 @@ function setLocked(isLocked) {
   appSurface.setAttribute("aria-hidden", String(isLocked));
   state.authenticated = !isLocked;
   if (isLocked) {
-    cancelCoachAnalysis();
     window.setTimeout(() => document.getElementById("pinInput").focus(), 40);
   }
 }
@@ -424,7 +442,6 @@ async function loadWeights(options = {}) {
     state.weights = Array.isArray(result.weights) ? result.weights : [];
     state.latestCoach = normalizeLatestCoach(result.latestCoach);
     state.bobaReward = normalizeBobaReward(result.bobaReward);
-    cancelCoachAnalysisIfLatestChanged();
     renderWeights();
   } catch (error) {
     if (!options.silent) showToast(error.message);
@@ -454,7 +471,6 @@ async function loadData(options = {}) {
     state.weights = Array.isArray(weightResult.weights) ? weightResult.weights : [];
     state.latestCoach = normalizeLatestCoach(weightResult.latestCoach);
     state.bobaReward = normalizeBobaReward(weightResult.bobaReward);
-    cancelCoachAnalysisIfLatestChanged();
     state.tracker = trackerResult.tracker || null;
     renderWall();
     renderWeights();
@@ -534,11 +550,8 @@ async function saveMemory(event) {
     });
     clearComposer();
     if (result.coachUpdated && result.latestCoach) {
-      const fallbackCoach = normalizeLatestCoach(result.latestCoach);
-      state.latestCoach = fallbackCoach;
-      const analysis = beginCoachAnalysis(fallbackCoach?.weightId, fallbackCoach);
+      state.latestCoach = normalizeLatestCoach(result.latestCoach);
       renderWeights();
-      pollCoachReplacement(analysis);
     }
     await loadMemories();
     showToast("Saved to Lily");
@@ -553,44 +566,45 @@ async function saveWeight(event) {
   event.preventDefault();
   const input = document.getElementById("weightInput");
   const weight = Number(input.value);
-  if (!Number.isFinite(weight) || weight <= 0 || weight > 1000) {
+  const resolution = currentWeightResolution();
+  if (!resolution || resolution.status === "invalid" || !Number.isFinite(weight) || weight <= 0 || weight > 1000) {
     showToast("Enter a valid weight.");
+    return;
+  }
+  if ((resolution.ambiguous || state.weightUnitChoiceRequired) && !state.weightUnitOverride) {
+    renderWeightUnitDetection();
+    document.querySelector("[data-weight-unit]")?.focus();
+    showToast("Choose kg or lb before saving.");
     return;
   }
 
   setBusy(true);
   try {
+    const submittedUnit = state.weightUnitOverride || "auto";
     const result = await apiFetch("/api/weights", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ weight, unit: "lb" })
+      body: JSON.stringify({ weight, unit: submittedUnit })
     });
-    const fallbackCoach = normalizeLatestCoach(result.latestCoach);
     state.weights = mergeSavedWeight(state.weights, result.weight);
-    state.latestCoach = fallbackCoach;
+    state.latestCoach = normalizeLatestCoach(result.latestCoach);
     state.bobaReward = normalizeBobaReward(result.bobaReward);
-    const analysis = beginCoachAnalysis(result.weight?.id, fallbackCoach);
     input.value = "";
+    state.weightUnitOverride = null;
+    state.weightUnitChoiceRequired = false;
     renderWeights();
-    showToast("Weight saved");
-    pollCoachReplacement(analysis);
-    scheduleCoachContextFollowups(result.weight?.id);
+    const savedPounds = weightInPounds(result.weight);
+    showToast(Number.isFinite(savedPounds) ? `${trimWeight(savedPounds)} lb saved` : "Weight saved");
   } catch (error) {
+    if (error?.status === 422 && (error.code === "weight_unit_ambiguous" || error.code === "weight-unit-ambiguous")) {
+      state.weightUnitOverride = null;
+      state.weightUnitChoiceRequired = true;
+      renderWeightUnitDetection();
+      document.querySelector("[data-weight-unit]")?.focus();
+    }
     showToast(error.message);
   } finally {
     setBusy(false);
-  }
-}
-
-function scheduleCoachContextFollowups(weightId) {
-  const expectedWeightId = String(weightId || "");
-  if (!expectedWeightId) return;
-  for (const delayMs of COACH_CONTEXT_FOLLOWUP_MS) {
-    window.setTimeout(() => {
-      const latestWeight = weightRows()[0];
-      if (!hasStoredToken() || !latestWeight || String(latestWeight.id) !== expectedWeightId) return;
-      loadWeights({ silent: true });
-    }, delayMs);
   }
 }
 
@@ -600,84 +614,63 @@ function mergeSavedWeight(rows, savedWeight) {
   return [savedWeight, ...current.filter((record) => String(record.id) !== String(savedWeight.id))];
 }
 
-function beginCoachAnalysis(weightId, fallbackCoach) {
-  cancelCoachAnalysis();
-  if (!weightId) return null;
-  const normalizedFallback = normalizeLatestCoach(fallbackCoach);
-  const startedAt = Date.now();
-  const analysis = {
-    weightId: String(weightId),
-    initialText: normalizedFallback?.text || "",
-    fallbackCoach: normalizedFallback,
-    latestPersistedCoach: normalizedFallback,
-    startedAt,
-    deadlineAt: startedAt + COACH_ANALYSIS_WINDOW_MS,
-    deadlineTimer: null
-  };
-  state.coachAnalysis = analysis;
-  analysis.deadlineTimer = window.setTimeout(() => {
-    settleCoachAnalysis(analysis, analysis.latestPersistedCoach || analysis.fallbackCoach);
-  }, COACH_ANALYSIS_WINDOW_MS);
-  return analysis;
+function currentWeightResolution(requestedUnit = state.weightUnitOverride || "auto") {
+  const input = document.getElementById("weightInput");
+  if (!input || !WEIGHT_UNITS) return null;
+  return WEIGHT_UNITS.resolveWeightInput(input.value, state.weights, requestedUnit);
 }
 
-function cancelCoachAnalysis(analysis = state.coachAnalysis) {
-  if (!analysis || state.coachAnalysis !== analysis) return;
-  if (analysis.deadlineTimer !== null) window.clearTimeout(analysis.deadlineTimer);
-  state.coachAnalysis = null;
-}
+function renderWeightUnitDetection() {
+  const input = document.getElementById("weightInput");
+  const unitLabel = document.getElementById("weightInputUnit");
+  const preview = document.getElementById("weightUnitPreview");
+  const choices = document.getElementById("weightUnitChoices");
+  if (!input || !unitLabel || !preview || !choices || !WEIGHT_UNITS) return null;
 
-function cancelCoachAnalysisIfLatestChanged() {
-  const analysis = state.coachAnalysis;
-  if (!analysis) return;
-  const latestWeight = weightRows()[0];
-  if (!latestWeight || String(latestWeight.id) !== analysis.weightId) cancelCoachAnalysis(analysis);
-}
-
-function settleCoachAnalysis(analysis, persistedCoach) {
-  if (!analysis || state.coachAnalysis !== analysis) return false;
-  cancelCoachAnalysis(analysis);
-  state.latestCoach = normalizeLatestCoach(persistedCoach);
-  renderWeights();
-  return true;
-}
-
-async function waitForCoachCheckpoint(analysis, elapsedMs) {
-  const delay = Math.max(0, analysis.startedAt + elapsedMs - Date.now());
-  if (delay > 0) await new Promise((resolve) => window.setTimeout(resolve, delay));
-}
-
-async function pollCoachReplacement(analysis) {
-  if (!analysis) return;
-  for (const elapsedMs of COACH_POLL_CHECKPOINTS_MS) {
-    await waitForCoachCheckpoint(analysis, elapsedMs);
-    if (state.coachAnalysis !== analysis) return;
-    try {
-      const result = await apiFetch("/api/weights");
-      const latestCoach = normalizeLatestCoach(result.latestCoach);
-      const bobaReward = normalizeBobaReward(result.bobaReward);
-      const latestWeight = Array.isArray(result.weights) ? result.weights[0] : null;
-      if (!latestWeight || String(latestWeight.id) !== analysis.weightId) {
-        state.weights = Array.isArray(result.weights) ? result.weights : state.weights;
-        state.bobaReward = bobaReward;
-        settleCoachAnalysis(analysis, latestCoach);
-        return;
-      }
-      state.weights = result.weights;
-      state.bobaReward = bobaReward;
-      if (latestCoach) {
-        analysis.latestPersistedCoach = latestCoach;
-        state.latestCoach = latestCoach;
-      }
-      if (latestCoach && latestCoach.text !== analysis.initialText) {
-        settleCoachAnalysis(analysis, latestCoach);
-        return;
-      }
-      renderWeights();
-    } catch (error) {
-      // The deadline reveals the already-persisted fallback if a poll is unavailable.
-    }
+  const buttons = Array.from(choices.querySelectorAll("[data-weight-unit]"));
+  const rawValue = input.value.trim();
+  if (!rawValue) {
+    unitLabel.textContent = "kg / lb";
+    preview.textContent = "Enter kg or lb. Saved weights use pounds.";
+    preview.classList.remove("is-ambiguous");
+    choices.hidden = true;
+    buttons.forEach((button) => button.setAttribute("aria-pressed", "false"));
+    return null;
   }
+
+  const automatic = WEIGHT_UNITS.resolveWeightInput(rawValue, state.weights, "auto");
+  const selectedUnit = state.weightUnitOverride === "kg" || state.weightUnitOverride === "lb"
+    ? state.weightUnitOverride
+    : null;
+  const resolution = selectedUnit
+    ? WEIGHT_UNITS.resolveWeightInput(rawValue, state.weights, selectedUnit)
+    : automatic;
+  const requiresChoice = automatic.ambiguous || state.weightUnitChoiceRequired;
+  choices.hidden = !requiresChoice;
+  buttons.forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.weightUnit === selectedUnit));
+  });
+
+  if (resolution.status === "invalid") {
+    unitLabel.textContent = "kg / lb";
+    preview.textContent = "Enter a valid weight.";
+    preview.classList.remove("is-ambiguous");
+    return resolution;
+  }
+
+  if (requiresChoice && !selectedUnit) {
+    unitLabel.textContent = "choose";
+    preview.textContent = `${trimWeight(automatic.inputValue)} could be kg or lb. Choose one.`;
+    preview.classList.add("is-ambiguous");
+    return automatic;
+  }
+
+  unitLabel.textContent = resolution.detectedUnit;
+  preview.textContent = resolution.detectedUnit === "kg"
+    ? `${trimWeight(resolution.inputValue)} kg → ${trimWeight(resolution.weightLb)} lb`
+    : `${trimWeight(resolution.weightLb)} lb`;
+  preview.classList.remove("is-ambiguous");
+  return resolution;
 }
 
 async function saveTrackerEvent(type) {
@@ -778,6 +771,7 @@ function renderWeights() {
   if (!latest || !actualChartWrap || !forecastChartWrap || !list) return;
 
   const rows = weightRows();
+  renderWeightUnitDetection();
   const dailyPoints = dailyWeightPoints(rows);
   const currentForecast = WEIGHT_FORECAST && dailyPoints.length
     ? WEIGHT_FORECAST.calculateForecast(dailyPoints, {
@@ -988,18 +982,15 @@ function formatBobaReward(value) {
   return `Average for the last 7 calendar days: ${reward.currentSevenDayAverageLb.toFixed(1)} lb. Window ${formatBobaDateRange(reward.windowStartDateKey, reward.windowEndDateKey)}; ${reward.observedDayCount} weigh-in day${reward.observedDayCount === 1 ? "" : "s"} included. Next boba average ${reward.nextThresholdLb.toFixed(0)} lb, ${reward.poundsToNextBobaLb.toFixed(1)} lb to go. ${earned}.`;
 }
 
-function weightCoachText(newest, latestCoach, coachAnalysis, now = Date.now()) {
+function weightCoachText(newest, latestCoach) {
   const newestId = newest?.id ? String(newest.id) : "";
   const saved = normalizeLatestCoach(latestCoach);
-  if (newestId && coachAnalysis && coachAnalysis.weightId === newestId && now < coachAnalysis.deadlineAt) {
-    return COACH_ANALYZING_TEXT;
-  }
   if (newestId && saved && saved.weightId === newestId) return saved.text;
-  return newest ? COACH_PREPARING_TEXT : COACH_EMPTY_TEXT;
+  return COACH_EMPTY_TEXT;
 }
 
 function createWeightCoachMessage(newest) {
-  return weightCoachText(newest, state.latestCoach, state.coachAnalysis);
+  return weightCoachText(newest, state.latestCoach);
 }
 
 function dailyWeightPoints(rows) {
@@ -1044,9 +1035,7 @@ function dateFromCalendarDay(day) {
 }
 
 function weightInPounds(record) {
-  const value = Number(record && record.weight);
-  if (!Number.isFinite(value)) return NaN;
-  return String(record.unit || "lb").trim().toLowerCase() === "kg" ? value * 2.2046226218 : value;
+  return WEIGHT_UNITS ? WEIGHT_UNITS.weightInPounds(record) : NaN;
 }
 
 function median(values) {
@@ -1940,7 +1929,8 @@ function trimWeight(value) {
 }
 
 function formatWeight(record) {
-  return `${trimWeight(record.weight)} ${record.unit || "lb"}`;
+  const pounds = weightInPounds(record);
+  return Number.isFinite(pounds) ? `${trimWeight(pounds)} lb` : "";
 }
 
 function setBusy(isBusy) {

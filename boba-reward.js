@@ -1,6 +1,7 @@
 "use strict";
 
 const weightForecast = require("./public/weight-forecast.js");
+const weightUnits = require("./public/weight-unit.js");
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const BOBA_REWARD_VERSION = 2;
@@ -68,9 +69,8 @@ function dateKeyFromCalendarDay(day) {
 }
 
 function weightInPounds(record) {
-  const value = Number(record?.weight);
-  if (!Number.isFinite(value) || value <= 0) return NaN;
-  return String(record?.unit || "lb").trim().toLowerCase() === "kg" ? value * 2.2046226218 : value;
+  const value = weightUnits.weightInPounds(record);
+  return Number.isFinite(value) && value > 0 ? value : NaN;
 }
 
 function dailyWeightPoints(weights) {

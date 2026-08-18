@@ -76,7 +76,7 @@ for (const id of ["weightBobaAverage", "weightBobaWindow", "weightBobaThreshold"
   assert.equal((app.match(new RegExp(`id="${id}"`, "g")) || []).length, 1, `${id} must have one direct-read surface`);
 }
 assert.match(app, /weightBobaEarned"\)\.textContent\s*=\s*reward\.earnedCount === 1[\s\S]*?bobas earned/, "the persistent earned-boba count must remain visible, not only available to assistive technology");
-assert.match(styles, /\.panel-head p\.weight-coach\s*\{[\s\S]*?font-weight:\s*700;/, "coach copy must have an intentional first-read treatment");
+assert.match(styles, /\.panel-head p\.weight-coach\s*\{[\s\S]*?font-weight:\s*520;/, "coach copy must remain normal-weight and readable");
 assert.ok(
   app.indexOf('id="weightLatest"') < app.indexOf('id="weightEstimate"') &&
     app.indexOf('id="weightEstimate"') < app.indexOf('id="weightCoach"'),
@@ -86,58 +86,32 @@ assert.ok(app.includes("state.latestCoach = normalizeLatestCoach(weightResult.la
 assert.ok(app.includes("state.bobaReward = normalizeBobaReward(weightResult.bobaReward)"), "initial loading must retain persisted boba progress");
 assert.ok(app.includes("state.latestCoach = normalizeLatestCoach(result.latestCoach)"), "weight refreshes and saves must retain the returned coach paragraph");
 assert.ok(app.includes("state.bobaReward = normalizeBobaReward(result.bobaReward)"), "weight refreshes and saves must retain returned boba progress");
-assert.equal((app.match(/Analyzing today’s weigh-in…/g) || []).length, 1, "a saved weigh-in must use exactly one analyzing message");
-assert.ok(app.includes("const COACH_ANALYSIS_WINDOW_MS = 8000;"), "the analyzing state must end at the eight-second deadline");
-const coachCheckpointsMatch = app.match(/const COACH_POLL_CHECKPOINTS_MS = Object\.freeze\(\[([^\]]+)\]\);/);
-assert.ok(coachCheckpointsMatch, "coach polling must use explicit bounded checkpoints");
-const coachCheckpoints = coachCheckpointsMatch[1].split(",").map((value) => Number(value.trim()));
-assert.ok(coachCheckpoints.length >= 2 && coachCheckpoints.every((value) => Number.isFinite(value) && value > 0 && value < 8000), "every coach poll must occur inside the eight-second window");
-assert.deepEqual(coachCheckpoints, coachCheckpoints.slice().sort((a, b) => a - b), "coach polling checkpoints must move forward without cumulative runaway waits");
+assert.doesNotMatch(app, /Analyzing today’s weigh-in|COACH_ANALYSIS_WINDOW_MS|COACH_POLL_CHECKPOINTS_MS|pollCoachReplacement|scheduleCoachContextFollowups/, "deterministic coaching must render immediately without model or context polling");
 
 const saveWeightStart = app.indexOf("async function saveWeight(event)");
 const saveWeightEnd = app.indexOf("function mergeSavedWeight", saveWeightStart);
 const saveWeight = app.slice(saveWeightStart, saveWeightEnd);
 assert.ok(saveWeightStart > 0 && saveWeightEnd > saveWeightStart, "the save path must remain independently auditable");
 assert.ok(saveWeight.includes("state.weights = mergeSavedWeight(state.weights, result.weight)"), "the POST response must update the weight and charts without a second fetch");
-assert.ok(saveWeight.includes("const analysis = beginCoachAnalysis(result.weight?.id, fallbackCoach)"), "the saved weight must enter the bounded analyzing state");
-assert.ok(saveWeight.indexOf("renderWeights()") < saveWeight.indexOf("pollCoachReplacement(analysis)"), "the saved weight and charts must render before background polling begins");
-assert.ok(saveWeight.includes("scheduleCoachContextFollowups(result.weight?.id)"), "the save path must revisit private context after delayed Brain indexing instead of taking one shot");
+assert.ok(saveWeight.includes("state.latestCoach = normalizeLatestCoach(result.latestCoach)"), "the persisted deterministic memo must be accepted directly from the POST response");
+assert.ok(saveWeight.indexOf("state.latestCoach = normalizeLatestCoach(result.latestCoach)") < saveWeight.indexOf("renderWeights()"), "the deterministic memo must be available in the same render as the saved weight");
+assert.doesNotMatch(saveWeight, /beginCoachAnalysis|pollCoachReplacement|scheduleCoachContextFollowups/, "saving a weight must not start a replacement pipeline");
 assert.ok(!saveWeight.includes("await loadWeights()"), "the immediate saved-weight render must not wait for a follow-up GET");
-const contextFollowupsMatch = app.match(/const COACH_CONTEXT_FOLLOWUP_MS = Object\.freeze\(\[([^\]]+)\]\);/);
-assert.ok(contextFollowupsMatch, "late private-context reconciliation must use explicit follow-up checkpoints");
-const contextFollowups = contextFollowupsMatch[1].split(",").map((value) => Number(value.trim()));
-assert(contextFollowups.some((value) => value >= 60000), "a follow-up must outlast Brain's observed 51-second indexing delay");
-assert(contextFollowups.at(-1) >= 300000, "browser reconciliation must cover the full bounded five-minute Brain indexing window");
-const followupStart = app.indexOf("function scheduleCoachContextFollowups(weightId)");
-const followupEnd = app.indexOf("function mergeSavedWeight", followupStart);
-const followup = app.slice(followupStart, followupEnd);
-assert.ok(followup.includes("String(latestWeight.id) !== expectedWeightId"), "a delayed follow-up cannot rewrite a newer weigh-in");
-assert.ok(followup.includes("loadWeights({ silent: true })"), "late context refresh must remain quiet and update from persisted server truth");
-assert.ok(server.includes("scheduleBrainContextReconciliation(created.id)"), "the server must retry Brain reconciliation even if the browser closes");
-assert.ok(server.includes("await reconcileLatestCoachBrainContext()"), "authenticated weight reads must repair a missed delayed Brain source");
-assert.ok(server.includes("BRAIN_WEIGHT_INDEX_GRACE_MS = 5 * 60 * 1000"), "Brain processing timestamps need a bounded post-weight grace window");
-assert.ok(server.includes("BRAIN_CONTEXT_RECHECK_MS = Object.freeze([15 * 1000, 65 * 1000, 150 * 1000, 310 * 1000])"), "server reconciliation must survive through the entire bounded indexing window even if the browser closes");
-assert.ok(server.includes('return String(override || fallback || "").trim()'), "an omitted reconciliation override must fall back to the configured Brain service instead of becoming an invalid literal address");
-assert.ok(server.includes('String(file?.kind || "").trim().toLowerCase() === "generated pdf"'), "only authored Brain-note records can supply authentic voice cues");
-assert.ok(server.includes("brainSourceWithinWeightWindow(initialWeight, relationshipSupport, operationalNow)"), "manual maintenance and automatic reconciliation must share the same bounded source window");
-assert.ok(!server.includes("generateAndReplaceCoach(created.id).catch(() => {})"), "terminal coach failures cannot remain silently swallowed");
+const memoWeightPostStart = server.indexOf('pathname === "/api/weights" && req.method === "POST"');
+const memoWeightPostEnd = server.indexOf('pathname === "/api/memories" && req.method === "POST"', memoWeightPostStart);
+assert.doesNotMatch(server.slice(memoWeightPostStart, memoWeightPostEnd), /scheduleBrainContextReconciliation|reconcileLatestCoachBrainContext/, "saving a weight must not schedule a context-only rewrite");
+const weightGetStart = server.indexOf('pathname === "/api/weights" && req.method === "GET"');
+const weightGetEnd = server.indexOf('pathname === "/api/coach/refresh-saved-context"', weightGetStart);
+assert.ok(weightGetStart > 0 && weightGetEnd > weightGetStart, "the authenticated weight read must remain independently auditable");
+assert.doesNotMatch(server.slice(weightGetStart, weightGetEnd), /reconcileLatestCoachBrainContext/, "reading weights must not fetch context to rewrite an existing memo");
+assert.ok(server.includes("composeDeterministicCoachMemo"), "one deterministic server composer must own visible memo copy");
 
 const saveMemoryStart = app.indexOf("async function saveMemory(event)");
 const saveMemoryEnd = app.indexOf("async function saveWeight(event)", saveMemoryStart);
 const saveMemory = app.slice(saveMemoryStart, saveMemoryEnd);
 assert.ok(saveMemoryStart > 0 && saveMemoryEnd > saveMemoryStart, "the saved-note path must remain independently auditable");
-assert.ok(saveMemory.includes("result.coachUpdated && result.latestCoach"), "a qualified saved reaction must refresh the persisted latest coach");
-assert.ok(saveMemory.includes("beginCoachAnalysis(fallbackCoach?.weightId, fallbackCoach)"), "saved-reaction coaching must reuse the bounded analyzing state");
-assert.ok(saveMemory.indexOf("renderWeights()") < saveMemory.indexOf("pollCoachReplacement(analysis)"), "saved-reaction fallback must render before background polling");
-assert.ok(saveMemory.indexOf("beginCoachAnalysis(fallbackCoach?.weightId, fallbackCoach)") < saveMemory.indexOf("await loadMemories()"), "a saved reaction must update the coach immediately instead of waiting on a second GET");
+assert.doesNotMatch(saveMemory, /beginCoachAnalysis|pollCoachReplacement|scheduleCoachContextFollowups/, "saving a memory must not start a memo replacement pipeline");
 assert.ok(!saveMemory.includes("state.weights ="), "a saved reaction must not mutate measured weight or chart data in the browser");
-
-const coachPollStart = app.indexOf("async function pollCoachReplacement(analysis)");
-const coachPollEnd = app.indexOf("async function saveTrackerEvent", coachPollStart);
-const coachPoll = app.slice(coachPollStart, coachPollEnd);
-assert.ok(coachPoll.includes("for (const elapsedMs of COACH_POLL_CHECKPOINTS_MS)"), "replacement polling must follow the bounded absolute checkpoints");
-assert.ok(coachPoll.includes("latestCoach.text !== analysis.initialText"), "changed persisted copy must be revealed before the deadline");
-assert.ok(app.includes("analysis.latestPersistedCoach || analysis.fallbackCoach"), "the deadline must reveal the latest persisted fallback when copy never changes");
 assert.ok(app.includes("asOfDay: dailyPoints[dailyPoints.length - 1].day"), "the headline and endpoint must stay anchored to the latest measured calendar day");
 assert.ok(app.includes("saved.weightId === newestId"), "a persisted coach paragraph must match the latest weight before display");
 assert.doesNotMatch(
@@ -146,7 +120,7 @@ assert.doesNotMatch(
   "the browser must not synthesize emergency coaching when persisted copy is missing"
 );
 assert.ok(app.includes('const COACH_EMPTY_TEXT = "No coach message yet.";'), "an empty history must use compact non-coaching copy");
-assert.ok(app.includes('const COACH_PREPARING_TEXT = "Analysis is still being prepared.";'), "a transient mismatch must remain in a compact preparing state");
+assert.ok(!app.includes("COACH_PREPARING_TEXT"), "the retired asynchronous preparing state must stay removed");
 assert.doesNotMatch(app, /Coach message unavailable/i, "the browser can never recreate the rejected unavailable dead end");
 assert.doesNotMatch(app, /Not a reliable|Only .* of data|does not mean her weight will stay constant|This is an estimate, not a guarantee/i);
 assert.doesNotMatch(app, /1-yr baseline|uncalibrated baseline|historically evaluated baseline/i);
@@ -221,9 +195,7 @@ const coachTextEnd = app.indexOf("function dailyWeightPoints", coachTextStart);
 assert.ok(coachTextStart > 0 && coachTextEnd > coachTextStart, "persisted coach display logic must remain independently testable");
 const coachTextSandbox = {};
 vm.runInNewContext(`
-  const COACH_ANALYZING_TEXT = "Analyzing today’s weigh-in…";
   const COACH_EMPTY_TEXT = "No coach message yet.";
-  const COACH_PREPARING_TEXT = "Analysis is still being prepared.";
   ${app.slice(coachTextStart, coachTextEnd)}
   this.readCoach = weightCoachText;
   this.formatBoba = formatBobaReward;
@@ -231,12 +203,9 @@ vm.runInNewContext(`
 const readCoach = coachTextSandbox.readCoach;
 const formatBoba = coachTextSandbox.formatBoba;
 const savedCoach = { weightId: "weight-new", text: "Persisted server coach.", createdAt: "2026-07-22T12:00:00Z" };
-const analyzingCoach = { weightId: "weight-new", deadlineAt: 8000 };
-assert.equal(readCoach({ id: "weight-new" }, savedCoach, analyzingCoach, 7999), "Analyzing today’s weigh-in…", "the fallback must stay hidden throughout the analysis window");
-assert.equal(readCoach({ id: "weight-new" }, savedCoach, analyzingCoach, 8000), savedCoach.text, "the persisted fallback must appear exactly at the deadline");
-assert.equal(readCoach({ id: "weight-new" }, savedCoach, null, 0), savedCoach.text, "settled views must render only persisted server copy");
-assert.equal(readCoach({ id: "weight-new" }, { ...savedCoach, weightId: "weight-old" }, null, 0), "Analysis is still being prepared.", "a coach record for another weight must never be synthesized into a replacement");
-assert.equal(readCoach(null, null, null, 0), "No coach message yet.", "an empty history must not render coaching");
+assert.equal(readCoach({ id: "weight-new" }, savedCoach), savedCoach.text, "the persisted deterministic memo must render immediately");
+assert.equal(readCoach({ id: "weight-new" }, { ...savedCoach, weightId: "weight-old" }), "No coach message yet.", "a coach record for another weight must never be synthesized into a replacement");
+assert.equal(readCoach(null, null), "No coach message yet.", "an empty history must not render coaching");
 assert.equal(
   formatBoba({ baselineAverageLb: 150.3, baselineDateKey: "2026-08-08", currentSevenDayAverageLb: 150.3, nextThresholdLb: 149, poundsToNextBobaLb: 1.3, observedDayCount: 4, windowStartDateKey: "2026-08-02", windowEndDateKey: "2026-08-08", earnedCount: 0 }),
   "Average for the last 7 calendar days: 150.3 lb. Window Aug 2–8; 4 weigh-in days included. Next boba average 149 lb, 1.3 lb to go. 0 bobas earned.",
@@ -334,9 +303,9 @@ const weightPostStart = server.indexOf('if (pathname === "/api/weights" && req.m
 const weightPostEnd = server.indexOf('if (pathname === "/api/memories" && req.method === "POST")', weightPostStart);
 const weightPost = server.slice(weightPostStart, weightPostEnd);
 assert.ok(weightPost.indexOf("persistWeightWithRecoverableCoach(created)") < weightPost.indexOf("send(res, 201"), "the primary weight and recoverable coach state must persist before success returns");
-assert.ok(weightPost.indexOf("send(res, 201") < weightPost.indexOf("scheduleCoachGeneration(created.id)"), "background generation must remain non-blocking after durable success");
-assert.ok(server.includes('console.warn("Lily coach generation or repair failed", String(error?.name || "error"))'), "background coach generation must record only a sanitized failure stage");
-assert.ok(server.includes('pathname === "/api/coach/refresh-saved-context"'), "an authenticated in-process route can safely refresh a note saved before this behavior shipped");
+assert.ok(weightPost.indexOf("send(res, 201") < weightPost.indexOf("scheduleCoachGeneration(created.id)"), "any deterministic repair must remain isolated from the durable primary response");
+assert.ok(server.includes('console.warn("Lily coach generation or repair failed", String(error?.name || "error"))'), "deterministic repair failures must record only a sanitized stage");
+assert.ok(server.includes('pathname === "/api/coach/refresh-saved-context"'), "the authenticated legacy maintenance route remains explicit rather than automatic");
 assert.ok(server.includes('pathname === "/api/coach/refresh-style"'), "an authenticated exact-preservation route can refresh only the latest coach style");
 assert.ok(server.includes("assertExpectedCoachRefreshState(baseline, expected, expectedCoach)"), "the one-time live refresh requires an exact production identity and count baseline");
 assert.ok(server.includes("assertCoachRefreshPreserved(baseline, coachRefreshPreservationSnapshot(prepared.store, prepared.weightId))"), "the live refresh verifies preservation inside the server write queue");
@@ -348,10 +317,10 @@ const personalAnchorReducer = server.slice(personalAnchorStart, personalAnchorEn
 assert.ok(personalAnchorStart > 0 && personalAnchorEnd > personalAnchorStart, "the safe Brain personal-anchor reducer must remain independently inspectable");
 assert.doesNotMatch(personalAnchorReducer, /brainFileIsGeneratedNoteRecord|genericBrainYapIsSafe|unsafeTopic|quotedOrThirdPartySource|maxAgeMs/, "Brain source authenticity cannot be rejected by metadata shape, age, or mixed private clauses before safe reduction");
 assert.ok(personalAnchorReducer.includes('topics[0] || "letter"'), "an authentic Brain thought without a public topic must reduce to a specific safe trust meaning");
-assert.ok(server.includes("personalAnchorRequired: includePersonalContext"), "finalized coach validation must know when a source-bound personal anchor is required");
-assert.ok(server.includes('errors.push("missing-personal-anchor")'), "a generic action cannot pass as substantial Brain or Lily context");
+assert.ok(server.includes("personalAnchorRequired: false"), "personal context must remain optional in finalized memo validation");
+assert.ok(!server.includes('errors.push("missing-personal-anchor")'), "memo validation must not force an unrelated personal anchor");
 assert.ok(server.includes('"fallback-emergency-analysis"'), "a validator-passing emergency analysis must prevent a saved weight from becoming unavailable");
-assert.ok(server.includes("includePersonalContext: false"), "the emergency analysis may temporarily omit personal context while richer source reconciliation continues");
+assert.ok(server.includes("includePersonalContext: false"), "deterministic save and repair paths must not wait for personal context");
 assert.ok(server.includes("ensurePublicCoachForWeight"), "authenticated weight reads and writes must self-heal a missing or pending latest coach idempotently");
 assert.ok(server.includes("personalAnchor: sanitizePersonalAnchor(context.personalAnchor)"), "the private coach record must persist only the reduced personal anchor needed for exact repair");
 assert.ok(server.includes("semanticAnchorId") && server.includes("approvedText"), "private anchor provenance must retain its semantic kind and approved copy without raw source text");
