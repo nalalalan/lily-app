@@ -64,9 +64,9 @@ async function main() {
   if (!latestCoach || !latestCoach.weightId || !latestCoach.createdAt || !coachText) {
     throw new Error("Live API did not return a persisted latestCoach payload.");
   }
-  const coachSentences = coachText.match(/[^.!?]+[.!?]+/g) || [];
-  if (coachWords.length > 42 || coachSentences.length < 2 || coachSentences.length > 3 || !/[.!?]$/.test(coachText) || /[\r\n]/.test(coachText)) {
-    throw new Error(`Live memo failed its concise paragraph gate: ${coachWords.length} words, ${coachSentences.length} sentences`);
+  const coachSentenceCount = coachText.split(/(?:[!?]+|(?<!\d)\.(?!\d))/).map((part) => part.trim()).filter(Boolean).length;
+  if (coachWords.length > 42 || coachSentenceCount < 2 || coachSentenceCount > 3 || !/[.!?]$/.test(coachText) || /[\r\n]/.test(coachText)) {
+    throw new Error(`Live memo failed its concise paragraph gate: ${coachWords.length} words, ${coachSentenceCount} sentences`);
   }
   if (/goal|target weight|jyp|idol|obese|fasting|skip(?:ping)? meals?|punish|compensat|diagnos|[âÃÂ�]/i.test(coachText)) {
     throw new Error("Live coach paragraph failed its privacy, safety, or encoding gate.");
@@ -121,7 +121,7 @@ async function main() {
       weightId: latestCoach.weightId,
       createdAt: latestCoach.createdAt,
       words: coachWords.length,
-      sentences: coachSentences.length,
+      sentences: coachSentenceCount,
       persistedParagraphGatePassed: true
     },
     rows: rows.map((record) => ({

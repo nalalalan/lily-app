@@ -18,7 +18,11 @@ function wordCount(text) {
 function sentenceCount(text) {
   const normalized = String(text || "").trim();
   if (!normalized || !/[.!?]$/.test(normalized)) return 0;
-  return normalized.match(/[^.!?]+[.!?]+/g)?.length || 0;
+  return normalized
+    .split(/(?:[!?]+|(?<!\d)\.(?!\d))/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .length;
 }
 
 function displayedDistance(value) {
